@@ -13,6 +13,9 @@ import * as jose from "jose";
 // Startup config validation
 let startupError: string | null = null;
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
+if (process.env.NODE_ENV === 'production' || process.env.PLAID_ENV === 'production') {
+  requiredEnv.push('APP_URL');
+}
 for (const envVar of requiredEnv) {
   if (!process.env[envVar]) {
     const msg = `CRITICAL: Missing required environment variable ${envVar}`;
@@ -33,9 +36,58 @@ try {
   if (!startupError) startupError = msg;
 }
 
-if (startupError && process.env.NODE_ENV === 'production') {
+if (startupError && (process.env.NODE_ENV === 'production' || process.env.PLAID_ENV === 'production')) {
   console.error("Failing startup due to missing configuration in production mode.");
   process.exit(1);
+}
+
+function isGoogleAuthError(err: any): boolean {
+  if (!err) return false;
+  if (err.code === 401 || err.status === 401) return true;
+  if (err.response?.status === 401) return true;
+  if (err.response?.data?.error === 'invalid_grant') return true;
+  if (typeof err.message === 'string' && (
+    err.message.includes('invalid_grant') || 
+    err.message.includes('Invalid Credentials') || 
+    err.message.includes('Token has been expired or revoked') ||
+    err.message.includes('invalid_token')
+  )) {
+    return true;
+  }
+  return false;
+}
+
+async function withGoogleAuth<T>(uid: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err: any) {
+    if (isGoogleAuthError(err)) {
+      try {
+        await db.collection('users').doc(uid).update({ google_refresh_token: FieldValue.delete() });
+      } catch (dbErr) {
+        console.error("Failed to clear revoked google_refresh_token", dbErr);
+      }
+      const e = new Error("Google reauthorization required");
+      (e as any).code = 'GOOGLE_REAUTH_REQUIRED';
+      throw e;
+    }
+    throw err;
+  }
+}
+
+function computeAccountFingerprint(institutionId: string, accounts: Array<{ name?: string; mask?: string; type?: string; subtype?: string }>): string {
+  const sortedAccounts = [...(accounts || [])].map(a => ({
+    name: (a.name || '').trim().toLowerCase(),
+    mask: (a.mask || '').trim().toLowerCase(),
+    type: (a.type || '').trim().toLowerCase(),
+    subtype: (a.subtype || '').trim().toLowerCase()
+  })).sort((a, b) => {
+    const kA = `${a.name}|${a.mask}|${a.type}|${a.subtype}`;
+    const kB = `${b.name}|${b.mask}|${b.type}|${b.subtype}`;
+    return kA.localeCompare(kB);
+  });
+  const payload = JSON.stringify({ institution_id: institutionId || '', accounts: sortedAccounts });
+  return crypto.createHash('sha256').update(payload).digest('hex');
 }
 
 let plaidClient: PlaidApi | null = null;
@@ -346,8 +398,13 @@ async function startServer() {
         request.transactions = { days_requested: 730 };
       }
 
-      if (process.env.APP_URL) {
-         request.webhook = `${process.env.APP_URL}/api/plaid/webhook`;
+      if (process.env.PLAID_ENV === 'production' || process.env.NODE_ENV === 'production') {
+        if (!process.env.APP_URL) {
+          return res.status(500).json({ error: "APP_URL is required in Production mode." });
+        }
+        request.webhook = `${process.env.APP_URL}/api/plaid/webhook`;
+      } else if (process.env.APP_URL) {
+        request.webhook = `${process.env.APP_URL}/api/plaid/webhook`;
       }
 
       const response = await client.linkTokenCreate(request);
@@ -356,6 +413,7 @@ async function startServer() {
       const sessionId = db.collection('plaid_sessions').doc().id;
       const mode = internalItemId ? 'repair' : 'new_item';
       const environment = process.env.PLAID_ENV || "sandbox";
+      // Repair mode reuses the existing Plaid Item and creates no additional Trial Item.
       const quota_state = internalItemId ? 'repair_started' : 'link_started';
 
       await db.collection('plaid_sessions').doc(sessionId).set({
@@ -388,13 +446,56 @@ async function startServer() {
         if (!sDoc.exists) throw new Error("Session not found");
         const sData = sDoc.data()!;
         if (sData.userId !== uid) throw new Error("Unauthorized");
+        if (sData.mode !== 'new_item') throw new Error("Invalid session mode for duplicate confirmation");
+        if (sData.quota_state !== 'link_started') throw new Error(`Session is in state ${sData.quota_state}, cannot confirm duplicate`);
+        if (!sData.duplicate_review?.required) throw new Error("No duplicate review required for this session");
+        if (sData.duplicate_review?.confirmed === true) throw new Error("Duplicate review already confirmed");
+        if (!sData.duplicate_review?.account_fingerprint) throw new Error("Missing duplicate review fingerprint");
         
-        t.update(sessionRef, { 'duplicate_review.confirmed': true, 'duplicate_review.confirmed_at': FieldValue.serverTimestamp() });
+        t.update(sessionRef, {
+          'duplicate_review.confirmed': true,
+          'duplicate_review.confirmed_at': FieldValue.serverTimestamp()
+        });
       });
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: "Failed to confirm duplicate" });
+      res.status(400).json({ error: error.message || "Failed to confirm duplicate" });
+    }
+  });
+
+  app.post("/api/plaid/reconcile_session", requireAuth, async (req, res) => {
+    try {
+      const uid = (req as any).user.uid;
+      const { session_id, outcome, note } = req.body;
+      if (!session_id || !outcome) {
+        return res.status(400).json({ error: "Missing session_id or outcome" });
+      }
+      if (outcome !== 'confirmed_exchanged' && outcome !== 'confirmed_failed') {
+        return res.status(400).json({ error: "Invalid outcome. Must be confirmed_exchanged or confirmed_failed." });
+      }
+      
+      const sessionRef = db.collection('plaid_sessions').doc(session_id);
+      await db.runTransaction(async (t) => {
+        const sDoc = await t.get(sessionRef);
+        if (!sDoc.exists) throw new Error("Session not found");
+        const sData = sDoc.data()!;
+        if (sData.userId !== uid) throw new Error("Unauthorized");
+        if (sData.mode !== 'new_item') throw new Error("Only new_item sessions can be reconciled");
+        if (sData.quota_state !== 'exchange_in_progress') throw new Error(`Session is in state ${sData.quota_state}, not exchange_in_progress`);
+        
+        const newQuotaState = outcome === 'confirmed_exchanged' ? 'exchanged' : 'exchange_failed';
+        t.update(sessionRef, {
+          quota_state: newQuotaState,
+          reconciled_at: FieldValue.serverTimestamp(),
+          reconciliation_result: outcome,
+          reconciliation_note: note || null
+        });
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error(error);
+      res.status(400).json({ error: error.message || "Failed to reconcile session" });
     }
   });
 
@@ -405,10 +506,13 @@ async function startServer() {
       if (!session_id) return res.status(400).json({ error: "Missing session_id" });
       
       const sessionRef = db.collection('plaid_sessions').doc(session_id);
+      const fingerprint = computeAccountFingerprint(institution_id, accounts || []);
       
-      // Server-side duplicate protection BEFORE exchange
+      // Server-side duplicate policy evaluation (across all active non-disconnected items for this user at the same institution)
       let isDefiniteDuplicate = false;
-      let isAmbiguousDuplicate = false;
+      let isProbableDuplicate = false;
+      let isAmbiguousIdentity = false;
+      let duplicateReason = "";
 
       if (institution_id) {
         const itemsSnap = await db.collection('plaid_items').where('userId', '==', uid).get();
@@ -421,17 +525,28 @@ async function startServer() {
           const existingAccounts = item.accounts || [];
           const newAccounts = accounts || [];
           
+          if (newAccounts.length === 0 || existingAccounts.length === 0) {
+            isAmbiguousIdentity = true;
+            duplicateReason = "Insufficient account metadata to differentiate institution accounts.";
+            break;
+          }
+          
           for (const newAcc of newAccounts) {
             for (const extAcc of existingAccounts) {
               if (!newAcc.mask || !extAcc.mask) {
-                isAmbiguousDuplicate = true;
+                isAmbiguousIdentity = true;
+                duplicateReason = "One or more accounts have missing/null masks.";
                 continue;
               }
               if (newAcc.mask === extAcc.mask) {
-                if (!newAcc.name || !extAcc.name || newAcc.name.trim().toLowerCase() !== extAcc.name.trim().toLowerCase()) {
-                  isAmbiguousDuplicate = true;
-                } else {
+                const normNewName = (newAcc.name || '').trim().toLowerCase();
+                const normExtName = (extAcc.name || '').trim().toLowerCase();
+                if (normNewName && normExtName && normNewName === normExtName) {
                   isDefiniteDuplicate = true;
+                  duplicateReason = `Exact match detected for account ${newAcc.name} (mask: ${newAcc.mask}) at ${item.institution_name || 'same institution'}.`;
+                } else {
+                  isProbableDuplicate = true;
+                  duplicateReason = `Same account mask (${newAcc.mask}) detected with different/missing name at ${item.institution_name || 'same institution'}.`;
                 }
               }
             }
@@ -439,71 +554,196 @@ async function startServer() {
         }
       }
 
+      // Definite duplicate -> Atomic abort transition
       if (isDefiniteDuplicate) {
-        await sessionRef.update({ quota_state: 'duplicate_aborted', status: 'duplicate_aborted' });
-        return res.status(400).json({ error: "Duplicate connection detected server-side. Aborted to save quota." });
+        await db.runTransaction(async (t) => {
+          const sDoc = await t.get(sessionRef);
+          if (sDoc.exists) {
+            const sData = sDoc.data()!;
+            if (sData.userId === uid && sData.quota_state === 'link_started') {
+              t.update(sessionRef, {
+                quota_state: 'duplicate_aborted',
+                status: 'duplicate_aborted',
+                duplicate_reason: duplicateReason,
+                duplicate_detected_at: FieldValue.serverTimestamp(),
+                institution_id: institution_id || null,
+                account_fingerprint: fingerprint
+              });
+            }
+          }
+        });
+        return res.status(409).json({
+          code: "DUPLICATE_ABORTED",
+          error: `Duplicate connection detected: ${duplicateReason} Aborted to preserve Trial quota.`
+        });
       }
 
-      // Atomic Pre-exchange Reservation
+      // Probable / Ambiguous duplicate review requirement
+      if (isProbableDuplicate || isAmbiguousIdentity) {
+        const sessionDoc = await sessionRef.get();
+        if (!sessionDoc.exists) return res.status(400).json({ error: "Session not found" });
+        const sessionData = sessionDoc.data()!;
+        
+        const review = sessionData.duplicate_review;
+        if (!review?.required || !review?.confirmed) {
+          // Persist review requirement BEFORE returning 409
+          await db.runTransaction(async (t) => {
+            const sDoc = await t.get(sessionRef);
+            if (!sDoc.exists) throw new Error("Session not found");
+            const sData = sDoc.data()!;
+            if (sData.userId !== uid) throw new Error("Unauthorized");
+            if (sData.mode !== 'new_item') throw new Error("Invalid session mode");
+            if (sData.quota_state !== 'link_started') throw new Error("Invalid session state");
+            
+            t.update(sessionRef, {
+              duplicate_review: {
+                required: true,
+                confirmed: false,
+                reason: duplicateReason,
+                institution_id: institution_id || null,
+                account_fingerprint: fingerprint,
+                requested_at: FieldValue.serverTimestamp()
+              }
+            });
+          });
+          return res.status(409).json({
+            code: "DUPLICATE_CONFIRMATION_REQUIRED",
+            error: duplicateReason,
+            reason: duplicateReason,
+            fingerprint
+          });
+        }
+      }
+
+      // Atomic Pre-exchange Reservation & Idempotency Guard
       let sessionEnv = "sandbox";
       await db.runTransaction(async (t) => {
         const sDoc = await t.get(sessionRef);
         if (!sDoc.exists) throw new Error("Session not found");
         const sData = sDoc.data()!;
         if (sData.userId !== uid) throw new Error("Unauthorized");
-        if (sData.mode !== 'new_item') throw new Error("Invalid mode");
-        if (sData.quota_state === 'exchange_in_progress') throw new Error("EXCHANGE_ALREADY_IN_PROGRESS");
-        if (sData.quota_state === 'exchanged') throw new Error("Already exchanged");
-        if (sData.quota_state !== 'link_started') throw new Error("Invalid session state");
-        sessionEnv = sData.environment || "sandbox";
-        
-        if (isAmbiguousDuplicate && !sData.duplicate_review?.confirmed) {
-           t.update(sessionRef, { 'duplicate_review': { required: true, confirmed: false, institution_id } });
-           throw new Error("DUPLICATE_CONFIRMATION_REQUIRED");
+        if (sData.mode !== 'new_item') throw new Error("Invalid mode: repair mode cannot exchange public token");
+        if (sData.quota_state === 'exchange_in_progress') {
+          const err = new Error("This connection attempt is already being processed or requires reconciliation.");
+          (err as any).code = "EXCHANGE_ALREADY_IN_PROGRESS";
+          throw err;
         }
-        
+        if (sData.quota_state === 'exchanged') {
+          const err = new Error("This connection has already been exchanged.");
+          (err as any).code = "EXCHANGE_ALREADY_COMPLETED";
+          throw err;
+        }
+        if (sData.quota_state !== 'link_started') {
+          throw new Error(`Invalid session state: ${sData.quota_state}`);
+        }
+
+        // Enforce immutable Plaid environment
+        sessionEnv = sData.environment || "sandbox";
+        const currentEnv = process.env.PLAID_ENV || "sandbox";
+        if (sessionEnv !== currentEnv) {
+          const err = new Error("This Plaid Link session was created in a different environment. Start a new connection.");
+          (err as any).code = "PLAID_ENVIRONMENT_MISMATCH";
+          throw err;
+        }
+
+        // If duplicate review was required, verify confirmation and fingerprint match
+        if (sData.duplicate_review?.required) {
+          if (!sData.duplicate_review.confirmed) {
+            const err = new Error(sData.duplicate_review.reason || "Duplicate confirmation required before exchange.");
+            (err as any).code = "DUPLICATE_CONFIRMATION_REQUIRED";
+            throw err;
+          }
+          if (sData.duplicate_review.account_fingerprint !== fingerprint) {
+            const err = new Error("Account metadata changed after confirmation. Please review again.");
+            (err as any).code = "DUPLICATE_FINGERPRINT_MISMATCH";
+            throw err;
+          }
+        }
+
         t.update(sessionRef, {
-           quota_state: 'exchange_in_progress',
-           exchange_started_at: FieldValue.serverTimestamp()
+          quota_state: 'exchange_in_progress',
+          exchange_started_at: FieldValue.serverTimestamp()
         });
       });
 
       const client = getPlaidClient();
-      let access_token, item_id;
+      let access_token: string, item_id: string;
       try {
         const exchangeResponse = await client.itemPublicTokenExchange({ public_token });
         access_token = exchangeResponse.data.access_token;
         item_id = exchangeResponse.data.item_id;
-      } catch (exchangeError) {
-        await sessionRef.update({ quota_state: 'exchange_failed', status: 'exchange_failed' });
-        throw exchangeError;
+      } catch (exchangeError: any) {
+        // A definitive 4xx proves this exchange call was rejected.
+        // This classification depends on the pre-exchange session reservation
+        // preventing the same public token from being submitted twice.
+        // Do not weaken or remove that reservation guard.
+        const isDefinitivePlaidRejection =
+          !!exchangeError?.response &&
+          exchangeError.response.status >= 400 &&
+          exchangeError.response.status < 500 &&
+          !!exchangeError.response.data?.error_code;
+
+        if (isDefinitivePlaidRejection) {
+          await sessionRef.update({
+            quota_state: 'exchange_failed',
+            status: 'exchange_failed',
+            exchange_error: exchangeError.response.data,
+            exchange_failed_at: FieldValue.serverTimestamp()
+          }).catch(console.error);
+          return res.status(400).json({
+            error: exchangeError.response.data.error_message || "Plaid exchange rejected",
+            code: exchangeError.response.data.error_code
+          });
+        } else {
+          // Everything else remains exchange_in_progress (unresolved)
+          console.error("Ambiguous Plaid exchange failure, preserving quota_state as exchange_in_progress:", exchangeError);
+          return res.status(500).json({
+            code: "PLAID_EXCHANGE_OUTCOME_UNKNOWN",
+            error: "Plaid may have created this connection. Do not reconnect this bank until the attempt is reconciled."
+          });
+        }
       }
       
-      // Final Persistence (P0)
+      // Final Persistence (P0) - Atomic multi-collection transaction
       const indexRef = db.collection('plaid_item_index').doc(item_id);
       
-      let internalId = null;
+      let internalId: string | null = null;
       let persistSuccess = false;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           internalId = await db.runTransaction(async (t) => {
             const idxDoc = await t.get(indexRef);
-            let targetInternalId = null;
+            let targetInternalId: string | null = null;
             
             if (idxDoc.exists) {
               const data = idxDoc.data()!;
               const itemRef = db.collection('plaid_items').doc(data.internal_id);
               const itemDoc = await t.get(itemRef);
-              if (!itemDoc.exists || itemDoc.data()?.userId !== uid) {
-                 // Corrupted index, repair inline
-                 targetInternalId = db.collection('plaid_items').doc().id;
-                 t.set(indexRef, { internal_id: targetInternalId, user_id: uid, env: sessionEnv });
+              if (!itemDoc.exists) {
+                // True orphan reference, repair inline
+                targetInternalId = db.collection('plaid_items').doc().id;
+                t.set(indexRef, {
+                  internal_id: targetInternalId,
+                  user_id: uid,
+                  env: sessionEnv,
+                  updatedAt: FieldValue.serverTimestamp()
+                });
+              } else if (itemDoc.data()?.userId !== uid) {
+                // Cross-user ownership conflict detected: do not overwrite!
+                const err = new Error("Cross-user index ownership conflict detected");
+                (err as any).code = 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT';
+                throw err;
               } else {
-                 targetInternalId = data.internal_id;
+                targetInternalId = data.internal_id;
               }
             } else {
               targetInternalId = db.collection('plaid_items').doc().id;
-              t.set(indexRef, { internal_id: targetInternalId, user_id: uid, env: sessionEnv });
+              t.set(indexRef, {
+                internal_id: targetInternalId,
+                user_id: uid,
+                env: sessionEnv,
+                createdAt: FieldValue.serverTimestamp()
+              });
             }
             
             const newInternalRef = db.collection('plaid_items').doc(targetInternalId);
@@ -521,10 +761,10 @@ async function startServer() {
             }, { merge: true });
             
             t.update(sessionRef, {
-               quota_state: 'exchanged',
-               status: 'success',
-               internalItemId: targetInternalId,
-               exchanged_at: FieldValue.serverTimestamp()
+              quota_state: 'exchanged',
+              status: 'success',
+              internalItemId: targetInternalId,
+              exchanged_at: FieldValue.serverTimestamp()
             });
             
             return targetInternalId;
@@ -532,7 +772,10 @@ async function startServer() {
           persistSuccess = true;
           break;
         } catch (e: any) {
-          console.error(`Persistence attempt ${attempt} failed`, e);
+          if (e.code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT') {
+            throw e;
+          }
+          console.error(`Persistence attempt ${attempt} failed:`, e);
           if (attempt === 3) break;
           await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500));
         }
@@ -540,8 +783,12 @@ async function startServer() {
 
       if (!persistSuccess || !internalId) {
         // Leave quota_state as exchange_in_progress (unresolved) for reconciliation
+        // /item/remove does NOT restore a Plaid Trial Item slot.
         try { await client.itemRemove({ access_token }); } catch(e) {}
-        throw new Error("Failed to durably store access token");
+        return res.status(500).json({
+          code: "PLAID_PERSISTENCE_FAILED",
+          error: "Failed to durably store access token. Attempt remains unresolved in quota accounting."
+        });
       }
       
       // Best-effort Bookkeeping
@@ -560,28 +807,31 @@ async function startServer() {
         }
         const accRes = await client.accountsGet({ access_token });
         const authAccounts = accRes.data.accounts.map(a => ({
-           id: a.account_id,
-           mask: a.mask,
-           name: a.name,
-           subtype: a.subtype,
-           type: a.type
+          id: a.account_id,
+          mask: a.mask,
+          name: a.name,
+          subtype: a.subtype,
+          type: a.type
         }));
         
         await db.collection('plaid_items').doc(internalId).update({
-           institution_id: authInstitutionId,
-           institution_name: authInstitutionName,
-           accounts: authAccounts
+          institution_id: authInstitutionId,
+          institution_name: authInstitutionName,
+          accounts: authAccounts
         });
       } catch (e) {
         console.warn("Could not fetch authoritative Plaid metadata, connection is safe but incomplete.", e);
       }
     } catch (error: any) {
       console.error(error);
-      const code = error.message;
-      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS') {
-         return res.status(409).json({ error: code, code });
+      const code = error.code || error.message;
+      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS' || code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || code === 'DUPLICATE_FINGERPRINT_MISMATCH') {
+        return res.status(409).json({ error: error.message || code, code });
       }
-      res.status(500).json({ error: "Failed to exchange token" });
+      if (code === 'PLAID_ENVIRONMENT_MISMATCH') {
+        return res.status(400).json({ error: error.message || code, code });
+      }
+      res.status(500).json({ error: error.message || "Failed to exchange token" });
     }
   });
 
@@ -707,7 +957,62 @@ async function startServer() {
       
       // Fetch by item_id using the index
       const idxDoc = await db.collection('plaid_item_index').doc(item_id).get();
-      if (!idxDoc.exists) return res.status(200).send("Ignored, item not found");
+      
+      // Unknown item_id evidence is trusted only because Plaid webhook
+      // signature/body verification completed successfully before this branch.
+      // Do not move orphan capture ahead of signature verification.
+      if (!idxDoc.exists) {
+        try {
+          const orphanRef = db.collection('orphan_items').doc(item_id);
+          const existingOrphan = await orphanRef.get();
+          
+          // Match candidate sessions without guessing on timestamp alone
+          const webhookEnv = (payload as any).environment || (req.body as any).environment || process.env.PLAID_ENV || "sandbox";
+          const unresolvedSnap = await db.collection('plaid_sessions')
+            .where('mode', '==', 'new_item')
+            .where('quota_state', '==', 'exchange_in_progress')
+            .where('environment', '==', webhookEnv)
+            .get();
+          
+          const candidateSessions = unresolvedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+          let reconStatus = "unmatched";
+          const candidateIds = candidateSessions.map(s => s.id);
+          
+          if (candidateSessions.length === 1) {
+            reconStatus = "auto_matched";
+          } else if (candidateSessions.length > 1) {
+            reconStatus = "needs_review";
+          }
+          
+          // Discovering an orphaned item_id from a webhook proves the Plaid Item exists,
+          // but does NOT recover the missing access_token.
+          const serverNow = FieldValue.serverTimestamp();
+          if (!existingOrphan.exists) {
+            await orphanRef.set({
+              item_id,
+              webhook_type: webhook_type || null,
+              webhook_code: webhook_code || null,
+              environment: webhookEnv,
+              first_seen_at: serverNow,
+              last_seen_at: serverNow,
+              candidate_session_ids: candidateIds,
+              reconciliation_status: reconStatus,
+              evidence_webhooks: [{ webhook_type, webhook_code, error: error || null, timestamp: new Date().toISOString() }]
+            });
+          } else {
+            await orphanRef.update({
+              last_seen_at: serverNow,
+              candidate_session_ids: candidateIds,
+              reconciliation_status: reconStatus,
+              evidence_webhooks: FieldValue.arrayUnion({ webhook_type, webhook_code, error: error || null, timestamp: new Date().toISOString() })
+            });
+          }
+        } catch (orphanErr) {
+          console.error("Failed to capture orphan webhook evidence", orphanErr);
+        }
+        return res.status(200).send("Orphan evidence captured");
+      }
+
       const internalId = idxDoc.data()!.internal_id;
       const itemRef = db.collection('plaid_items').doc(internalId);
 
@@ -803,9 +1108,9 @@ async function startServer() {
         const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
 
         const createWorkbook = async () => {
-          const createRes = await sheets.spreadsheets.create({
+          const createRes = await withGoogleAuth(uid, () => sheets.spreadsheets.create({
             requestBody: { properties: { title: "My Transactions Vault" } }
-          });
+          }));
           sheetId = createRes.data.spreadsheetId;
           await userRef.set({ spreadsheetId: sheetId }, { merge: true });
         };
@@ -814,16 +1119,11 @@ async function startServer() {
 
         let spreadsheetMeta;
         try {
-          spreadsheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
+          spreadsheetMeta = await withGoogleAuth(uid, () => sheets.spreadsheets.get({ spreadsheetId: sheetId }));
         } catch (sheetErr: any) {
           if (sheetErr.code === 404) {
             await createWorkbook();
-            spreadsheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
-          } else if (sheetErr.code === 401 || sheetErr.response?.data?.error === 'invalid_grant' || sheetErr.message?.includes('invalid_grant')) {
-             await userRef.update({ google_refresh_token: FieldValue.delete() });
-             const e = new Error("Google reauthorization required");
-             (e as any).code = 'GOOGLE_REAUTH_REQUIRED';
-             throw e;
+            spreadsheetMeta = await withGoogleAuth(uid, () => sheets.spreadsheets.get({ spreadsheetId: sheetId }));
           } else {
             throw sheetErr;
           }
@@ -844,25 +1144,25 @@ async function startServer() {
         let currentSheetId = spreadsheetMeta.data.sheets?.find(s => s.properties?.title === sheetName)?.properties?.sheetId;
         
         if (!sheetExists) {
-          const addRes = await sheets.spreadsheets.batchUpdate({
+          const addRes = await withGoogleAuth(uid, () => sheets.spreadsheets.batchUpdate({
             spreadsheetId: sheetId,
             requestBody: { requests: [{ addSheet: { properties: { title: sheetName } } }] }
-          });
+          }));
           currentSheetId = addRes.data.replies![0].addSheet!.properties!.sheetId;
         }
 
-        const headerRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetName}!1:1` });
+        const headerRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetName}!1:1` }));
         const currentHeaders = headerRes.data.values?.[0] || [];
         
         if (currentHeaders.length === 0) {
-          await sheets.spreadsheets.values.update({
+          await withGoogleAuth(uid, () => sheets.spreadsheets.values.update({
             spreadsheetId: sheetId,
             range: `${sheetName}!A1`,
             valueInputOption: 'RAW',
             requestBody: { values: [expectedHeaders] }
-          });
+          }));
           // Format Date columns as Date
-          await sheets.spreadsheets.batchUpdate({
+          await withGoogleAuth(uid, () => sheets.spreadsheets.batchUpdate({
             spreadsheetId: sheetId,
             requestBody: {
               requests: [
@@ -875,7 +1175,7 @@ async function startServer() {
                 }
               ]
             }
-          });
+          }));
         } else if (currentHeaders.join(',') !== expectedHeaders.join(',')) {
            const e = new Error("Schema mismatch: Please rename the existing Transactions_Raw sheet to preserve it, then retry so FinSync can create a new machine-owned tab.");
            (e as any).code = 'SHEET_SCHEMA_MISMATCH';
@@ -883,11 +1183,11 @@ async function startServer() {
         }
 
         // Fetch existing map
-        const getRes = await sheets.spreadsheets.values.get({ 
+        const getRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ 
            spreadsheetId: sheetId, 
            range: `${sheetName}!A:Y`,
            valueRenderOption: 'UNFORMATTED_VALUE'
-        });
+        }));
         const rows = getRes.data.values || [];
         const transactionIdToIndex = new Map();
         rows.forEach((row, index) => {
@@ -1021,26 +1321,26 @@ async function startServer() {
             const updateChunks = chunkArray(updateData, 500);
             for (const chunk of updateChunks) {
                if (lostLease) throw new Error("Sync lease lost, aborting...");
-               await sheets.spreadsheets.values.batchUpdate({
+               await withGoogleAuth(uid, () => sheets.spreadsheets.values.batchUpdate({
                  spreadsheetId: sheetId,
                  requestBody: {
                    valueInputOption: 'RAW',
                    data: chunk
                  }
-               });
+               }));
                totalUpdated += chunk.length;
             }
 
             const appendChunks = chunkArray(appendValues, 500);
             for (const chunk of appendChunks) {
                if (lostLease) throw new Error("Sync lease lost, aborting...");
-               await sheets.spreadsheets.values.append({
+               await withGoogleAuth(uid, () => sheets.spreadsheets.values.append({
                  spreadsheetId: sheetId,
                  range: `${sheetName}!A:Y`,
                  valueInputOption: 'RAW',
                  insertDataOption: 'INSERT_ROWS',
                  requestBody: { values: chunk }
-               });
+               }));
                totalAdded += chunk.length;
             }
 
@@ -1051,8 +1351,8 @@ async function startServer() {
           } catch (itemErr: any) {
              console.error(`Failed syncing item ${item.institution_name}`, itemErr);
              
-             if (itemErr.code === 401 || itemErr.response?.data?.error === 'invalid_grant' || itemErr.message?.includes('invalid_grant')) {
-                await userRef.update({ google_refresh_token: FieldValue.delete() });
+             if (itemErr.code === 'GOOGLE_REAUTH_REQUIRED' || itemErr.code === 401 || itemErr.response?.data?.error === 'invalid_grant' || itemErr.message?.includes('invalid_grant')) {
+                await userRef.update({ google_refresh_token: FieldValue.delete() }).catch(console.warn);
                 const e = new Error("Google reauthorization required");
                 (e as any).code = 'GOOGLE_REAUTH_REQUIRED';
                 throw e; // abort outer loop
@@ -1085,6 +1385,12 @@ async function startServer() {
       console.error(error);
       const code = error.code || 'PLAID_SYNC_FAILED';
       const msg = error.message || "Sync failed completely";
+      if (code === 'SYNC_ALREADY_RUNNING') {
+        return res.status(409).json({ code: 'SYNC_ALREADY_RUNNING', error: 'A transaction sync is already in progress.' });
+      }
+      if (code === 'GOOGLE_REAUTH_REQUIRED') {
+        return res.status(401).json({ code: 'GOOGLE_REAUTH_REQUIRED', error: 'Google reauthorization required' });
+      }
       res.status(500).json({ error: msg, code });
     }
   });

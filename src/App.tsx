@@ -294,6 +294,10 @@ export default function App() {
       const data = await res.json();
       
       if (!res.ok) {
+        if (res.status === 409 && data.code === 'SYNC_ALREADY_RUNNING') {
+          showMessage(data.error || "A transaction sync is already in progress.", 'info');
+          return;
+        }
         const e = new Error(data.error || "Sync failed");
         (e as any).code = data.code;
         throw e;
