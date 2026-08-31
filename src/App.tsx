@@ -13,7 +13,8 @@ export default function App() {
   const repairingItemIdRef = useRef<string | null>(null);
   
   const [plaidItems, setPlaidItems] = useState<any[]>([]);
-  const [trialItemsUsed, setTrialItemsUsed] = useState(0);
+  const [trialItemsConfirmed, setTrialItemsConfirmed] = useState(0);
+  const [trialItemsUnresolved, setTrialItemsUnresolved] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
   
@@ -110,7 +111,8 @@ export default function App() {
       }
       setServerConfigError(null);
       if (data.items) setPlaidItems(data.items);
-      setTrialItemsUsed(data.trialItemsUsed || 0);
+      setTrialItemsConfirmed(data.trialItemsConfirmed || 0);
+      setTrialItemsUnresolved(data.trialItemsUnresolved || 0);
       setGoogleConnected(!!data.googleConnected);
     } catch (error) {
       console.error(error);
@@ -173,7 +175,7 @@ export default function App() {
         }
       }
 
-      const res = await apiFetch('/api/plaid/exchange_public_token', {
+      let exchangeResponse = await apiFetch('/api/plaid/exchange_public_token', {
         method: 'POST',
         body: JSON.stringify({ 
           public_token,
@@ -185,12 +187,44 @@ export default function App() {
           session_id: sessionId
         }),
       });
-      
-      if (!res.ok) {
-         const err = await res.json();
-         throw new Error(err.error || "Failed to securely persist connection.");
+
+      if (exchangeResponse.status === 409) {
+        let err;
+        try { err = await exchangeResponse.clone().json(); } catch(e) {}
+        if (err && err.code === 'DUPLICATE_CONFIRMATION_REQUIRED') {
+           const proceed = window.confirm(`We detected a potential duplicate connection for ${metadata.institution?.name || 'this bank'}. This might consume an extra production trial slot. Do you want to proceed and connect it anyway?`);
+           if (!proceed) {
+              setLinkToken(null);
+              setSessionId(null);
+              setLoading(false);
+              return;
+           }
+           await apiFetch('/api/plaid/confirm_duplicate', {
+              method: 'POST',
+              body: JSON.stringify({ session_id: sessionId })
+           });
+           
+           // Retry exchange
+           exchangeResponse = await apiFetch('/api/plaid/exchange_public_token', {
+              method: 'POST',
+              body: JSON.stringify({ 
+                public_token,
+                institution_id: institutionId,
+                institution_name: metadata.institution?.name,
+                accounts: newAccounts.map((a: any) => ({
+                  id: a.id, name: a.name, mask: a.mask, type: a.type, subtype: a.subtype
+                })),
+                session_id: sessionId
+              }),
+           });
+        }
       }
-      
+         
+      if (!exchangeResponse.ok) {
+         let err;
+         try { err = await exchangeResponse.json(); } catch(e) {}
+         throw new Error((err && err.error) || "Failed to securely persist connection.");
+      }
       await fetchStatus();
       showMessage(`Successfully linked ${metadata.institution?.name || 'bank account'}!`, 'success');
     } catch (error: any) {
@@ -389,10 +423,16 @@ export default function App() {
                     </div>
                   </div>
                   <div className="mt-6 p-4 bg-white/10 rounded-xl">
-                     <div className="flex justify-between items-center mb-2">
+                                          <div className="flex justify-between items-center mb-2">
                        <span className="text-xs opacity-70 italic font-medium">Production Trial Items Used</span>
-                       <span className="text-xs font-mono font-bold">{trialItemsUsed} / 10</span>
+                       <span className="text-xs font-mono font-bold">{trialItemsConfirmed} / 10</span>
                      </div>
+                     {trialItemsUnresolved > 0 && (
+                        <div className="flex justify-between items-center mb-2">
+                           <span className="text-xs opacity-70 italic font-medium">Unresolved Attempts (Review Required)</span>
+                           <span className="text-xs font-mono text-amber-300 font-bold">{trialItemsUnresolved}</span>
+                        </div>
+                     )}
                      <p className="text-[10px] opacity-40 leading-relaxed">Persistent token storage active. Duplicate Item prevention enforced. Slots are not restored by disconnecting.</p>
                   </div>
                 </div>
