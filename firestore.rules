@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny All: Frontend should not access Firestore directly.
+    // All operations are routed through the secure Express backend using Firebase Admin.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
