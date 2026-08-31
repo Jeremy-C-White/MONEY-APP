@@ -133,6 +133,20 @@ function normalizeItemHealth(data: any): string {
   return health;
 }
 
+function validateProductionLockOwnership(lockDoc: FirebaseFirestore.DocumentSnapshot | null | undefined, sessionId: string) {
+  if (!lockDoc || !lockDoc.exists) {
+    const err = new Error("Shared Production lock is missing for unresolved session.");
+    (err as any).code = "PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED";
+    throw err;
+  }
+  const lockData = lockDoc.data();
+  if (lockData?.session_id !== sessionId) {
+    const err = new Error("The shared Production lock belongs to a different session.");
+    (err as any).code = "PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED";
+    throw err;
+  }
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -844,17 +858,36 @@ async function startServer() {
           !!exchangeError.response.data?.error_code;
 
         if (isDefinitivePlaidRejection) {
-          await sessionRef.update({
-            quota_state: 'exchange_failed',
-            status: 'exchange_failed',
-            exchange_error: exchangeError.response.data,
-            exchange_failed_at: FieldValue.serverTimestamp()
-          }).catch(console.error);
+          await db.runTransaction(async (t) => {
+            const sDoc = await t.get(sessionRef);
+            const lockDoc = sessionEnv === 'production' ? await t.get(lockRef) : null;
 
-          // Release shared Production lock on definitive rejection
-          if (sessionEnv === 'production') {
-            await lockRef.delete().catch(console.error);
-          }
+            if (!sDoc.exists) {
+              throw new Error("Session not found");
+            }
+            const sData = sDoc.data()!;
+            if (sData.userId !== uid) {
+              throw new Error("Unauthorized");
+            }
+            if (sData.mode !== 'new_item') {
+              throw new Error("Invalid mode: repair mode cannot exchange public token");
+            }
+            if (sData.quota_state !== 'exchange_in_progress') {
+              throw new Error(`Invalid session state: ${sData.quota_state}`);
+            }
+
+            if (sessionEnv === 'production') {
+              validateProductionLockOwnership(lockDoc, session_id);
+              t.delete(lockRef);
+            }
+
+            t.update(sessionRef, {
+              quota_state: 'exchange_failed',
+              status: 'exchange_failed',
+              exchange_error: exchangeError.response.data,
+              exchange_failed_at: FieldValue.serverTimestamp()
+            });
+          });
 
           return res.status(400).json({
             error: exchangeError.response.data.error_message || "Plaid exchange rejected",
@@ -879,14 +912,34 @@ async function startServer() {
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
           internalId = await db.runTransaction(async (t) => {
+            // All reads first
             const idxDoc = await t.get(indexRef);
+            let existingItemDoc: FirebaseFirestore.DocumentSnapshot | null = null;
+            if (idxDoc.exists) {
+              const data = idxDoc.data()!;
+              const itemRef = db.collection('plaid_items').doc(data.internal_id);
+              existingItemDoc = await t.get(itemRef);
+            }
+            const sDoc = await t.get(sessionRef);
+            const lockDoc = sessionEnv === 'production' ? await t.get(lockRef) : null;
+
+            if (!sDoc.exists) throw new Error("Session not found");
+            const sData = sDoc.data()!;
+            if (sData.userId !== uid) throw new Error("Unauthorized");
+            if (sData.mode !== 'new_item') throw new Error("Invalid mode: repair mode cannot exchange public token");
+            if (sData.quota_state !== 'exchange_in_progress') {
+              throw new Error(`Invalid session state: ${sData.quota_state}`);
+            }
+
+            if (sessionEnv === 'production') {
+              validateProductionLockOwnership(lockDoc, session_id);
+            }
+
             let targetInternalId: string | null = null;
             
             if (idxDoc.exists) {
               const data = idxDoc.data()!;
-              const itemRef = db.collection('plaid_items').doc(data.internal_id);
-              const itemDoc = await t.get(itemRef);
-              if (!itemDoc.exists) {
+              if (!existingItemDoc || !existingItemDoc.exists) {
                 // True orphan reference, repair inline
                 targetInternalId = db.collection('plaid_items').doc().id;
                 t.set(indexRef, {
@@ -895,7 +948,7 @@ async function startServer() {
                   env: sessionEnv,
                   updatedAt: FieldValue.serverTimestamp()
                 });
-              } else if (itemDoc.data()?.userId !== uid) {
+              } else if (existingItemDoc.data()?.userId !== uid) {
                 // Cross-user ownership conflict detected: do not overwrite!
                 const err = new Error("Cross-user index ownership conflict detected");
                 (err as any).code = 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT';
@@ -944,7 +997,7 @@ async function startServer() {
           persistSuccess = true;
           break;
         } catch (e: any) {
-          if (e.code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT') {
+          if (e.code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || e.code === 'PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED') {
             throw e;
           }
           console.error(`Persistence attempt ${attempt} failed:`, e);
