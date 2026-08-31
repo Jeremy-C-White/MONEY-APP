@@ -98,10 +98,17 @@ export default function App() {
     }
   };
 
+  const [serverConfigError, setServerConfigError] = useState<string | null>(null);
+
   const fetchStatus = async () => {
     try {
       const res = await apiFetch(`/api/status`);
       const data = await res.json();
+      if (res.status === 500 && data.error === "Server Configuration Error") {
+        setServerConfigError(data.details || "Required environment variables are missing on the backend.");
+        return;
+      }
+      setServerConfigError(null);
       if (data.items) setPlaidItems(data.items);
       setTrialItemsUsed(data.trialItemsUsed || 0);
       setGoogleConnected(!!data.googleConnected);
@@ -252,7 +259,11 @@ export default function App() {
       const res = await apiFetch('/api/sync', { method: 'POST' });
       const data = await res.json();
       
-      if (!res.ok) throw new Error(data.error || "Sync failed");
+      if (!res.ok) {
+        const e = new Error(data.error || "Sync failed");
+        (e as any).code = data.code;
+        throw e;
+      }
       
       let msg = `Sync complete! Added ${data.added || 0} rows, updated ${data.updated || 0} rows.`;
       if (data.errors && data.errors.length > 0) {
@@ -264,7 +275,15 @@ export default function App() {
       
       fetchStatus(); // Refresh statuses in case any items broke during sync
     } catch (error: any) {
-      showMessage(error.message || "An error occurred during sync.", 'error');
+      if (error.code === 'GOOGLE_REAUTH_REQUIRED') {
+         showMessage("Google Sheets authorization expired. Please reconnect.", 'error');
+         setGoogleConnected(false);
+      } else if (error.code === 'SHEET_SCHEMA_MISMATCH') {
+         showMessage(error.message, 'error');
+      } else {
+         showMessage(error.message || "An error occurred during sync.", 'error');
+      }
+      fetchStatus(); // P1: Refresh status after sync failure
     } finally {
       setSyncing(false);
     }
@@ -318,6 +337,15 @@ export default function App() {
       </header>
 
       <main className="max-w-5xl w-full mx-auto px-10 py-10 flex-1 relative">
+        {serverConfigError && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 text-amber-900 px-4 py-4 rounded-xl flex flex-col gap-2">
+             <div className="flex items-center gap-2 font-bold">
+                <AlertTriangle className="h-5 w-5 text-amber-600" />
+                Server Configuration Error
+             </div>
+             <p className="text-sm opacity-90">{serverConfigError}</p>
+          </div>
+        )}
         {message && (
           <div className={`absolute top-0 left-10 right-10 z-50 p-4 rounded-xl flex items-center gap-3 shadow-md ${
              message.type === 'error' ? 'bg-rose-50 text-rose-800 border border-rose-200' :

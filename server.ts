@@ -11,7 +11,7 @@ import * as crypto from "crypto";
 import * as jose from "jose";
 
 // Startup config validation
-let startupError = null;
+let startupError: string | null = null;
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
 for (const envVar of requiredEnv) {
   if (!process.env[envVar]) {
@@ -33,16 +33,17 @@ try {
   if (!startupError) startupError = msg;
 }
 
+if (startupError && process.env.NODE_ENV === 'production') {
+  console.error("Failing startup due to missing configuration in production mode.");
+  process.exit(1);
+}
+
 let plaidClient: PlaidApi | null = null;
 function getPlaidClient() {
   if (!plaidClient) {
     const clientId = process.env.PLAID_CLIENT_ID;
     const secret = process.env.PLAID_SECRET;
     const env = process.env.PLAID_ENV || "sandbox";
-
-    if (!clientId || !secret) {
-      console.warn("PLAID_CLIENT_ID and PLAID_SECRET environment variables are missing");
-    }
 
     const configuration = new Configuration({
       basePath: PlaidEnvironments[env as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
@@ -107,6 +108,19 @@ async function startServer() {
       const uid = (req as any).user.uid;
       const nonce = crypto.randomBytes(32).toString('hex');
       
+      // Opportunistic cleanup of expired states
+      try {
+        const expiredSnap = await db.collection('oauth_states')
+          .where('expires_at', '<', new Date())
+          .limit(10)
+          .get();
+        const batch = db.batch();
+        expiredSnap.docs.forEach(doc => batch.delete(doc.ref));
+        if (!expiredSnap.empty) await batch.commit();
+      } catch(e) {
+        // Ignore cleanup errors
+      }
+
       await db.collection('oauth_states').doc(nonce).set({
         uid,
         created_at: FieldValue.serverTimestamp(),
@@ -206,15 +220,15 @@ async function startServer() {
       
       const items = itemsSnap.docs
         .map(d => ({ internal_id: d.id, ...(d.data() as any) }))
-        .filter((d: any) => d.health !== 'disconnected')
         .map((d: any) => ({
           internal_id: d.internal_id,
           institution_id: d.institution_id,
           institution_name: d.institution_name,
-          health: d.health,
+          health: d.health || d.status || 'unknown',
           has_updates: !!d.has_updates,
           accounts: d.accounts || []
-        }));
+        }))
+        .filter((d: any) => d.health !== 'disconnected');
         
       res.json({
         items,
@@ -224,6 +238,50 @@ async function startServer() {
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Status check failed" });
+    }
+  });
+
+  app.post("/api/migrate", requireAuth, async (req, res) => {
+    try {
+      const itemsSnap = await db.collection('plaid_items').get();
+      let migratedStatus = 0;
+      let migratedIndex = 0;
+
+      for (const doc of itemsSnap.docs) {
+        const data = doc.data();
+        let needsUpdate = false;
+        let updates: any = {};
+
+        // Migrate status -> health
+        if (!data.health && data.status) {
+          updates.health = data.status === 'ITEM_LOGIN_REQUIRED' ? 'login_required' : data.status;
+          updates.status = FieldValue.delete();
+          needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+          await doc.ref.update(updates);
+          migratedStatus++;
+        }
+
+        // Backfill plaid_item_index
+        if (data.item_id) {
+          const indexRef = db.collection('plaid_item_index').doc(data.item_id);
+          const indexDoc = await indexRef.get();
+          if (!indexDoc.exists) {
+            await indexRef.set({
+              internal_id: doc.id,
+              user_id: data.userId,
+              env: process.env.PLAID_ENV || "sandbox"
+            });
+            migratedIndex++;
+          }
+        }
+      }
+      res.json({ success: true, migratedStatus, migratedIndex });
+    } catch (e) {
+      console.error(e);
+      res.status(500).json({ error: "Migration failed" });
     }
   });
 
@@ -292,20 +350,25 @@ async function startServer() {
           .where('userId', '==', uid)
           .get();
           
-        const newMasks = (accounts || []).map((a: any) => a.mask).filter(Boolean);
         for (const doc of itemsSnap.docs) {
           const item = doc.data();
           if (item.institution_id !== institution_id) continue;
-          if (item.status === 'disconnected') continue;
-          const existingMasks = (item.accounts || []).map((a: any) => a.mask).filter(Boolean);
+          const health = item.health || item.status || 'unknown';
+          if (health === 'disconnected') continue;
           
-          if (newMasks.length === 0 || existingMasks.length === 0) {
-             // If either mask is null, we might need a fallback. We rely on institution matching + empty mask edgecase.
-             if (item.institution_name === institution_name) {
-                if (session_id) await db.collection('plaid_sessions').doc(session_id).update({ status: 'duplicate_aborted' });
-                return res.status(400).json({ error: "Duplicate connection detected server-side. Aborted to save quota." });
-             }
-          } else if (newMasks.some((m: string) => existingMasks.includes(m))) {
+          const existingAccounts = item.accounts || [];
+          const newAccounts = accounts || [];
+          
+          const hasDuplicateAccount = newAccounts.some((newAcc: any) => {
+             return existingAccounts.some((extAcc: any) => {
+               if (!newAcc.name || !extAcc.name || !newAcc.mask || !extAcc.mask) return false;
+               const normalizedNewName = newAcc.name.trim().toLowerCase();
+               const normalizedExtName = extAcc.name.trim().toLowerCase();
+               return normalizedNewName === normalizedExtName && newAcc.mask === extAcc.mask;
+             });
+          });
+
+          if (hasDuplicateAccount) {
              if (session_id) await db.collection('plaid_sessions').doc(session_id).update({ status: 'duplicate_aborted' });
              return res.status(400).json({ error: "Duplicate connection detected server-side. Aborted to save quota." });
           }
@@ -316,7 +379,64 @@ async function startServer() {
       const exchangeResponse = await client.itemPublicTokenExchange({ public_token });
       const { access_token, item_id } = exchangeResponse.data;
       
-      // Authoritative Plaid metadata fetch
+      // IMMEDIATE PERSISTENCE (P0)
+      // We must store the access_token durably before making any other Plaid API calls.
+      const indexRef = db.collection('plaid_item_index').doc(item_id);
+      
+      let internalId = null;
+      let persistSuccess = false;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          internalId = await db.runTransaction(async (t) => {
+            const idxDoc = await t.get(indexRef);
+            
+            // Hardened lookup verification (P1)
+            if (idxDoc.exists) {
+              const data = idxDoc.data()!;
+              const itemRef = db.collection('plaid_items').doc(data.internal_id);
+              const itemDoc = await t.get(itemRef);
+              if (!itemDoc.exists || itemDoc.data()?.userId !== uid) {
+                 // Corrupted index, recreate
+                 t.delete(indexRef);
+                 throw new Error("RETRY_INDEX_CORRUPT");
+              }
+              return data.internal_id;
+            }
+            
+            const newInternalRef = db.collection('plaid_items').doc();
+            t.set(indexRef, { internal_id: newInternalRef.id, user_id: uid, env: process.env.PLAID_ENV || "sandbox" });
+            t.set(newInternalRef, {
+              userId: uid,
+              access_token, // securely kept on server
+              item_id, // securely kept on server
+              institution_id: institution_id || null,
+              institution_name: institution_name || "Unknown",
+              accounts: accounts || [],
+              createdAt: FieldValue.serverTimestamp(),
+              cursor: null,
+              health: "healthy",
+              has_updates: false
+            });
+            return newInternalRef.id;
+          });
+          persistSuccess = true;
+          break;
+        } catch (e: any) {
+          if (e.message === "RETRY_INDEX_CORRUPT") continue;
+          console.error(`Persistence attempt ${attempt} failed`, e);
+          if (attempt === 3) throw e;
+          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500));
+        }
+      }
+
+      if (!persistSuccess || !internalId) {
+        // We failed to store it durably. We should actively remove the item from Plaid to not burn a slot
+        try { await client.itemRemove({ access_token }); } catch(e) {}
+        if (session_id) await db.collection('plaid_sessions').doc(session_id).update({ status: 'persistence_failed' });
+        throw new Error("Failed to durably store access token");
+      }
+      
+      // METADATA ENRICHMENT AFTER PERSISTENCE
       let authInstitutionId = institution_id || null;
       let authInstitutionName = institution_name || "Unknown";
       let authAccounts = accounts || [];
@@ -339,49 +459,14 @@ async function startServer() {
            subtype: a.subtype,
            type: a.type
         }));
+        
+        await db.collection('plaid_items').doc(internalId).update({
+           institution_id: authInstitutionId,
+           institution_name: authInstitutionName,
+           accounts: authAccounts
+        });
       } catch (e) {
-        console.warn("Could not fetch authoritative Plaid metadata", e);
-      }
-
-      // Hardened persistence with retry logic and Idempotent IDs
-      const indexRef = db.collection('plaid_item_index').doc(item_id);
-      
-      let internalId = null;
-      let success = false;
-      for (let attempt = 1; attempt <= 3; attempt++) {
-        try {
-          internalId = await db.runTransaction(async (t) => {
-            const idxDoc = await t.get(indexRef);
-            if (idxDoc.exists) return idxDoc.data()!.internal_id;
-            
-            const newInternalRef = db.collection('plaid_items').doc();
-            t.set(indexRef, { internal_id: newInternalRef.id, user_id: uid, env: process.env.PLAID_ENV || "sandbox" });
-            t.set(newInternalRef, {
-              userId: uid,
-              access_token, // securely kept on server
-              institution_id: authInstitutionId,
-              institution_name: authInstitutionName,
-              accounts: authAccounts,
-              createdAt: FieldValue.serverTimestamp(),
-              cursor: null,
-              health: "healthy",
-              has_updates: false
-            });
-            return newInternalRef.id;
-          });
-          success = true;
-          break;
-        } catch (e) {
-          console.error(`Persistence attempt ${attempt} failed`, e);
-          await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 500));
-        }
-      }
-
-      if (!success) {
-        // We failed to store it durably. We should actively remove the item from Plaid to not burn a slot
-        try { await client.itemRemove({ access_token }); } catch(e) {}
-        if (session_id) await db.collection('plaid_sessions').doc(session_id).update({ status: 'persistence_failed' });
-        throw new Error("Failed to durably store access token");
+        console.warn("Could not fetch authoritative Plaid metadata, connection is safe but incomplete.", e);
       }
 
       if (session_id) {
@@ -495,13 +580,22 @@ async function startServer() {
       
       // IAT check (max 5 minutes)
       const now = Math.floor(Date.now() / 1000);
-      if (typeof payload.iat === 'number' && now - payload.iat > 300) {
+      if (typeof payload.iat !== 'number') {
+        return res.status(401).send("Missing or invalid iat");
+      }
+      if (payload.iat < now - 300) {
         return res.status(401).send("JWT expired");
+      }
+      if (payload.iat > now + 60) {
+        return res.status(401).send("JWT in the future");
       }
 
       const rawBodyBuf = (req as any).rawBody;
       const bodyHash = crypto.createHash('sha256').update(rawBodyBuf).digest('hex');
       const expectedHash = payload.request_body_sha256 as string;
+      if (!expectedHash || expectedHash.length !== bodyHash.length) {
+        return res.status(400).send("Invalid body hash format");
+      }
       if (!crypto.timingSafeEqual(Buffer.from(expectedHash, 'utf8'), Buffer.from(bodyHash, 'utf8'))) {
         return res.status(401).send("Invalid body hash");
       }
@@ -525,6 +619,9 @@ async function startServer() {
           await itemRef.update({ health: 'pending_disconnect' });
         } else if (webhook_code === 'USER_PERMISSION_REVOKED') {
           await itemRef.update({ health: 'permission_revoked' });
+        } else if (webhook_code === 'LOGIN_REPAIRED') {
+          // Ideally verify via itemGet but webhook is cryptographically trusted
+          await itemRef.update({ health: 'healthy' });
         }
       }
 
@@ -555,7 +652,9 @@ async function startServer() {
       await db.runTransaction(async (t) => {
         const lockDoc = await t.get(lockRef);
         if (lockDoc.exists && lockDoc.data()?.expires_at.toDate() > new Date()) {
-          throw new Error("Sync already in progress");
+          const e = new Error("Sync already in progress");
+          (e as any).code = 'SYNC_ALREADY_RUNNING';
+          throw e;
         }
         t.set(lockRef, { 
           job_id: jobId, 
@@ -566,11 +665,22 @@ async function startServer() {
         });
       });
 
-      heartbeatInterval = setInterval(() => {
-        lockRef.update({ 
-          heartbeat_at: FieldValue.serverTimestamp(), 
-          expires_at: new Date(Date.now() + 60000) 
-        }).catch(console.error);
+      heartbeatInterval = setInterval(async () => {
+        try {
+          await db.runTransaction(async (t) => {
+            const lockDoc = await t.get(lockRef);
+            if (lockDoc.exists && lockDoc.data()?.job_id === jobId) {
+              t.update(lockRef, { 
+                heartbeat_at: FieldValue.serverTimestamp(), 
+                expires_at: new Date(Date.now() + 60000) 
+              });
+            } else {
+               if (heartbeatInterval) clearInterval(heartbeatInterval);
+            }
+          });
+        } catch (e) {
+          console.error("Heartbeat failed", e);
+        }
       }, 30000);
 
       let errors: string[] = [];
@@ -601,7 +711,9 @@ async function startServer() {
             spreadsheetMeta = await sheets.spreadsheets.get({ spreadsheetId: sheetId });
           } else if (sheetErr.code === 401 || sheetErr.response?.data?.error === 'invalid_grant') {
              await userRef.update({ google_refresh_token: FieldValue.delete() });
-             throw new Error("Google reauthorization required");
+             const e = new Error("Google reauthorization required");
+             (e as any).code = 'GOOGLE_REAUTH_REQUIRED';
+             throw e;
           } else {
             throw sheetErr;
           }
@@ -655,11 +767,17 @@ async function startServer() {
             }
           });
         } else if (currentHeaders.join(',') !== expectedHeaders.join(',')) {
-           throw new Error("Schema mismatch: Please delete or rename the existing Transactions_Raw sheet to allow recreation.");
+           const e = new Error("Schema mismatch: Please rename the existing Transactions_Raw sheet to preserve it, then retry so FinSync can create a new machine-owned tab.");
+           (e as any).code = 'SHEET_SCHEMA_MISMATCH';
+           throw e;
         }
 
         // Fetch existing map
-        const getRes = await sheets.spreadsheets.values.get({ spreadsheetId: sheetId, range: `${sheetName}!A:Y` });
+        const getRes = await sheets.spreadsheets.values.get({ 
+           spreadsheetId: sheetId, 
+           range: `${sheetName}!A:Y`,
+           valueRenderOption: 'UNFORMATTED_VALUE'
+        });
         const rows = getRes.data.values || [];
         const transactionIdToIndex = new Map();
         rows.forEach((row, index) => {
@@ -777,13 +895,9 @@ async function startServer() {
             for (const t of removed) {
               const rIdx = transactionIdToIndex.get(t.transaction_id);
               if (rIdx) {
-                const oldRow = rows[rIdx - 1]; // rows is 0-indexed, rIdx is 1-indexed
-                if (!oldRow) continue;
-                oldRow[22] = 'removed';
-                oldRow[23] = new Date().toISOString();
                 updateData.push({
-                   range: `${sheetName}!A${rIdx}:Y${rIdx}`,
-                   values: [oldRow]
+                   range: `${sheetName}!W${rIdx}:X${rIdx}`,
+                   values: [['removed', new Date().toISOString()]]
                 });
               }
             }
@@ -844,9 +958,11 @@ async function startServer() {
       }
 
       res.json({ success: true, added: totalAdded, updated: totalUpdated, errors });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: "Sync failed completely" });
+      const code = error.code || 'PLAID_SYNC_FAILED';
+      const msg = error.message || "Sync failed completely";
+      res.status(500).json({ error: msg, code });
     }
   });
 
