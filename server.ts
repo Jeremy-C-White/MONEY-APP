@@ -375,6 +375,24 @@ async function startServer() {
       const { internalItemId } = req.body;
       const client = getPlaidClient();
       
+      // Block new Production connections if an unresolved Production exchange exists
+      if (!internalItemId && (process.env.PLAID_ENV === 'production')) {
+        const unresolvedSnap = await db.collection('plaid_sessions')
+          .where('userId', '==', uid)
+          .where('mode', '==', 'new_item')
+          .where('environment', '==', 'production')
+          .where('quota_state', '==', 'exchange_in_progress')
+          .limit(1)
+          .get();
+
+        if (!unresolvedSnap.empty) {
+          return res.status(409).json({
+            code: "UNRESOLVED_PRODUCTION_EXCHANGE",
+            error: "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank."
+          });
+        }
+      }
+      
       let accessToken;
       if (internalItemId) {
         const doc = await db.collection('plaid_items').doc(internalItemId).get();
@@ -496,6 +514,88 @@ async function startServer() {
     } catch (error: any) {
       console.error(error);
       res.status(400).json({ error: error.message || "Failed to reconcile session" });
+    }
+  });
+
+  app.post("/api/plaid/reconcile_legacy_item", requireAuth, async (req, res) => {
+    try {
+      const uid = (req as any).user.uid;
+      const { internalItemId, outcome, note } = req.body;
+      if (!internalItemId || !outcome) {
+        return res.status(400).json({ error: "Missing internalItemId or outcome" });
+      }
+      if (outcome !== 'confirmed_production' && outcome !== 'confirmed_sandbox') {
+        return res.status(400).json({ error: "Invalid outcome. Must be confirmed_production or confirmed_sandbox." });
+      }
+
+      const itemRef = db.collection('plaid_items').doc(internalItemId);
+      const itemDoc = await itemRef.get();
+      if (!itemDoc.exists || itemDoc.data()?.userId !== uid) {
+        return res.status(404).json({ error: "Item not found" });
+      }
+      const itemData = itemDoc.data()!;
+      const itemId = itemData.item_id;
+
+      const targetEnv = outcome === 'confirmed_production' ? 'production' : 'sandbox';
+      const deterministicSessionId = `legacy_${itemId || internalItemId}`;
+      const legacySessionRef = db.collection('plaid_sessions').doc(deterministicSessionId);
+      const indexRef = itemId ? db.collection('plaid_item_index').doc(itemId) : null;
+
+      await db.runTransaction(async (t) => {
+        // Update index if it exists
+        if (indexRef) {
+          const idxDoc = await t.get(indexRef);
+          if (idxDoc.exists) {
+            t.update(indexRef, {
+              env: targetEnv,
+              requires_reconciliation: false,
+              reconciled_at: FieldValue.serverTimestamp(),
+              reconciliation_outcome: outcome
+            });
+          }
+        }
+
+        if (outcome === 'confirmed_production') {
+          // Check if this item is ALREADY represented by an ordinary Production session with quota_state == 'exchanged'
+          const existingSessionQuery = await db.collection('plaid_sessions')
+            .where('userId', '==', uid)
+            .where('internalItemId', '==', internalItemId)
+            .where('environment', '==', 'production')
+            .where('quota_state', '==', 'exchanged')
+            .get();
+
+          const nonLegacyExisting = existingSessionQuery.docs.filter(d => d.id !== deterministicSessionId);
+          if (nonLegacyExisting.length > 0) {
+            // Already represented by an ordinary session, do not double-count!
+            t.delete(legacySessionRef);
+          } else {
+            // Write or update the deterministic legacy session
+            t.set(legacySessionRef, {
+              userId: uid,
+              source: 'legacy_item',
+              legacy_internal_item_id: internalItemId,
+              legacy_item_id: itemId || null,
+              internalItemId: internalItemId,
+              mode: 'new_item',
+              environment: 'production',
+              quota_state: 'exchanged',
+              legacy_migration: true,
+              status: 'success',
+              reconciled_at: FieldValue.serverTimestamp(),
+              reconciliation_note: note || null,
+              createdAt: itemData.createdAt || FieldValue.serverTimestamp()
+            }, { merge: true });
+          }
+        } else if (outcome === 'confirmed_sandbox') {
+          // If confirmed sandbox, delete deterministic legacy session so it does not count toward the Production Trial limit
+          t.delete(legacySessionRef);
+        }
+      });
+
+      res.json({ success: true, outcome, internalItemId });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message || "Failed to reconcile legacy item" });
     }
   });
 
@@ -644,6 +744,23 @@ async function startServer() {
           const err = new Error("This Plaid Link session was created in a different environment. Start a new connection.");
           (err as any).code = "PLAID_ENVIRONMENT_MISMATCH";
           throw err;
+        }
+
+        // Block new Production exchange if any unresolved Production session exists
+        if (sessionEnv === 'production') {
+          const unresolvedSnap = await db.collection('plaid_sessions')
+            .where('userId', '==', uid)
+            .where('mode', '==', 'new_item')
+            .where('environment', '==', 'production')
+            .where('quota_state', '==', 'exchange_in_progress')
+            .get();
+
+          const otherUnresolved = unresolvedSnap.docs.filter(d => d.id !== session_id);
+          if (otherUnresolved.length > 0) {
+            const err = new Error("A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.");
+            (err as any).code = "UNRESOLVED_PRODUCTION_EXCHANGE";
+            throw err;
+          }
         }
 
         // If duplicate review was required, verify confirmation and fingerprint match
@@ -825,7 +942,7 @@ async function startServer() {
     } catch (error: any) {
       console.error(error);
       const code = error.code || error.message;
-      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS' || code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || code === 'DUPLICATE_FINGERPRINT_MISMATCH') {
+      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS' || code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || code === 'DUPLICATE_FINGERPRINT_MISMATCH' || code === 'UNRESOLVED_PRODUCTION_EXCHANGE') {
         return res.status(409).json({ error: error.message || code, code });
       }
       if (code === 'PLAID_ENVIRONMENT_MISMATCH') {
@@ -979,7 +1096,7 @@ async function startServer() {
           const candidateIds = candidateSessions.map(s => s.id);
           
           if (candidateSessions.length === 1) {
-            reconStatus = "auto_matched";
+            reconStatus = "single_candidate";
           } else if (candidateSessions.length > 1) {
             reconStatus = "needs_review";
           }

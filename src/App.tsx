@@ -129,8 +129,14 @@ export default function App() {
         body: JSON.stringify({ internalItemId }),
       });
       if (!res.ok) {
-         const err = await res.json();
-         throw new Error(err.error || "Failed to start Plaid session.");
+        let err;
+        try { err = await res.json(); } catch(e) {}
+        if (err?.code === 'UNRESOLVED_PRODUCTION_EXCHANGE') {
+          await fetchStatus();
+          showMessage(err.error || "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.", 'error');
+          return;
+        }
+        throw new Error((err && err.error) || "Failed to start Plaid session.");
       }
       const data = await res.json();
       setLinkToken(data.link_token);
@@ -160,20 +166,9 @@ export default function App() {
         return;
       }
 
-      // New Connection: Client side fast-fail duplicate check (Server also checks)
+      // New Connection: Server is the sole authoritative duplicate engine
       const institutionId = metadata.institution?.institution_id;
       const newAccounts = metadata.accounts || [];
-      const existingItem = plaidItems.find(item => item.institution_id === institutionId);
-
-      if (existingItem && existingItem.accounts) {
-        const existingMasks = existingItem.accounts.map((a: any) => a.mask);
-        const isDuplicate = newAccounts.some((a: any) => existingMasks.includes(a.mask));
-        
-        if (isDuplicate) {
-          showMessage(`Duplicate connection prevented. You already connected this ${metadata.institution?.name} account.`, 'info');
-          return;
-        }
-      }
 
       let exchangeResponse = await apiFetch('/api/plaid/exchange_public_token', {
         method: 'POST',
@@ -191,39 +186,62 @@ export default function App() {
       if (exchangeResponse.status === 409) {
         let err;
         try { err = await exchangeResponse.clone().json(); } catch(e) {}
+        if (err && err.code === 'DUPLICATE_ABORTED') {
+          showMessage("Duplicate connection prevented. This account appears to already be connected, so no new Plaid Item was created.", 'info');
+          return;
+        }
+        if (err && err.code === 'UNRESOLVED_PRODUCTION_EXCHANGE') {
+          await fetchStatus();
+          showMessage(err.error || "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.", 'error');
+          return;
+        }
         if (err && err.code === 'DUPLICATE_CONFIRMATION_REQUIRED') {
-           const proceed = window.confirm(`We detected a potential duplicate connection for ${metadata.institution?.name || 'this bank'}. This might consume an extra production trial slot. Do you want to proceed and connect it anyway?`);
-           if (!proceed) {
-              setLinkToken(null);
-              setSessionId(null);
-              setLoading(false);
-              return;
-           }
-           await apiFetch('/api/plaid/confirm_duplicate', {
-              method: 'POST',
-              body: JSON.stringify({ session_id: sessionId })
-           });
-           
-           // Retry exchange
-           exchangeResponse = await apiFetch('/api/plaid/exchange_public_token', {
-              method: 'POST',
-              body: JSON.stringify({ 
-                public_token,
-                institution_id: institutionId,
-                institution_name: metadata.institution?.name,
-                accounts: newAccounts.map((a: any) => ({
-                  id: a.id, name: a.name, mask: a.mask, type: a.type, subtype: a.subtype
-                })),
-                session_id: sessionId
-              }),
-           });
+          const proceed = window.confirm(`We detected a potential duplicate connection for ${metadata.institution?.name || 'this bank'}. This might consume an extra production trial slot. Do you want to proceed and connect it anyway?`);
+          if (!proceed) {
+            setLinkToken(null);
+            setSessionId(null);
+            setLoading(false);
+            return;
+          }
+          const confirmRes = await apiFetch('/api/plaid/confirm_duplicate', {
+            method: 'POST',
+            body: JSON.stringify({ session_id: sessionId })
+          });
+          if (!confirmRes.ok) {
+            let confirmErr;
+            try { confirmErr = await confirmRes.json(); } catch(e) {}
+            throw new Error(confirmErr?.error || "Failed to confirm duplicate connection.");
+          }
+          
+          // Retry exchange with fingerprint-bound session
+          exchangeResponse = await apiFetch('/api/plaid/exchange_public_token', {
+            method: 'POST',
+            body: JSON.stringify({ 
+              public_token,
+              institution_id: institutionId,
+              institution_name: metadata.institution?.name,
+              accounts: newAccounts.map((a: any) => ({
+                id: a.id, name: a.name, mask: a.mask, type: a.type, subtype: a.subtype
+              })),
+              session_id: sessionId
+            }),
+          });
         }
       }
          
       if (!exchangeResponse.ok) {
-         let err;
-         try { err = await exchangeResponse.json(); } catch(e) {}
-         throw new Error((err && err.error) || "Failed to securely persist connection.");
+        let err;
+        try { err = await exchangeResponse.json(); } catch(e) {}
+        if (err && err.code === 'DUPLICATE_ABORTED') {
+          showMessage("Duplicate connection prevented. This account appears to already be connected, so no new Plaid Item was created.", 'info');
+          return;
+        }
+        if (err && err.code === 'UNRESOLVED_PRODUCTION_EXCHANGE') {
+          await fetchStatus();
+          showMessage(err.error || "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.", 'error');
+          return;
+        }
+        throw new Error((err && err.error) || "Failed to securely persist connection.");
       }
       await fetchStatus();
       showMessage(`Successfully linked ${metadata.institution?.name || 'bank account'}!`, 'success');
@@ -427,24 +445,48 @@ export default function App() {
                     </div>
                   </div>
                   <div className="mt-6 p-4 bg-white/10 rounded-xl">
-                                          <div className="flex justify-between items-center mb-2">
-                       <span className="text-xs opacity-70 italic font-medium">Production Trial Items Used</span>
-                       <span className="text-xs font-mono font-bold">{trialItemsConfirmed} / 10</span>
-                     </div>
-                     {trialItemsUnresolved > 0 && (
-                        <div className="flex justify-between items-center mb-2">
-                           <span className="text-xs opacity-70 italic font-medium">Unresolved Attempts (Review Required)</span>
-                           <span className="text-xs font-mono text-amber-300 font-bold">{trialItemsUnresolved}</span>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-xs opacity-70 italic font-medium">Conservative Trial Usage</span>
+                      <span className="text-xs font-mono font-bold">{trialItemsConfirmed + trialItemsUnresolved} / 10</span>
+                    </div>
+                    {trialItemsUnresolved > 0 ? (
+                      <div className="space-y-1 mb-2 pt-1 border-t border-white/10">
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="opacity-70">Confirmed Items:</span>
+                          <span className="font-mono">{trialItemsConfirmed}</span>
                         </div>
-                     )}
-                     <p className="text-[10px] opacity-40 leading-relaxed">Persistent token storage active. Duplicate Item prevention enforced. Slots are not restored by disconnecting.</p>
+                        <div className="flex justify-between items-center text-[11px]">
+                          <span className="text-amber-300 font-medium">Unresolved Attempts:</span>
+                          <span className="font-mono text-amber-300 font-bold">{trialItemsUnresolved}</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between items-center mb-2 text-[11px]">
+                        <span className="opacity-70">Confirmed Items:</span>
+                        <span className="font-mono">{trialItemsConfirmed}</span>
+                      </div>
+                    )}
+                    <p className="text-[10px] opacity-40 leading-relaxed">Persistent token storage active. Duplicate Item prevention enforced. Slots are not restored by disconnecting.</p>
                   </div>
+
+                  {trialItemsUnresolved > 0 && (
+                    <div className="mt-4 bg-amber-500/20 border border-amber-400/40 rounded-xl p-3.5 text-xs text-amber-200">
+                      <div className="flex items-center gap-1.5 font-bold text-amber-300 mb-1">
+                        <AlertTriangle className="h-4 w-4 shrink-0" />
+                        Connection Review Required
+                      </div>
+                      <p className="opacity-90 leading-relaxed">
+                        A previous Production bank connection has an unresolved outcome. Plaid may already have created that Item. Do not reconnect the bank until the unresolved attempt has been reconciled.
+                      </p>
+                    </div>
+                  )}
                 </div>
                 
                 <button
                   onClick={() => generateLinkToken()} 
-                  disabled={loading}
-                  className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-3 rounded-xl font-bold text-sm transition-colors disabled:opacity-50 mt-6"
+                  disabled={loading || trialItemsUnresolved > 0}
+                  title={trialItemsUnresolved > 0 ? "Blocked while an unresolved Production exchange exists" : undefined}
+                  className="w-full flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-3 rounded-xl font-bold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-6"
                 >
                   {loading && !linkToken && !repairingItemIdRef.current ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}
                   Connect New Bank

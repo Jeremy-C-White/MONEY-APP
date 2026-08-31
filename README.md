@@ -13,16 +13,57 @@ FinSync is a server-orchestrated, offline-first personal finance application tha
 
 * **Frontend**: React + Vite + Tailwind CSS.
 * **Backend**: Express + Node.js (Full-stack architecture).
-* **Database**: Firebase Firestore (for storing secure metadata and Plaid cursors).
+* **Database**: Firebase Firestore (for storing secure metadata, session ledgers, item indexes, and sync cursors).
 * **Sync Destination**: Google Sheets (Machine-owned `Transactions_Raw` worksheet).
 
-## Security & Plaid Integration Features
+## Plaid Integration & Production Trial Safety Model
 
-* **Strict 10-Item Quota Protection**: Prevents duplicate account connections by checking existing institution account masks server-side *before* exchanging the public token.
-* **Server-side Duplicate Ledger**: Maintains a strict `plaid_sessions` ledger for all Plaid Link instances and diagnostic exits.
-* **Idempotent Syncs**: The backend orchestrates the `Transactions_Raw` worksheet sync entirely server-side, decoupling the browser from raw transaction payloads. Concurrency is managed via distributed lease locks.
-* **Durable Cursors**: Plaid synchronization cursors are defensively committed *only* after Google Sheets write operations successfully conclude.
-* **Webhook Support**: Automatic handling for `SYNC_UPDATES_AVAILABLE`, `PENDING_DISCONNECT`, and `ITEM_LOGIN_REQUIRED`.
+FinSync is engineered specifically around Plaid's Production Trial plan constraints (strictly 10 Lifetime Items) and zero-token-leakage principles.
+
+### 1. Trial Quota Accounting
+* **10-Item Hard Ceiling**: The Plaid Production Trial tier grants 10 lifetime Production Item creations across your developer team.
+* **Conservative Accounting**: UI and backend ledger count both confirmed items (`quota_state: 'exchanged'`) and ambiguous unresolved attempts (`quota_state: 'exchange_in_progress'`) against the 10-Item quota.
+* **Disconnect Behavior**: Disconnecting or removing a bank item removes local access tokens and flags the item as disconnected, but **does not restore Plaid's consumed Trial Item slot**. Disconnected items remain tracked in historical ledgers.
+
+### 2. Session Lifecycle & State Machine
+Every Plaid Link initialization writes an immutable session record to the `plaid_sessions` collection:
+* `link_started`: Link token created for a new connection.
+* `exchange_in_progress`: Pre-exchange reservation locked before invoking Plaid API; serves as an idempotency barrier.
+* `exchanged`: Public token successfully exchanged, access token persisted in `plaid_items`, and `plaid_item_index` indexed.
+* `exchange_failed`: Definitive 4xx client rejection from Plaid (safe to retry, no item created).
+* `duplicate_aborted`: Server aborts connection prior to exchange due to exact match with existing account.
+* `repair_started`: Link token created with an existing `access_token` in update mode (never creates a new Plaid Item).
+
+### 3. Production Unresolved Guard
+If an exchange call encounters a network timeout, process crash, or ambiguous non-4xx failure, the session outcome is preserved as `exchange_in_progress` (unresolved).
+* **Server-Side Gate**: Both `/api/plaid/create_link_token` and `/api/plaid/exchange_public_token` reject new Production connections with `HTTP 409 UNRESOLVED_PRODUCTION_EXCHANGE` whenever an unresolved attempt exists.
+* **Client Locking**: The frontend locks the "Connect New Bank" button and renders a persistent warning banner requiring manual review/reconciliation.
+
+### 4. Duplicate Connection Policy
+Server-side duplicate detection runs across all active items for the user at the institution:
+* **Definite Duplicate (Exact Match)**: If an account name and mask exactly match an existing active account, the backend transitions the session to `duplicate_aborted` and rejects the exchange with `HTTP 409 DUPLICATE_ABORTED`. No Plaid Item is created.
+* **Probable Duplicate (Mask Match, Different Name)**: If an account mask matches but the account name differs, user confirmation is required (`DUPLICATE_CONFIRMATION_REQUIRED`). Once confirmed via `/api/plaid/confirm_duplicate`, exchange proceeds only if the account fingerprint has not mutated.
+* **Ambiguous Metadata (Missing Masks/Empty Accounts)**: Requires explicit confirmation before consuming an item slot.
+
+### 5. Repair Mode (Zero Quota Consumption)
+When an existing bank item enters `ITEM_LOGIN_REQUIRED` or an unhealthy status:
+* Repair mode initializes Link with the existing item's `access_token`.
+* Plaid executes an update flow, modifying credentials on the existing Item without calling `itemPublicTokenExchange` or creating an additional Item.
+* No Trial quota slots are consumed during repair.
+
+### 6. Legacy Item Reconciliation
+Items created prior to session ledger tracking can be reconciled idempotently via `/api/plaid/reconcile_legacy_item`:
+* Allows designating legacy items as `confirmed_production` or `confirmed_sandbox`.
+* Creates deterministic ledger records (`legacy_<itemId>`) preventing double-counting if an existing `exchanged` session is already present.
+
+### 7. Webhook & Orphan Item Handling
+* **Signature & Hash Verification**: Webhooks verify Plaid JWTs using ES256 keys from `webhookVerificationKeyGet` and SHA-256 body hash checks against `iat` expiry.
+* **Orphan Detection**: Webhooks for unknown `item_id`s record evidence in `orphan_items`. If exactly one unresolved session exists in that environment, it is marked as `single_candidate`; if multiple exist, it is marked as `needs_review`.
+* **Token Recovery Boundary**: Discovering an orphaned item from a webhook proves the item exists on Plaid, but does not recover the missing access token.
+
+### 8. Known Limitations & Best Practices
+* **Trial Quota Irreversibility**: Deleting an item in Plaid Sandbox/Production via `/item/remove` revokes token access, but Plaid's billing ledger retains the item count against your Trial limit.
+* **Google Sheets Vault Security**: Transaction sync runs exclusively server-side via distributed lease locks (`users/{uid}/locks/sync`), ensuring atomic batches and protecting raw sheets tokens.
 
 ## Environment Setup
 
@@ -61,3 +102,4 @@ To receive live transaction updates, configure your Plaid Dashboard to send webh
 3. Build for production: `npm run build`
 4. Start the server: `npm start`
 5. Visit `http://localhost:3000`
+
