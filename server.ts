@@ -377,6 +377,14 @@ async function startServer() {
       
       // Block new Production connections if an unresolved Production exchange exists
       if (!internalItemId && (process.env.PLAID_ENV === 'production')) {
+        const lockDoc = await db.collection('users').doc(uid).collection('locks').doc('plaid_new_item').get();
+        if (lockDoc.exists) {
+          return res.status(409).json({
+            code: "UNRESOLVED_PRODUCTION_EXCHANGE",
+            error: "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank."
+          });
+        }
+
         const unresolvedSnap = await db.collection('plaid_sessions')
           .where('userId', '==', uid)
           .where('mode', '==', 'new_item')
@@ -494,14 +502,31 @@ async function startServer() {
       }
       
       const sessionRef = db.collection('plaid_sessions').doc(session_id);
+      const lockRef = db.collection('users').doc(uid).collection('locks').doc('plaid_new_item');
+
       await db.runTransaction(async (t) => {
         const sDoc = await t.get(sessionRef);
+        const lockDoc = await t.get(lockRef);
+
         if (!sDoc.exists) throw new Error("Session not found");
         const sData = sDoc.data()!;
         if (sData.userId !== uid) throw new Error("Unauthorized");
         if (sData.mode !== 'new_item') throw new Error("Only new_item sessions can be reconciled");
         if (sData.quota_state !== 'exchange_in_progress') throw new Error(`Session is in state ${sData.quota_state}, not exchange_in_progress`);
         
+        if (sData.environment === 'production') {
+          if (lockDoc.exists) {
+            const lockData = lockDoc.data()!;
+            if (lockData.session_id === session_id) {
+              t.delete(lockRef);
+            } else {
+              const err = new Error("The shared Production lock belongs to a different session and cannot be released by this reconciliation.");
+              (err as any).code = "PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED";
+              throw err;
+            }
+          }
+        }
+
         const newQuotaState = outcome === 'confirmed_exchanged' ? 'exchanged' : 'exchange_failed';
         t.update(sessionRef, {
           quota_state: newQuotaState,
@@ -513,6 +538,10 @@ async function startServer() {
       res.json({ success: true });
     } catch (error: any) {
       console.error(error);
+      const code = error.code || error.message;
+      if (code === 'PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED') {
+        return res.status(409).json({ error: error.message, code });
+      }
       res.status(400).json({ error: error.message || "Failed to reconcile session" });
     }
   });
@@ -529,45 +558,50 @@ async function startServer() {
       }
 
       const itemRef = db.collection('plaid_items').doc(internalItemId);
-      const itemDoc = await itemRef.get();
-      if (!itemDoc.exists || itemDoc.data()?.userId !== uid) {
+      const itemDocSnap = await itemRef.get();
+      if (!itemDocSnap.exists || itemDocSnap.data()?.userId !== uid) {
         return res.status(404).json({ error: "Item not found" });
       }
-      const itemData = itemDoc.data()!;
+      const itemData = itemDocSnap.data()!;
       const itemId = itemData.item_id;
 
       const targetEnv = outcome === 'confirmed_production' ? 'production' : 'sandbox';
       const deterministicSessionId = `legacy_${itemId || internalItemId}`;
       const legacySessionRef = db.collection('plaid_sessions').doc(deterministicSessionId);
       const indexRef = itemId ? db.collection('plaid_item_index').doc(itemId) : null;
+      const existingSessionQuery = db.collection('plaid_sessions')
+        .where('userId', '==', uid)
+        .where('internalItemId', '==', internalItemId)
+        .where('environment', '==', 'production')
+        .where('quota_state', '==', 'exchanged');
 
       await db.runTransaction(async (t) => {
-        // Update index if it exists
-        if (indexRef) {
-          const idxDoc = await t.get(indexRef);
-          if (idxDoc.exists) {
-            t.update(indexRef, {
-              env: targetEnv,
-              requires_reconciliation: false,
-              reconciled_at: FieldValue.serverTimestamp(),
-              reconciliation_outcome: outcome
-            });
-          }
+        // All reads must come before any writes in Firestore transactions
+        const itemDoc = await t.get(itemRef);
+        if (!itemDoc.exists || itemDoc.data()?.userId !== uid) {
+          throw new Error("Item not found");
+        }
+        const idxDoc = indexRef ? await t.get(indexRef) : null;
+        const legacyDoc = await t.get(legacySessionRef);
+        const existingSnap = outcome === 'confirmed_production' ? await t.get(existingSessionQuery) : null;
+
+        // Perform writes
+        if (idxDoc && idxDoc.exists) {
+          t.update(indexRef!, {
+            env: targetEnv,
+            requires_reconciliation: false,
+            reconciled_at: FieldValue.serverTimestamp(),
+            reconciliation_outcome: outcome
+          });
         }
 
         if (outcome === 'confirmed_production') {
-          // Check if this item is ALREADY represented by an ordinary Production session with quota_state == 'exchanged'
-          const existingSessionQuery = await db.collection('plaid_sessions')
-            .where('userId', '==', uid)
-            .where('internalItemId', '==', internalItemId)
-            .where('environment', '==', 'production')
-            .where('quota_state', '==', 'exchanged')
-            .get();
-
-          const nonLegacyExisting = existingSessionQuery.docs.filter(d => d.id !== deterministicSessionId);
+          const nonLegacyExisting = existingSnap ? existingSnap.docs.filter(d => d.id !== deterministicSessionId) : [];
           if (nonLegacyExisting.length > 0) {
             // Already represented by an ordinary session, do not double-count!
-            t.delete(legacySessionRef);
+            if (legacyDoc.exists) {
+              t.delete(legacySessionRef);
+            }
           } else {
             // Write or update the deterministic legacy session
             t.set(legacySessionRef, {
@@ -588,7 +622,9 @@ async function startServer() {
           }
         } else if (outcome === 'confirmed_sandbox') {
           // If confirmed sandbox, delete deterministic legacy session so it does not count toward the Production Trial limit
-          t.delete(legacySessionRef);
+          if (legacyDoc.exists) {
+            t.delete(legacySessionRef);
+          }
         }
       });
 
@@ -606,6 +642,7 @@ async function startServer() {
       if (!session_id) return res.status(400).json({ error: "Missing session_id" });
       
       const sessionRef = db.collection('plaid_sessions').doc(session_id);
+      const lockRef = db.collection('users').doc(uid).collection('locks').doc('plaid_new_item');
       const fingerprint = computeAccountFingerprint(institution_id, accounts || []);
       
       // Server-side duplicate policy evaluation (across all active non-disconnected items for this user at the same institution)
@@ -715,14 +752,26 @@ async function startServer() {
         }
       }
 
-      // Atomic Pre-exchange Reservation & Idempotency Guard
+      // Atomic Pre-exchange Reservation & Shared Production Lock Guard
       let sessionEnv = "sandbox";
       await db.runTransaction(async (t) => {
+        // Read all documents first
         const sDoc = await t.get(sessionRef);
+        const lockDoc = await t.get(lockRef);
+
         if (!sDoc.exists) throw new Error("Session not found");
         const sData = sDoc.data()!;
         if (sData.userId !== uid) throw new Error("Unauthorized");
         if (sData.mode !== 'new_item') throw new Error("Invalid mode: repair mode cannot exchange public token");
+
+        sessionEnv = sData.environment || "sandbox";
+        const currentEnv = process.env.PLAID_ENV || "sandbox";
+        if (sessionEnv !== currentEnv) {
+          const err = new Error("This Plaid Link session was created in a different environment. Start a new connection.");
+          (err as any).code = "PLAID_ENVIRONMENT_MISMATCH";
+          throw err;
+        }
+
         if (sData.quota_state === 'exchange_in_progress') {
           const err = new Error("This connection attempt is already being processed or requires reconciliation.");
           (err as any).code = "EXCHANGE_ALREADY_IN_PROGRESS";
@@ -737,32 +786,6 @@ async function startServer() {
           throw new Error(`Invalid session state: ${sData.quota_state}`);
         }
 
-        // Enforce immutable Plaid environment
-        sessionEnv = sData.environment || "sandbox";
-        const currentEnv = process.env.PLAID_ENV || "sandbox";
-        if (sessionEnv !== currentEnv) {
-          const err = new Error("This Plaid Link session was created in a different environment. Start a new connection.");
-          (err as any).code = "PLAID_ENVIRONMENT_MISMATCH";
-          throw err;
-        }
-
-        // Block new Production exchange if any unresolved Production session exists
-        if (sessionEnv === 'production') {
-          const unresolvedSnap = await db.collection('plaid_sessions')
-            .where('userId', '==', uid)
-            .where('mode', '==', 'new_item')
-            .where('environment', '==', 'production')
-            .where('quota_state', '==', 'exchange_in_progress')
-            .get();
-
-          const otherUnresolved = unresolvedSnap.docs.filter(d => d.id !== session_id);
-          if (otherUnresolved.length > 0) {
-            const err = new Error("A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.");
-            (err as any).code = "UNRESOLVED_PRODUCTION_EXCHANGE";
-            throw err;
-          }
-        }
-
         // If duplicate review was required, verify confirmation and fingerprint match
         if (sData.duplicate_review?.required) {
           if (!sData.duplicate_review.confirmed) {
@@ -775,6 +798,26 @@ async function startServer() {
             (err as any).code = "DUPLICATE_FINGERPRINT_MISMATCH";
             throw err;
           }
+        }
+
+        // Shared per-user Production Item reservation lock check and write
+        if (sessionEnv === 'production') {
+          if (lockDoc.exists) {
+            const lockData = lockDoc.data()!;
+            if (lockData.session_id !== session_id) {
+              const err = new Error("A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.");
+              (err as any).code = "UNRESOLVED_PRODUCTION_EXCHANGE";
+              throw err;
+            }
+          }
+
+          t.set(lockRef, {
+            session_id: session_id,
+            uid: uid,
+            state: 'exchange_in_progress',
+            environment: 'production',
+            acquired_at: FieldValue.serverTimestamp()
+          });
         }
 
         t.update(sessionRef, {
@@ -807,12 +850,19 @@ async function startServer() {
             exchange_error: exchangeError.response.data,
             exchange_failed_at: FieldValue.serverTimestamp()
           }).catch(console.error);
+
+          // Release shared Production lock on definitive rejection
+          if (sessionEnv === 'production') {
+            await lockRef.delete().catch(console.error);
+          }
+
           return res.status(400).json({
             error: exchangeError.response.data.error_message || "Plaid exchange rejected",
             code: exchangeError.response.data.error_code
           });
         } else {
           // Everything else remains exchange_in_progress (unresolved)
+          // KEEP shared Production lock!
           console.error("Ambiguous Plaid exchange failure, preserving quota_state as exchange_in_progress:", exchangeError);
           return res.status(500).json({
             code: "PLAID_EXCHANGE_OUTCOME_UNKNOWN",
@@ -883,6 +933,11 @@ async function startServer() {
               internalItemId: targetInternalId,
               exchanged_at: FieldValue.serverTimestamp()
             });
+
+            // Atomically release shared Production lock upon successful persistence
+            if (sessionEnv === 'production') {
+              t.delete(lockRef);
+            }
             
             return targetInternalId;
           });
@@ -942,10 +997,10 @@ async function startServer() {
     } catch (error: any) {
       console.error(error);
       const code = error.code || error.message;
-      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS' || code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || code === 'DUPLICATE_FINGERPRINT_MISMATCH' || code === 'UNRESOLVED_PRODUCTION_EXCHANGE') {
+      if (code === 'DUPLICATE_CONFIRMATION_REQUIRED' || code === 'EXCHANGE_ALREADY_IN_PROGRESS' || code === 'PLAID_ITEM_INDEX_OWNERSHIP_CONFLICT' || code === 'DUPLICATE_FINGERPRINT_MISMATCH' || code === 'UNRESOLVED_PRODUCTION_EXCHANGE' || code === 'PLAID_PRODUCTION_LOCK_RECONCILIATION_REQUIRED') {
         return res.status(409).json({ error: error.message || code, code });
       }
-      if (code === 'PLAID_ENVIRONMENT_MISMATCH') {
+      if (code === 'PLAID_ENVIRONMENT_MISMATCH' || code === 'EXCHANGE_ALREADY_COMPLETED') {
         return res.status(400).json({ error: error.message || code, code });
       }
       res.status(500).json({ error: error.message || "Failed to exchange token" });

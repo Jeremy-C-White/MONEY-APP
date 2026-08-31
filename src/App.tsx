@@ -241,6 +241,16 @@ export default function App() {
           showMessage(err.error || "A previous Production connection attempt has an unresolved outcome. Reconcile it before connecting another bank.", 'error');
           return;
         }
+        if (err && err.code === 'PLAID_EXCHANGE_OUTCOME_UNKNOWN') {
+          await fetchStatus();
+          showMessage("Connection outcome uncertain. Plaid may already have created this Item. FinSync has blocked new Production connections until this attempt is reconciled.", 'error');
+          return;
+        }
+        if (err && err.code === 'PLAID_PERSISTENCE_FAILED') {
+          await fetchStatus();
+          showMessage("Failed to durably store access token. Attempt remains unresolved in quota accounting.", 'error');
+          return;
+        }
         throw new Error((err && err.error) || "Failed to securely persist connection.");
       }
       await fetchStatus();

@@ -34,10 +34,15 @@ Every Plaid Link initialization writes an immutable session record to the `plaid
 * `duplicate_aborted`: Server aborts connection prior to exchange due to exact match with existing account.
 * `repair_started`: Link token created with an existing `access_token` in update mode (never creates a new Plaid Item).
 
-### 3. Production Unresolved Guard
+### 3. Production Unresolved Guard & Shared Reservation Lock
 If an exchange call encounters a network timeout, process crash, or ambiguous non-4xx failure, the session outcome is preserved as `exchange_in_progress` (unresolved).
-* **Server-Side Gate**: Both `/api/plaid/create_link_token` and `/api/plaid/exchange_public_token` reject new Production connections with `HTTP 409 UNRESOLVED_PRODUCTION_EXCHANGE` whenever an unresolved attempt exists.
+* **Shared Per-User Production Lock**: An atomic mutex at `users/{uid}/locks/plaid_new_item` is acquired concurrently with session state transition (`link_started` -> `exchange_in_progress`). All concurrent Production exchange attempts for the user contend on this document.
+* **Server-Side Gate**: Both `/api/plaid/create_link_token` and `/api/plaid/exchange_public_token` reject new Production connections with `HTTP 409 UNRESOLVED_PRODUCTION_EXCHANGE` whenever an unresolved attempt or active shared lock exists.
 * **Client Locking**: The frontend locks the "Connect New Bank" button and renders a persistent warning banner requiring manual review/reconciliation.
+* **Lock Lifecycle**:
+  - Released on confirmed durable persistence (`quota_state: 'exchanged'`).
+  - Released on definitive Plaid 4xx rejection (`quota_state: 'exchange_failed'`).
+  - Kept on network timeouts, 5xx errors, ambiguous failures, or persistence failures.
 
 ### 4. Duplicate Connection Policy
 Server-side duplicate detection runs across all active items for the user at the institution:
@@ -54,14 +59,45 @@ When an existing bank item enters `ITEM_LOGIN_REQUIRED` or an unhealthy status:
 ### 6. Legacy Item Reconciliation
 Items created prior to session ledger tracking can be reconciled idempotently via `/api/plaid/reconcile_legacy_item`:
 * Allows designating legacy items as `confirmed_production` or `confirmed_sandbox`.
+* Fully transactional read-before-write validation prevents duplicate quota allocations.
 * Creates deterministic ledger records (`legacy_<itemId>`) preventing double-counting if an existing `exchanged` session is already present.
 
 ### 7. Webhook & Orphan Item Handling
 * **Signature & Hash Verification**: Webhooks verify Plaid JWTs using ES256 keys from `webhookVerificationKeyGet` and SHA-256 body hash checks against `iat` expiry.
-* **Orphan Detection**: Webhooks for unknown `item_id`s record evidence in `orphan_items`. If exactly one unresolved session exists in that environment, it is marked as `single_candidate`; if multiple exist, it is marked as `needs_review`.
+* **Orphan Evidence Classification**: Webhooks for unknown `item_id`s record evidence in `orphan_items`:
+  - `single_candidate`: Exactly one plausible unresolved session was found. **Note**: This proves the Plaid Item exists, but does *not* conclusively prove local session ownership and does *not* automatically transition the session to `exchanged`.
+  - `needs_review`: Multiple plausible unresolved sessions match the item environment.
+  - `unmatched`: No candidate unresolved sessions matched.
 * **Token Recovery Boundary**: Discovering an orphaned item from a webhook proves the item exists on Plaid, but does not recover the missing access token.
 
-### 8. Known Limitations & Best Practices
+### 8. Resolving an Uncertain Production Exchange
+
+This operational procedure applies when `quota_state = exchange_in_progress` and the UI shows an unresolved attempt locking new connections.
+
+* **Step 1: Do NOT reconnect the bank immediately**
+  FinSync intentionally blocks new Production Item creation to protect the irreversible 10-Item Trial limit.
+
+* **Step 2: Inspect the Plaid Dashboard and Ledgers**
+  - Open the Plaid Dashboard and inspect Production Items created around `exchange_started_at`.
+  - Use available institution ID, timestamps, and account metadata to determine if Plaid created an Item for that attempt.
+  - Inspect any `orphan_items` evidence captured from verified webhooks.
+
+* **Step 3A: If the Plaid Item exists**
+  - Call `POST /api/plaid/reconcile_session` with `outcome: "confirmed_exchanged"` and the `session_id`.
+  - This marks the session as `exchanged` and releases the shared Production lock.
+  - *Note on Lost Tokens*: If FinSync lost the access token during persistence, reconciling as `confirmed_exchanged` accurately accounts for the consumed Trial slot in your quota ledger, but does **not** recover access to the bank item. Contact Plaid Support if token recovery or Item removal is required.
+
+* **Step 3B: If Plaid confirms no Item was created**
+  - Call `POST /api/plaid/reconcile_session` with `outcome: "confirmed_failed"` and the `session_id`.
+  - This transitions the session to `exchange_failed` and releases the shared Production lock.
+
+* **Step 4: Verification**
+  - The shared Production lock at `users/{uid}/locks/plaid_new_item` is deleted.
+  - `trialItemsUnresolved` returns to 0.
+  - "Connect New Bank" is re-enabled on the dashboard.
+  - Remember: calling `/item/remove` revokes bank tokens but does **not** restore consumed Plaid Trial slots.
+
+### 9. Known Limitations & Best Practices
 * **Trial Quota Irreversibility**: Deleting an item in Plaid Sandbox/Production via `/item/remove` revokes token access, but Plaid's billing ledger retains the item count against your Trial limit.
 * **Google Sheets Vault Security**: Transaction sync runs exclusively server-side via distributed lease locks (`users/{uid}/locks/sync`), ensuring atomic batches and protecting raw sheets tokens.
 
