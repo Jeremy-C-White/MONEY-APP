@@ -1,4 +1,28 @@
+export type TransactionClassification =
+  | 'spending'
+  | 'income'
+  | 'internal_transfer'
+  | 'cash_withdrawal'
+  | 'person_to_person'
+  | 'credit_card_payment'
+  | 'refund'
+  | 'merchant_credit'
+  | 'interest_earned'
+  | 'interest_paid'
+  | 'bank_fee'
+  | 'pending'
+  | 'removed'
+  | 'other';
+
 export interface DashboardSummary {
+  allTime: {
+    spending: number;
+    income: number;
+    netCashFlow: number;
+    savingsRate: number | null;
+    pendingSpending: number;
+    projectedSpending: number;
+  };
   currentMonth: {
     month: string;
     spending: number;
@@ -7,6 +31,7 @@ export interface DashboardSummary {
     savingsRate: number | null;
   };
   previousMonth: {
+    month: string;
     spending: number;
     income: number;
     netCashFlow: number;
@@ -16,14 +41,6 @@ export interface DashboardSummary {
     spendingDifference: number;
     spendingPercentageChange: number | null;
   };
-  allTime: {
-    spending: number;
-    income: number;
-    netCashFlow: number;
-    savingsRate: number | null;
-    pendingSpending: number;
-  };
-  projectedSpending: number;
   activePostedCount: number;
 }
 
@@ -62,45 +79,99 @@ export interface DashboardTrendsResponse {
   monthly: TrendPoint[];
 }
 
-export interface DashboardVerificationReconciliation {
-  categoryMathReconciles: boolean;
+export interface DashboardVerificationBridge {
+  activePostedRawCashFlowTotal: number;
+  recognizedSpending: number;
+  recognizedIncome: number;
+  refundsAndCredits: number;
+  creditCardPayments: number;
+  internalTransfers: number;
+  cashWithdrawals: number;
+  p2pOutgoing: number;
+  p2pIncoming: number;
+  interestEarned: number;
+  bankFeeInterestPaid: number;
+  unknownTransfers: number;
+  otherUnclassified: number;
   accountingBridgeReconciles: boolean;
-  unknownTransferCount: number;
-  unknownTransferAmount: number;
-  unclassifiedPositiveCount: number;
-  unclassifiedPositiveAmount: number;
+}
+
+export interface DashboardVerificationReconciliation {
+  totalRowsParsed: number;
+  activePostedRows: number;
   pendingCount: number;
   removedCount: number;
+  spendingCount: number;
+  incomeCount: number;
+  transferCount: number;
   creditCardCount: number;
   creditCardAmount: number;
+  refundCount: number;
   merchantCreditCount: number;
   merchantCreditAmount: number;
+  cashWithdrawalCount: number;
+  cashWithdrawalAmount: number;
+  interestEarnedCount: number;
+  interestEarnedAmount: number;
+  p2pIncomingCount: number;
+  p2pIncomingAmount: number;
+  p2pOutgoingCount: number;
+  p2pOutgoingAmount: number;
+  unclassifiedPositiveCount: number;
+  unclassifiedPositiveAmount: number;
+  unknownTransferCount: number;
+  unknownTransferAmount: number;
+  otherCount: number;
+  grossPurchases: number;
+  refunds: number;
+  merchantCredits: number;
+  netSpending: number;
+  recognizedIncome: number;
+  netCashFlow: number;
+  categoryMathReconciles: boolean;
+  bridge: DashboardVerificationBridge;
 }
 
 export interface DashboardVerificationResponse {
+  summary: DashboardSummary;
+  categories: DashboardCategory[];
+  merchants: DashboardMerchant[];
+  trends: TrendPoint[];
   reconciliation: DashboardVerificationReconciliation;
 }
 
 export interface Transaction {
   transactionId: string;
-  normalizedDate: string;
-  normalizedMerchant: string | null;
-  name: string;
+  accountId: string;
   institutionName: string;
   accountName: string;
   accountMask: string;
   accountType: string;
   accountSubtype: string;
+  rawDate: string;
+  normalizedDate: string;
+  name: string;
+  normalizedMerchant: string;
+  plaidAmount: number;
   cashFlowAmount: number;
   categoryPrimary: string;
   categoryDetailed: string;
   normalizedCategory: string;
   pending: boolean;
+  pendingTransactionId: string;
   status: string;
   removed: boolean;
-  classification: string;
+  classification: TransactionClassification;
+  countsTowardSpending: boolean;
+  countsTowardIncome: boolean;
+  spendingAdjustment: number;
+  incomeAdjustment: number;
 }
 
 export interface TransactionsResponse {
   transactions: Transaction[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
 }

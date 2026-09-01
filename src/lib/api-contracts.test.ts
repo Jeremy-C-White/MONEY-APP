@@ -1,93 +1,240 @@
-import { describe, it, expect } from 'vitest';
-import type { 
-  DashboardSummary, 
-  DashboardCategoriesResponse, 
-  DashboardMerchantsResponse, 
-  DashboardTrendsResponse, 
-  DashboardVerificationResponse, 
-  TransactionsResponse 
-} from '../types/finance';
+import { describe, expect, it } from 'vitest';
+import {
+  extractCategoriesResponse,
+  extractMerchantsResponse,
+  extractTrendsResponse,
+  extractVerificationResponse,
+  extractTransactionsResponse,
+  normalizeOverviewPayloads,
+} from './api-contracts';
+import {
+  formatMonthLabel,
+  formatPercentage,
+  formatPercentagePoints,
+} from './formatters';
 
-describe('API Contracts Normalization', () => {
-  it('should match the DashboardSummary shape', () => {
-    const rawData = {
-      currentMonth: { month: "Oct 2023", spending: 500, income: 1000, netCashFlow: 500, savingsRate: 0.5 },
-      previousMonth: { spending: 400, income: 900, netCashFlow: 500, savingsRate: 0.55 },
-      comparison: { spendingDifference: 100, spendingPercentageChange: 0.25 },
-      allTime: { spending: 10000, income: 20000, netCashFlow: 10000, savingsRate: 0.5, pendingSpending: 50 },
-      projectedSpending: 600,
-      activePostedCount: 15
-    };
+const summaryPayload = {
+  allTime: {
+    spending: 10000,
+    income: 20000,
+    netCashFlow: 10000,
+    savingsRate: 0.5,
+    pendingSpending: 50,
+    projectedSpending: 10050,
+  },
+  currentMonth: {
+    month: '2026-09',
+    spending: 500,
+    income: 1000,
+    netCashFlow: 500,
+    savingsRate: 0.5,
+  },
+  previousMonth: {
+    month: '2026-08',
+    spending: 400,
+    income: 900,
+    netCashFlow: 500,
+    savingsRate: 500 / 900,
+  },
+  comparison: {
+    spendingDifference: 100,
+    spendingPercentageChange: 25,
+  },
+  activePostedCount: 15,
+};
 
-    // Cast to ensure TS compiler enforces shape at test time
-    const summary: DashboardSummary = rawData;
-    
-    expect(summary.currentMonth.month).toBe("Oct 2023");
-    expect(summary.currentMonth.spending).toBe(500);
-    expect(summary.comparison.spendingDifference).toBe(100);
+const category = {
+  category: 'FOOD_AND_DRINK',
+  netSpending: 50,
+  transactionCount: 2,
+  grossPurchases: 50,
+  refunds: 0,
+  merchantCredits: 0,
+  percentage: 0.2,
+};
+
+const merchant = {
+  merchant: 'Starbucks',
+  netSpending: 25,
+  transactionCount: 3,
+};
+
+const trend = {
+  month: '2026-09',
+  income: 1000,
+  spending: 500,
+  netCashFlow: 500,
+};
+
+const transaction = {
+  transactionId: 'tx_123',
+  accountId: 'acc_1',
+  institutionName: 'Chase',
+  accountName: 'Checking',
+  accountMask: '1234',
+  accountType: 'depository',
+  accountSubtype: 'checking',
+  rawDate: '45500',
+  normalizedDate: '2026-09-01',
+  name: 'STARBUCKS STORE',
+  normalizedMerchant: 'Starbucks',
+  plaidAmount: 5.5,
+  cashFlowAmount: -5.5,
+  categoryPrimary: 'FOOD_AND_DRINK',
+  categoryDetailed: 'FOOD_AND_DRINK_COFFEE',
+  normalizedCategory: 'FOOD_AND_DRINK',
+  pending: false,
+  pendingTransactionId: '',
+  status: 'active',
+  removed: false,
+  classification: 'spending' as const,
+  countsTowardSpending: true,
+  countsTowardIncome: false,
+  spendingAdjustment: 5.5,
+  incomeAdjustment: 0,
+};
+
+const verificationPayload = {
+  summary: summaryPayload,
+  categories: [category],
+  merchants: [merchant],
+  trends: [trend],
+  reconciliation: {
+    totalRowsParsed: 1,
+    activePostedRows: 1,
+    pendingCount: 0,
+    removedCount: 0,
+    spendingCount: 1,
+    incomeCount: 0,
+    transferCount: 0,
+    creditCardCount: 0,
+    creditCardAmount: 0,
+    refundCount: 0,
+    merchantCreditCount: 0,
+    merchantCreditAmount: 0,
+    cashWithdrawalCount: 0,
+    cashWithdrawalAmount: 0,
+    interestEarnedCount: 0,
+    interestEarnedAmount: 0,
+    p2pIncomingCount: 0,
+    p2pIncomingAmount: 0,
+    p2pOutgoingCount: 0,
+    p2pOutgoingAmount: 0,
+    unclassifiedPositiveCount: 0,
+    unclassifiedPositiveAmount: 0,
+    unknownTransferCount: 1,
+    unknownTransferAmount: 496,
+    otherCount: 1,
+    grossPurchases: 50,
+    refunds: 0,
+    merchantCredits: 0,
+    netSpending: 50,
+    recognizedIncome: 0,
+    netCashFlow: -50,
+    categoryMathReconciles: true,
+    bridge: {
+      activePostedRawCashFlowTotal: -50,
+      recognizedSpending: -50,
+      recognizedIncome: 0,
+      refundsAndCredits: 0,
+      creditCardPayments: 0,
+      internalTransfers: 0,
+      cashWithdrawals: 0,
+      p2pOutgoing: 0,
+      p2pIncoming: 0,
+      interestEarned: 0,
+      bankFeeInterestPaid: 0,
+      unknownTransfers: 0,
+      otherUnclassified: 0,
+      accountingBridgeReconciles: true,
+    },
+  },
+};
+
+const transactionsPayload = {
+  transactions: [transaction],
+  total: 1,
+  page: 1,
+  limit: 6,
+  totalPages: 1,
+};
+
+describe('API response contracts', () => {
+  it('unwraps the categories wrapper', () => {
+    const result = extractCategoriesResponse({ categories: [category] });
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('FOOD_AND_DRINK');
+    expect(result[0].percentage).toBe(0.2);
   });
 
-  it('should match the DashboardCategoriesResponse wrapper shape', () => {
-    const rawData = {
-      categories: [
-        { category: 'FOOD', netSpending: -50, transactionCount: 2, grossPurchases: -50, refunds: 0, merchantCredits: 0, percentage: 0.2 }
-      ]
-    };
-    
-    const res: DashboardCategoriesResponse = rawData;
-    expect(res.categories[0].category).toBe('FOOD');
-    expect(res.categories[0].netSpending).toBe(-50);
+  it('unwraps the merchants wrapper', () => {
+    const result = extractMerchantsResponse({ merchants: [merchant] });
+    expect(result).toHaveLength(1);
+    expect(result[0].merchant).toBe('Starbucks');
   });
 
-  it('should match the DashboardVerificationResponse wrapper shape', () => {
-    const rawData = {
-      reconciliation: {
-        categoryMathReconciles: true,
-        accountingBridgeReconciles: true,
-        unknownTransferCount: 0,
-        unknownTransferAmount: 0,
-        unclassifiedPositiveCount: 0,
-        unclassifiedPositiveAmount: 0,
-        pendingCount: 0,
-        removedCount: 0,
-        creditCardCount: 0,
-        creditCardAmount: 0,
-        merchantCreditCount: 0,
-        merchantCreditAmount: 0
-      }
-    };
-    
-    const res: DashboardVerificationResponse = rawData;
-    expect(res.reconciliation.categoryMathReconciles).toBe(true);
+  it('unwraps the monthly trends wrapper', () => {
+    const result = extractTrendsResponse({ monthly: [trend] });
+    expect(result).toHaveLength(1);
+    expect(result[0].month).toBe('2026-09');
   });
 
-  it('should match the TransactionsResponse wrapper shape', () => {
-    const rawData = {
-      transactions: [
-        {
-          transactionId: "123",
-          normalizedDate: "2023-10-01",
-          normalizedMerchant: "Starbucks",
-          name: "STARBUCKS STORE",
-          institutionName: "Chase",
-          accountName: "Checking",
-          accountMask: "1234",
-          accountType: "depository",
-          accountSubtype: "checking",
-          cashFlowAmount: -5.50,
-          categoryPrimary: "FOOD_AND_DRINK",
-          categoryDetailed: "COFFEE_SHOP",
-          normalizedCategory: "FOOD",
-          pending: false,
-          status: "posted",
-          removed: false,
-          classification: "expense"
-        }
-      ]
-    };
+  it('reads review data from verification.reconciliation', () => {
+    const result = extractVerificationResponse(verificationPayload);
+    expect(result.reconciliation.unknownTransferCount).toBe(1);
+    expect(result.reconciliation.unknownTransferAmount).toBe(496);
+  });
 
-    const res: TransactionsResponse = rawData;
-    expect(res.transactions[0].normalizedMerchant).toBe("Starbucks");
-    expect(res.transactions[0].cashFlowAmount).toBe(-5.50);
+  it('retains normalized transaction fields from the server response', () => {
+    const result = extractTransactionsResponse(transactionsPayload);
+    expect(result.transactions[0].normalizedDate).toBe('2026-09-01');
+    expect(result.transactions[0].normalizedMerchant).toBe('Starbucks');
+    expect(result.transactions[0].institutionName).toBe('Chase');
+    expect(result.transactions[0].accountName).toBe('Checking');
+  });
+
+  it('normalizes a representative full Overview payload without wrapper/array mistakes', () => {
+    const result = normalizeOverviewPayloads({
+      summary: summaryPayload,
+      categories: { categories: [category] },
+      merchants: { merchants: [merchant] },
+      trends: { monthly: [trend] },
+      verification: verificationPayload,
+      postedTransactions: transactionsPayload,
+      pendingTransactions: {
+        ...transactionsPayload,
+        transactions: [{ ...transaction, transactionId: 'pending_1', pending: true }],
+      },
+    });
+
+    expect(result.summary.currentMonth.month).toBe('2026-09');
+    expect(result.categories[0].category).toBe('FOOD_AND_DRINK');
+    expect(result.merchants[0].merchant).toBe('Starbucks');
+    expect(result.trends[0].netCashFlow).toBe(500);
+    expect(result.verification.reconciliation.unknownTransferCount).toBe(1);
+    expect(result.postedTransactions[0].normalizedMerchant).toBe('Starbucks');
+    expect(result.pendingTransactions[0].pending).toBe(true);
+  });
+
+  it('rejects a wrapper object where an array field is missing', () => {
+    expect(() => extractCategoriesResponse({ wrongKey: [] })).toThrow(
+      'Invalid dashboard categories response.'
+    );
+  });
+});
+
+describe('presentation formatters', () => {
+  it('keeps fractional and percentage-point formatting separate', () => {
+    expect(formatPercentage(0.25)).toBe('25%');
+    expect(formatPercentagePoints(25)).toBe('25%');
+    expect(formatPercentagePoints(25)).not.toBe('2,500%');
+  });
+
+  it('formats negative percentage-point changes correctly', () => {
+    expect(formatPercentagePoints(-8.5)).toBe('-8.5%');
+  });
+
+  it('formats the server reporting month for display', () => {
+    expect(formatMonthLabel('2026-09')).toBe('September 2026');
   });
 });
