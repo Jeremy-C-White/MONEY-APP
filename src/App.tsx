@@ -6,6 +6,7 @@ import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off
 import { DeveloperVerification } from './components/DeveloperVerification';
 import { AppShell } from './components/AppShell';
 import { OverviewPage } from './pages/OverviewPage';
+import { TransactionsPage } from './pages/TransactionsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 
 export default function App() {
@@ -426,6 +427,10 @@ export default function App() {
 
       {activeTab === 'overview' && (
         <OverviewPage apiFetch={apiFetch} refreshKey={refreshKey} setActiveTab={setActiveTab} />
+      )}
+      
+      {activeTab === 'transactions' && (
+        <TransactionsPage apiFetch={apiFetch} refreshKey={refreshKey} />
       )}
       
       {activeTab === 'settings' && (

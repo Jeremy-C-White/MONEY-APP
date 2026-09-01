@@ -96,7 +96,24 @@ export function extractTransactionsResponse(
     throw new Error('Invalid transactions response.');
   }
 
+  if (
+    typeof record.total !== 'number' ||
+    typeof record.page !== 'number' ||
+    typeof record.limit !== 'number' ||
+    typeof record.totalPages !== 'number'
+  ) {
+    throw new Error('Invalid transactions response.');
+  }
+
   return record as unknown as TransactionsResponse;
+}
+
+export function extractAccountsResponse(data: unknown): import('../types/finance').AccountSummary[] {
+  return requireArrayField<import('../types/finance').AccountSummary>(
+    data,
+    'accounts',
+    'accounts'
+  );
 }
 
 export interface OverviewPayloads {

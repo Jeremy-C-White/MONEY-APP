@@ -1808,8 +1808,16 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
     
-    // Filters
-    const filtered = filterTransactions(txs, req.query);
+    // Filters and deterministic newest-first sort
+    // Note: This in-memory sort is appropriate for the current cached ledger size.
+    // If the ledger grows to several thousand+ rows, ordering/pagination should move closer to the data/cache layer.
+    const filtered = filterTransactions(txs, req.query)
+      .slice()
+      .sort((a, b) => {
+        const dateCompare = b.normalizedDate.localeCompare(a.normalizedDate);
+        if (dateCompare !== 0) return dateCompare;
+        return b.transactionId.localeCompare(a.transactionId);
+      });
     
     // Pagination
     const page = parseInt(req.query.page as string || "1");

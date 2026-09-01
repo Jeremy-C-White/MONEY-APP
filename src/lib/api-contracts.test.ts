@@ -6,6 +6,7 @@ import {
   extractVerificationResponse,
   extractTransactionsResponse,
   normalizeOverviewPayloads,
+  extractAccountsResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -236,5 +237,27 @@ describe('presentation formatters', () => {
 
   it('formats the server reporting month for display', () => {
     expect(formatMonthLabel('2026-09')).toBe('September 2026');
+  });
+});
+
+describe('extractAccountsResponse', () => {
+  it('extracts accounts array', () => {
+    const result = extractAccountsResponse({ accounts: [{ accountId: 'acc_1' }] });
+    expect(result).toHaveLength(1);
+    expect(result[0].accountId).toBe('acc_1');
+  });
+});
+
+describe('extractTransactionsResponse metadata', () => {
+  it('enforces required metadata', () => {
+    expect(() => extractTransactionsResponse({ transactions: [] })).toThrow();
+    
+    expect(() => extractTransactionsResponse({ 
+      transactions: [],
+      total: 10,
+      page: 1,
+      limit: 10,
+      totalPages: 1
+    })).not.toThrow();
   });
 });

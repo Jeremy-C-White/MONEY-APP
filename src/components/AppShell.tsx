@@ -18,7 +18,7 @@ interface AppShellProps {
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { id: 'transactions', label: 'Transactions', icon: ReceiptText, disabled: true },
+  { id: 'transactions', label: 'Transactions', icon: ReceiptText },
   { id: 'accounts', label: 'Accounts', icon: Wallet, disabled: true },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

@@ -175,3 +175,13 @@ export interface TransactionsResponse {
   limit: number;
   totalPages: number;
 }
+
+export interface AccountSummary {
+  accountId: string;
+  institutionName: string;
+  accountName: string;
+  accountMask: string;
+  accountType: string;
+  accountSubtype: string;
+  health: string;
+}

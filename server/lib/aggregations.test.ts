@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap } from './aggregations';
+import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap, filterTransactions } from './aggregations';
 import { NormalizedTransaction } from './financial';
 
 function mockTx(overrides: Partial<NormalizedTransaction>): NormalizedTransaction {
@@ -186,5 +186,19 @@ describe('Aggregations Semantic Income Prevention', () => {
     expect(foodAndDrink).toBeUndefined(); // or its amount is 0 if your aggregator works differently
     const incomeCat = categories.find(c => c.category === 'INCOME');
     expect(incomeCat).toBeUndefined(); // Assuming aggregateCategories only tracks spending
+  });
+});
+
+describe('filterTransactions', () => {
+  it('pending status filter returns active pending and excludes removed pending', () => {
+    const txs = [
+      mockTx({ transactionId: 't1', pending: true, removed: false }),
+      mockTx({ transactionId: 't2', pending: true, removed: true }),
+      mockTx({ transactionId: 't3', pending: false, removed: false })
+    ];
+    
+    const result = filterTransactions(txs, { status: 'pending' });
+    expect(result.length).toBe(1);
+    expect(result[0].transactionId).toBe('t1');
   });
 });

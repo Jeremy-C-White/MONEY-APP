@@ -229,7 +229,7 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
   if (filters.category) result = result.filter(t => t.normalizedCategory === filters.category);
   if (filters.classification) result = result.filter(t => t.classification === filters.classification);
   if (filters.status) {
-    if (filters.status === 'pending') result = result.filter(t => t.pending);
+    if (filters.status === 'pending') result = result.filter(t => t.pending && !t.removed);
     if (filters.status === 'posted') result = result.filter(t => !t.pending && !t.removed);
   }
   if (filters.search) {
