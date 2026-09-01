@@ -25,6 +25,7 @@ export default function App() {
   
   const [message, setMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [refreshKey, setRefreshKey] = useState(0);
   
   const showMessage = (text: string, type: 'info' | 'error' | 'success' = 'info') => {
     setMessage({ text, type });
@@ -345,6 +346,7 @@ export default function App() {
          showMessage(msg, 'success');
       }
       
+      setRefreshKey(prev => prev + 1);
       fetchStatus(); // Refresh statuses in case any items broke during sync
     } catch (error: any) {
       if (error.code === 'GOOGLE_REAUTH_REQUIRED') {
@@ -362,11 +364,17 @@ export default function App() {
   };
 
   if (authLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-[#F8FAFC]">
+        <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+      </div>
+    );
+  }
 
   if (!user) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans overflow-x-hidden">
-        <header className="bg-white border-b border-slate-200 px-10 py-6 flex items-center justify-between sticky top-0 z-10">
+        <header className="bg-white border-b border-slate-200 px-4 sm:px-10 py-6 flex items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
               <Landmark className="h-5 w-5 text-white" />
@@ -417,7 +425,7 @@ export default function App() {
       )}
 
       {activeTab === 'overview' && (
-        <OverviewPage apiFetch={apiFetch} />
+        <OverviewPage apiFetch={apiFetch} refreshKey={refreshKey} setActiveTab={setActiveTab} />
       )}
       
       {activeTab === 'settings' && (
@@ -592,5 +600,4 @@ export default function App() {
       )}
     </AppShell>
   );
-}
 }

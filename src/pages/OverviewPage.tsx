@@ -2,23 +2,37 @@ import React, { useEffect, useState } from 'react';
 import { MetricCard } from '../components/MetricCard';
 import { TrendChart } from '../components/TrendChart';
 import { formatCurrency, formatPercentage, getCategoryLabel, getClassificationLabel, formatFriendlyDate } from '../lib/formatters';
-import { DashboardSummary, DashboardCategory, DashboardMerchant, TrendPoint, DashboardVerification, Transaction } from '../types/finance';
-import { AlertCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { 
+  DashboardSummary, DashboardCategory, DashboardMerchant, TrendPoint, 
+  DashboardVerificationResponse, Transaction, DashboardCategoriesResponse,
+  DashboardMerchantsResponse, DashboardTrendsResponse, TransactionsResponse
+} from '../types/finance';
+import { AlertCircle, ArrowRight, Loader2, RefreshCcw } from 'lucide-react';
 
-export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => Promise<Response> }) {
+export function OverviewPage({ 
+  apiFetch, 
+  refreshKey, 
+  setActiveTab 
+}: { 
+  apiFetch: (e: string, o?: any) => Promise<Response>,
+  refreshKey: number,
+  setActiveTab: (tab: string) => void
+}) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [categories, setCategories] = useState<DashboardCategory[]>([]);
   const [merchants, setMerchants] = useState<DashboardMerchant[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
-  const [verification, setVerification] = useState<DashboardVerification | null>(null);
+  const [verification, setVerification] = useState<DashboardVerificationResponse | null>(null);
   const [recentTxs, setRecentTxs] = useState<Transaction[]>([]);
   const [pendingTxs, setPendingTxs] = useState<Transaction[]>([]);
   
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [trendRange, setTrendRange] = useState<'6m' | '12m' | 'ytd'>('12m');
 
   const fetchData = async () => {
     setLoading(true);
+    setError(null);
     try {
       const [sumRes, catRes, merRes, trndRes, verRes, recRes, pendRes] = await Promise.all([
         apiFetch('/api/dashboard/summary'),
@@ -26,23 +40,32 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
         apiFetch('/api/dashboard/merchants'),
         apiFetch(`/api/dashboard/trends?range=${trendRange}`),
         apiFetch('/api/dashboard/verification'),
-        apiFetch('/api/transactions?limit=6'),
+        apiFetch('/api/transactions?status=posted&limit=6'),
         apiFetch('/api/transactions?status=pending&limit=4')
       ]);
 
-      setSummary(await sumRes.json());
-      setCategories(await catRes.json());
-      setMerchants(await merRes.json());
-      setTrends(await trndRes.json());
-      setVerification(await verRes.json());
-      
-      const recData = await recRes.json();
+      if (!sumRes.ok || !catRes.ok || !merRes.ok || !trndRes.ok || !verRes.ok || !recRes.ok || !pendRes.ok) {
+        throw new Error("Failed to load overview data.");
+      }
+
+      const sumData = await sumRes.json() as DashboardSummary;
+      const catData = await catRes.json() as DashboardCategoriesResponse;
+      const merData = await merRes.json() as DashboardMerchantsResponse;
+      const trndData = await trndRes.json() as DashboardTrendsResponse;
+      const verData = await verRes.json() as DashboardVerificationResponse;
+      const recData = await recRes.json() as TransactionsResponse;
+      const pendData = await pendRes.json() as TransactionsResponse;
+
+      setSummary(sumData);
+      setCategories(catData.categories || []);
+      setMerchants(merData.merchants || []);
+      setTrends(trndData.monthly || []);
+      setVerification(verData);
       setRecentTxs(recData.transactions || []);
-      
-      const pendData = await pendRes.json();
       setPendingTxs(pendData.transactions || []);
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setError(e.message || "An unexpected error occurred loading your dashboard.");
     } finally {
       setLoading(false);
     }
@@ -50,7 +73,26 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
 
   useEffect(() => {
     fetchData();
-  }, [trendRange]);
+  }, [trendRange, refreshKey]);
+
+  if (error && !summary) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-white rounded-2xl shadow-sm border border-rose-100">
+        <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mb-4">
+          <AlertCircle className="w-6 h-6 text-rose-500" />
+        </div>
+        <h3 className="text-lg font-medium text-slate-900 mb-2">Unable to load dashboard</h3>
+        <p className="text-slate-500 text-center mb-6 max-w-sm">{error}</p>
+        <button 
+          onClick={fetchData}
+          className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl font-medium transition-colors"
+        >
+          <RefreshCcw className="w-4 h-4" />
+          <span>Retry</span>
+        </button>
+      </div>
+    );
+  }
 
   const spendingDiff = summary?.comparison?.spendingDifference;
   const spendingPct = summary?.comparison?.spendingPercentageChange;
@@ -59,30 +101,44 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
     <div className="flex items-center space-x-1">
       {spendingDiff != null && spendingPct != null ? (
         <>
-          <span className={spendingDiff > 0 ? "text-rose-500" : "text-emerald-500"}>
+          <span className={spendingDiff > 0 ? "text-rose-500 font-medium" : "text-emerald-500 font-medium"}>
              {spendingDiff > 0 ? '+' : ''}{formatCurrency(spendingDiff)}
           </span>
-          <span className="text-slate-400"> vs last month</span>
+          <span className="text-slate-400">({spendingDiff > 0 ? '+' : ''}{formatPercentage(spendingPct)}) vs last month</span>
         </>
-      ) : <span>No previous data</span>}
+      ) : <span className="text-slate-400">No previous data</span>}
     </div>
   );
 
   return (
     <div className="w-full pb-20 md:pb-8">
-      {verification?.unknownTransferCount ? (
+      {summary?.currentMonth?.month && (
+        <h2 className="text-xl font-bold text-slate-900 mb-6">{summary.currentMonth.month}</h2>
+      )}
+      
+      {error && summary && (
+        <div className="mb-6 p-4 rounded-xl flex items-center justify-between shadow-sm bg-rose-50 text-rose-700 border border-rose-200">
+          <span className="text-sm font-medium">Failed to refresh some data. Showing last known state.</span>
+          <button onClick={fetchData} className="opacity-75 hover:opacity-100 text-sm font-medium underline">Retry</button>
+        </div>
+      )}
+
+      {verification?.reconciliation?.unknownTransferCount ? (
         <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center space-x-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 sm:mt-0" />
+            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 sm:mt-0 flex-shrink-0" />
             <div>
               <h4 className="font-medium text-amber-900">Needs Review</h4>
               <p className="text-sm text-amber-700">
-                {verification.unknownTransferCount} transfers ({formatCurrency(verification.unknownTransferAmount)}) are excluded from totals until classified.
+                {verification.reconciliation.unknownTransferCount} transfers ({formatCurrency(verification.reconciliation.unknownTransferAmount)}) are excluded from totals until classified.
               </p>
             </div>
           </div>
-          <button className="px-4 py-2 bg-white border border-amber-200 text-amber-800 text-sm font-medium rounded-lg shadow-sm whitespace-nowrap">
-            Review transactions
+          <button 
+            onClick={() => setActiveTab('settings')}
+            className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 text-amber-800 text-sm font-medium rounded-lg shadow-sm whitespace-nowrap transition-colors"
+          >
+            See Verification in Settings
           </button>
         </div>
       ) : null}
@@ -114,7 +170,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         {/* Trends */}
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
             <div className="flex bg-slate-100 p-1 rounded-lg">
@@ -122,7 +178,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
                 <button 
                   key={r}
                   onClick={() => setTrendRange(r)}
-                  className={`px-3 py-1 text-xs font-medium rounded-md uppercase ${trendRange === r ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
+                  className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${trendRange === r ? 'bg-white shadow-sm text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}
                 >
                   {r}
                 </button>
@@ -151,10 +207,10 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
                 <div key={c.category}>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="font-medium text-slate-700 truncate mr-2">{getCategoryLabel(c.category)}</span>
-                    <span className="font-medium text-slate-900">{formatCurrency(Math.abs(c.netSpending))}</span>
+                    <span className="font-medium text-slate-900">{formatCurrency(c.netSpending)}</span>
                   </div>
                   <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(0, c.percentage))}%` }}></div>
+                    <div className="bg-indigo-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, Math.max(0, c.percentage * 100))}%` }}></div>
                   </div>
                 </div>
               ))}
@@ -167,7 +223,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
         {/* Recent Transactions */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-medium text-slate-900">Recent Transactions</h3>
+            <h3 className="text-lg font-medium text-slate-900">Posted Transactions</h3>
           </div>
           {pendingTxs.length > 0 && (
             <div className="mb-6">
@@ -187,7 +243,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
                  {[1,2,3].map(i => <div key={i} className="h-12 bg-slate-100 rounded-lg animate-pulse"></div>)}
                </div>
             ) : recentTxs.length === 0 ? (
-               <div className="text-sm text-slate-500 text-center py-4">No recent transactions</div>
+               <div className="text-sm text-slate-500 text-center py-4">No posted transactions</div>
             ) : (
               <div className="space-y-3">
                 {recentTxs.map(t => (
@@ -216,7 +272,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
                     <p className="text-xs text-slate-500">{m.transactionCount} transactions</p>
                   </div>
                   <div className="font-medium text-slate-900 whitespace-nowrap">
-                    {formatCurrency(Math.abs(m.netSpending))}
+                    {formatCurrency(m.netSpending)}
                   </div>
                 </div>
               ))}
@@ -243,7 +299,7 @@ export function OverviewPage({ apiFetch }: { apiFetch: (e: string, o?: any) => P
 function TransactionRow({ tx, key }: { tx: Transaction, key?: React.Key }) {
   const isPositive = tx.cashFlowAmount > 0;
   let label = getClassificationLabel(tx.classification);
-  if (tx.classification === 'other' && tx.categoryDetailed.includes('TRANSFER')) {
+  if (tx.classification === 'other' && tx.normalizedCategory.includes('TRANSFER')) {
      label = 'Needs Review';
   }
   
@@ -251,10 +307,10 @@ function TransactionRow({ tx, key }: { tx: Transaction, key?: React.Key }) {
     <div className="flex justify-between items-center p-2.5 sm:p-3 hover:bg-slate-50 rounded-xl transition-colors text-sm">
       <div className="flex-1 min-w-0 pr-4">
         <div className="flex items-center space-x-2">
-          <p className="font-medium text-slate-900 truncate">{tx.merchantName || tx.name}</p>
+          <p className="font-medium text-slate-900 truncate">{tx.normalizedMerchant || tx.name}</p>
         </div>
         <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2 truncate">
-          <span>{formatFriendlyDate(tx.date)}</span>
+          <span>{formatFriendlyDate(tx.normalizedDate)}</span>
           <span className="w-1 h-1 rounded-full bg-slate-300 flex-shrink-0"></span>
           <span className="truncate">{label}</span>
           <span className="w-1 h-1 rounded-full bg-slate-300 flex-shrink-0 hidden sm:block"></span>

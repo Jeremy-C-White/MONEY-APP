@@ -9,57 +9,37 @@ export function TrendChart({ data, loading }: { data: TrendPoint[], loading?: bo
     return <div className="w-full h-48 border border-slate-100 rounded-xl flex items-center justify-center text-slate-400">No trend data available</div>;
   }
 
-  const viewBoxWidth = 1000;
-  const viewBoxHeight = 300;
-  const chartHeight = 260;
-  const paddingBottom = 40;
-  
   const maxVal = Math.max(...data.flatMap(d => [Math.abs(d.income), Math.abs(d.spending)])) || 1;
-  const barWidth = Math.max(12, Math.min(40, (viewBoxWidth / data.length) * 0.3));
   
   return (
-    <div className="w-full overflow-x-auto custom-scrollbar">
-      <div className="min-w-[400px] h-48 md:h-64 w-full relative">
-        <svg viewBox={`0 0 ${viewBoxWidth} ${viewBoxHeight}`} className="w-full h-full" preserveAspectRatio="none">
-          {data.map((d, i) => {
-            const xSection = (i / Math.max(1, data.length - 1)) * (viewBoxWidth - 100) + 50; // Keep away from edges
-            const incomeH = (d.income / maxVal) * chartHeight;
-            const spendH = (d.spending / maxVal) * chartHeight;
-            
-            return (
-              <g key={d.month}>
-                <rect 
-                  x={xSection - barWidth - 2} 
-                  y={chartHeight - incomeH} 
-                  width={barWidth} 
-                  height={incomeH} 
-                  fill="#34d399" 
-                  rx="4"
-                  opacity="0.9"
-                />
-                <rect 
-                  x={xSection + 2} 
-                  y={chartHeight - spendH} 
-                  width={barWidth} 
-                  height={spendH} 
-                  fill="#818cf8" 
-                  rx="4"
-                  opacity="0.9"
-                />
-                <text 
-                  x={xSection} 
-                  y={viewBoxHeight - 10} 
-                  textAnchor="middle" 
-                  fill="#94a3b8" 
-                  fontSize="24"
-                >
-                  {d.month}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      </div>
+    <div className="w-full h-48 md:h-64 flex items-end justify-between px-1 sm:px-4 relative pb-8 pt-4 border-b border-slate-100">
+      {data.map((d, i) => {
+        const incomePct = Math.max(0, (d.income / maxVal) * 100);
+        const spendPct = Math.max(0, (d.spending / maxVal) * 100);
+        
+        // Only show every other label on mobile if there are many data points
+        const showLabelOnMobile = data.length <= 6 || i % 2 === 0;
+        
+        return (
+          <div key={d.month} className="flex flex-col items-center flex-1 h-full justify-end relative group">
+            <div className="w-full flex justify-center items-end h-full gap-[1px] sm:gap-1 px-[1px] sm:px-1">
+              <div 
+                className="w-full max-w-[20px] bg-emerald-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100" 
+                style={{ height: `${incomePct}%`, minHeight: incomePct > 0 ? '2px' : '0' }}
+                title={`Income: ${d.income}`}
+              ></div>
+              <div 
+                className="w-full max-w-[20px] bg-indigo-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100" 
+                style={{ height: `${spendPct}%`, minHeight: spendPct > 0 ? '2px' : '0' }}
+                title={`Spending: ${d.spending}`}
+              ></div>
+            </div>
+            <div className={`absolute -bottom-6 text-[10px] sm:text-xs font-medium text-slate-400 whitespace-nowrap ${showLabelOnMobile ? 'block' : 'hidden sm:block'}`}>
+              {d.month.split(' ')[0]}
+            </div>
+          </div>
+        )
+      })}
     </div>
   );
 }

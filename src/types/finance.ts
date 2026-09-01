@@ -1,5 +1,6 @@
 export interface DashboardSummary {
   currentMonth: {
+    month: string;
     spending: number;
     income: number;
     netCashFlow: number;
@@ -36,10 +37,18 @@ export interface DashboardCategory {
   percentage: number;
 }
 
+export interface DashboardCategoriesResponse {
+  categories: DashboardCategory[];
+}
+
 export interface DashboardMerchant {
   merchant: string;
   netSpending: number;
   transactionCount: number;
+}
+
+export interface DashboardMerchantsResponse {
+  merchants: DashboardMerchant[];
 }
 
 export interface TrendPoint {
@@ -49,7 +58,13 @@ export interface TrendPoint {
   netCashFlow: number;
 }
 
-export interface DashboardVerification {
+export interface DashboardTrendsResponse {
+  monthly: TrendPoint[];
+}
+
+export interface DashboardVerificationReconciliation {
+  categoryMathReconciles: boolean;
+  accountingBridgeReconciles: boolean;
   unknownTransferCount: number;
   unknownTransferAmount: number;
   unclassifiedPositiveCount: number;
@@ -60,21 +75,32 @@ export interface DashboardVerification {
   creditCardAmount: number;
   merchantCreditCount: number;
   merchantCreditAmount: number;
-  reconciliation: {
-    categoryMathReconciles: boolean;
-    accountingBridgeReconciles: boolean;
-  };
+}
+
+export interface DashboardVerificationResponse {
+  reconciliation: DashboardVerificationReconciliation;
 }
 
 export interface Transaction {
   transactionId: string;
-  date: string;
+  normalizedDate: string;
+  normalizedMerchant: string | null;
   name: string;
-  merchantName: string | null;
-  cashFlowAmount: number;
-  pending: boolean;
-  classification: string;
-  categoryDetailed: string;
+  institutionName: string;
+  accountName: string;
+  accountMask: string;
   accountType: string;
   accountSubtype: string;
+  cashFlowAmount: number;
+  categoryPrimary: string;
+  categoryDetailed: string;
+  normalizedCategory: string;
+  pending: boolean;
+  status: string;
+  removed: boolean;
+  classification: string;
+}
+
+export interface TransactionsResponse {
+  transactions: Transaction[];
 }

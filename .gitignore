@@ -6,3 +6,12 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Agent scratch files
+/fix_*.cjs
+/patch_*.cjs
+/write_*.js
+/temp_*.txt
+*.backup
+*.bak
+*.tmp
