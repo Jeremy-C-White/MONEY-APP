@@ -16,10 +16,10 @@ interface AppShellProps {
   setActiveTab: (tab: string) => void;
 }
 
-const NAV_ITEMS = [
+const NAV_ITEMS: { id: string; label: string; icon: any; disabled?: boolean }[] = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
-  { id: 'accounts', label: 'Accounts', icon: Wallet, disabled: true },
+  { id: 'accounts', label: 'Accounts', icon: Wallet },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 

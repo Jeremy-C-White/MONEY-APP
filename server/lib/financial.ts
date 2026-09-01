@@ -263,3 +263,14 @@ export function deduplicateAndNormalizeTransactions(rawRows: any[][]): Normalize
     return t;
   });
 }
+
+export function normalizeItemHealth(data: any): string {
+  const health = data.health || data.status || 'unknown';
+  if (health === 'healthy' || health === 'disconnected' || health === 'login_required' || health === 'pending_disconnect' || health === 'permission_revoked') {
+    return health;
+  }
+  if (health === 'ITEM_LOGIN_REQUIRED') return 'login_required';
+  if (health === 'PENDING_DISCONNECT') return 'pending_disconnect';
+  if (health === 'sync_available') return 'healthy';
+  return health;
+}

@@ -7,6 +7,7 @@ import { DeveloperVerification } from './components/DeveloperVerification';
 import { AppShell } from './components/AppShell';
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
+import { AccountsPage } from './pages/AccountsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 
 export default function App() {
@@ -431,6 +432,10 @@ export default function App() {
       
       {activeTab === 'transactions' && (
         <TransactionsPage apiFetch={apiFetch} refreshKey={refreshKey} />
+      )}
+
+      {activeTab === 'accounts' && (
+        <AccountsPage />
       )}
       
       {activeTab === 'settings' && (
