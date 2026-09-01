@@ -1,13 +1,23 @@
 import { NormalizedTransaction } from './financial';
 import { getMonthForDateInTimezone } from './time';
 
+export function getPreviousMonthString(currentMonthStr: string): string {
+  const parts = currentMonthStr.split('-');
+  let year = parseInt(parts[0]);
+  let month = parseInt(parts[1]);
+  if (month === 1) {
+    year--;
+    month = 12;
+  } else {
+    month--;
+  }
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
+
 export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: string) {
   const now = new Date();
   const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
-  
-  const prevMonthDate = new Date(now);
-  prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
-  const previousMonthPrefix = getMonthForDateInTimezone(prevMonthDate, financeTimezone);
+  const previousMonthPrefix = getPreviousMonthString(currentMonthPrefix);
 
   let spending = 0;
   let income = 0;
@@ -94,8 +104,6 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
 export function aggregateCategories(txs: NormalizedTransaction[]) {
   const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number }> = {};
   
-  let totalNetSpending = 0;
-
   for (const t of txs) {
     if (t.removed || t.pending || !t.countsTowardSpending) continue;
     
@@ -107,10 +115,6 @@ export function aggregateCategories(txs: NormalizedTransaction[]) {
     categoryTotals[cat].transactionCount++;
     categoryTotals[cat].netSpending += t.spendingAdjustment;
     
-    if (t.spendingAdjustment > 0) {
-      totalNetSpending += t.spendingAdjustment;
-    }
-    
     if (t.classification === 'refund') {
       categoryTotals[cat].refunds += Math.abs(t.spendingAdjustment); // Keep refund tracked as a positive absolute value for display
     } else {
@@ -118,10 +122,17 @@ export function aggregateCategories(txs: NormalizedTransaction[]) {
     }
   }
   
+  let totalNetPositiveSpending = 0;
+  for (const stats of Object.values(categoryTotals)) {
+    if (stats.netSpending > 0) {
+      totalNetPositiveSpending += stats.netSpending;
+    }
+  }
+  
   return Object.entries(categoryTotals).map(([category, stats]) => ({
     category,
     ...stats,
-    percentage: totalNetSpending > 0 && stats.netSpending > 0 ? (stats.netSpending / totalNetSpending) : 0
+    percentage: totalNetPositiveSpending > 0 && stats.netSpending > 0 ? (stats.netSpending / totalNetPositiveSpending) : 0
   })).sort((a, b) => b.netSpending - a.netSpending);
 }
 
@@ -145,18 +156,54 @@ export function aggregateMerchants(txs: NormalizedTransaction[]) {
     .sort((a, b) => b.netSpending - a.netSpending);
 }
 
-export function aggregateTrends(txs: NormalizedTransaction[]) {
+export function aggregateTrends(txs: NormalizedTransaction[], range: string = '12m', financeTimezone: string = 'America/New_York') {
+  const now = new Date();
+  const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
+  const currentYear = currentMonthPrefix.substring(0, 4);
+
+  let cutoffMonth = '';
+  if (range === '6m') {
+    let m = currentMonthPrefix;
+    for (let i = 0; i < 5; i++) m = getPreviousMonthString(m);
+    cutoffMonth = m;
+  } else if (range === '12m') {
+    let m = currentMonthPrefix;
+    for (let i = 0; i < 11; i++) m = getPreviousMonthString(m);
+    cutoffMonth = m;
+  } else if (range === 'ytd') {
+    cutoffMonth = `${currentYear}-01`;
+  } else {
+    // Default to 12m
+    let m = currentMonthPrefix;
+    for (let i = 0; i < 11; i++) m = getPreviousMonthString(m);
+    cutoffMonth = m;
+  }
+
   const monthly: Record<string, { income: number, spending: number, netCashFlow: number }> = {};
   
+  // Initialize all months in range to 0
+  let iterMonth = cutoffMonth;
+  while (iterMonth <= currentMonthPrefix) {
+    monthly[iterMonth] = { income: 0, spending: 0, netCashFlow: 0 };
+    
+    // increment iterMonth
+    const parts = iterMonth.split('-');
+    let y = parseInt(parts[0]);
+    let m = parseInt(parts[1]);
+    if (m === 12) {
+      y++;
+      m = 1;
+    } else {
+      m++;
+    }
+    iterMonth = `${y}-${String(m).padStart(2, '0')}`;
+  }
+
   for (const t of txs) {
     if (t.removed || t.pending) continue;
     
     const month = t.normalizedDate.substring(0, 7);
-    if (!month.match(/^\d{4}-\d{2}$/)) continue;
-    
-    if (!monthly[month]) {
-      monthly[month] = { income: 0, spending: 0, netCashFlow: 0 };
-    }
+    if (!monthly[month]) continue; // Skip if out of range or invalid
     
     if (t.countsTowardIncome) monthly[month].income += t.incomeAdjustment;
     if (t.countsTowardSpending) monthly[month].spending += t.spendingAdjustment;
@@ -205,8 +252,10 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let refundCount = 0;
   let cashWithdrawalCount = 0;
   let cashWithdrawalAmount = 0;
-  let p2pCount = 0;
-  let p2pAmount = 0;
+  let p2pIncomingCount = 0;
+  let p2pIncomingAmount = 0;
+  let p2pOutgoingCount = 0;
+  let p2pOutgoingAmount = 0;
   let unclassifiedPositiveCount = 0;
   let unclassifiedPositiveAmount = 0;
   let unknownTransferCount = 0;
@@ -227,6 +276,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
     switch (t.classification) {
       case 'spending':
       case 'interest_paid':
+      case 'bank_fee':
         spendingCount++;
         break;
       case 'income':
@@ -247,8 +297,13 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         cashWithdrawalAmount += t.spendingAdjustment;
         break;
       case 'person_to_person':
-        p2pCount++;
-        p2pAmount += Math.abs(t.cashFlowAmount);
+        if (t.cashFlowAmount < 0) {
+          p2pOutgoingCount++;
+          p2pOutgoingAmount += Math.abs(t.cashFlowAmount);
+        } else {
+          p2pIncomingCount++;
+          p2pIncomingAmount += t.cashFlowAmount;
+        }
         break;
       case 'other':
         otherCount++;
@@ -284,8 +339,10 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       refundCount,
       cashWithdrawalCount,
       cashWithdrawalAmount,
-      p2pCount,
-      p2pAmount,
+      p2pIncomingCount,
+      p2pIncomingAmount,
+      p2pOutgoingCount,
+      p2pOutgoingAmount,
       unclassifiedPositiveCount,
       unclassifiedPositiveAmount,
       unknownTransferCount,

@@ -85,7 +85,8 @@ export function DeveloperVerification({ user }: { user: any }) {
               <ul className="list-disc pl-5 space-y-1 font-mono text-slate-700 bg-slate-50 p-4 rounded-lg">
                 <li>Internal Transfer Rows: {data.reconciliation.transferCount}</li>
                 <li>Cash Withdrawal Rows: {data.reconciliation.cashWithdrawalCount} (${data.reconciliation.cashWithdrawalAmount.toFixed(2)})</li>
-                <li>P2P Rows: {data.reconciliation.p2pCount} (${data.reconciliation.p2pAmount.toFixed(2)})</li>
+                <li>P2P Outgoing: {data.reconciliation.p2pOutgoingCount} (${data.reconciliation.p2pOutgoingAmount.toFixed(2)})</li>
+                <li>P2P Incoming: {data.reconciliation.p2pIncomingCount} (${data.reconciliation.p2pIncomingAmount.toFixed(2)})</li>
                 <li>Unknown Transfer Rows: {data.reconciliation.unknownTransferCount} (${data.reconciliation.unknownTransferAmount.toFixed(2)})</li>
                 <li>Unclassified Positive Rows: {data.reconciliation.unclassifiedPositiveCount} (${data.reconciliation.unclassifiedPositiveAmount.toFixed(2)})</li>
                 <li>Other Rows: {data.reconciliation.otherCount}</li>

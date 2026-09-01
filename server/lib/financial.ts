@@ -8,6 +8,7 @@ export type Classification =
   'refund' | 
   'interest_earned' | 
   'interest_paid' |
+  'bank_fee' |
   'pending' | 
   'removed' | 
   'other';
@@ -103,32 +104,35 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       classification = 'internal_transfer';
     } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
       classification = 'cash_withdrawal';
-      countsTowardSpending = true;
-      spendingAdjustment = -cashFlowAmount;
+      countsTowardSpending = false;
+      countsTowardIncome = false;
     } else if (catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal')) {
       classification = 'person_to_person';
       if (cashFlowAmount < 0) {
         countsTowardSpending = true;
         spendingAdjustment = -cashFlowAmount;
       } else if (cashFlowAmount > 0) {
-        countsTowardIncome = true;
-        incomeAdjustment = cashFlowAmount;
+        countsTowardIncome = false; // Incoming P2P is not recognized income by default
       }
     } else {
       classification = 'other';
     }
   } else if (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) {
     classification = 'credit_card_payment';
-  } else if (cashFlowAmount > 0 && catPrimary === 'INCOME') {
-    classification = 'income';
-    countsTowardIncome = true;
-    incomeAdjustment = cashFlowAmount;
   } else if (cashFlowAmount > 0 && (catDetailed.includes('INTEREST_EARNED') || catDetailed.includes('DIVIDEND'))) {
     classification = 'interest_earned';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
-  } else if (cashFlowAmount < 0 && (catDetailed.includes('INTEREST_CHARGE') || catDetailed.includes('FEE'))) {
+  } else if (cashFlowAmount > 0 && catPrimary === 'INCOME') {
+    classification = 'income';
+    countsTowardIncome = true;
+    incomeAdjustment = cashFlowAmount;
+  } else if (cashFlowAmount < 0 && catDetailed.includes('INTEREST_CHARGE')) {
     classification = 'interest_paid';
+    countsTowardSpending = true;
+    spendingAdjustment = -cashFlowAmount;
+  } else if (cashFlowAmount < 0 && catDetailed.includes('FEE')) {
+    classification = 'bank_fee';
     countsTowardSpending = true;
     spendingAdjustment = -cashFlowAmount;
   } else if (cashFlowAmount > 0 && hasRefundEvidence) {

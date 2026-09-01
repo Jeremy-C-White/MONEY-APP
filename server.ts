@@ -1697,7 +1697,9 @@ app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, re
 app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const trends = aggregateTrends(txs);
+    const range = typeof req.query.range === 'string' ? req.query.range : '12m';
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const trends = aggregateTrends(txs, range, financeTz);
     res.json({ monthly: trends });
   } catch (error: any) {
     console.error("Dashboard Trends Error:", error);
@@ -1750,13 +1752,13 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
     const uid = (req as any).user.uid;
     const txs = await fetchNormalizedTransactions(uid);
     
-    // Fetch plaidItems for health
-    const userDoc = await db.collection("users").doc(uid).get();
-    const plaidItems = userDoc.exists ? (userDoc.data()?.plaidItems || []) : [];
+    // Fetch plaidItems for health from plaid_items collection
+    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
     const itemHealthMap = new Map();
-    for (const item of plaidItems) {
-      itemHealthMap.set(item.institution_name, item.health);
-    }
+    plaidItemsSnap.forEach((doc: any) => {
+      const data = doc.data();
+      itemHealthMap.set(data.institution_name, data.health || "unknown");
+    });
     
     const accountsMap: Record<string, any> = {};
     for (const t of txs) {
