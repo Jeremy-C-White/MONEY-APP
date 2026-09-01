@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport } from './aggregations';
+import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap } from './aggregations';
 import { NormalizedTransaction } from './financial';
 
 function mockTx(overrides: Partial<NormalizedTransaction>): NormalizedTransaction {
@@ -91,6 +91,26 @@ describe('Aggregations Pass 1C', () => {
     expect(res.allTime.spending).toBe(50);
     expect(res.allTime.pendingSpending).toBe(0);
     expect(res.allTime.projectedSpending).toBe(50);
+  });
+
+  it('maps account health securely by account id, isolating same-institution health drift', () => {
+    const plaidItems = [
+      {
+        institution_name: 'Wells Fargo',
+        health: 'healthy',
+        accounts: [{ id: 'account_1' }]
+      },
+      {
+        institution_name: 'Wells Fargo',
+        health: 'login_required',
+        accounts: [{ id: 'account_2' }]
+      }
+    ];
+
+    const healthMap = buildAccountHealthMap(plaidItems);
+
+    expect(healthMap.get('account_1')).toBe('healthy');
+    expect(healthMap.get('account_2')).toBe('login_required');
   });
 });
 

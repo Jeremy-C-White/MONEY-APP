@@ -1764,8 +1764,8 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
       const data = doc.data();
       if (Array.isArray(data.accounts)) {
         for (const acc of data.accounts) {
-          if (acc.account_id) {
-            itemHealthMap.set(acc.account_id, data.health || "unknown");
+          if (acc.id) {
+            itemHealthMap.set(acc.id, data.health || "unknown");
           }
         }
       }

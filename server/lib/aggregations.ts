@@ -14,6 +14,20 @@ export function getPreviousMonthString(currentMonthStr: string): string {
   return `${year}-${String(month).padStart(2, '0')}`;
 }
 
+export function buildAccountHealthMap(plaidItems: any[]) {
+  const itemHealthMap = new Map<string, string>();
+  for (const data of plaidItems) {
+    if (Array.isArray(data.accounts)) {
+      for (const acc of data.accounts) {
+        if (acc.id) {
+          itemHealthMap.set(acc.id, data.health || "unknown");
+        }
+      }
+    }
+  }
+  return itemHealthMap;
+}
+
 export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: string) {
   const now = new Date();
   const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
