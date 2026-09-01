@@ -38,38 +38,54 @@ export function generateAcceptanceReport(rawRows: any[]) {
       const passExactId = newPendingId === oldId;
       const passNewStatus = newStatus !== 'removed';
       
-      if (passOldPending && passOldStatus && passOldRemovedAt && passNewPending && passExactId && passNewStatus) {
-        supersededPendingIds.add(oldId);
-        pendingDoc = {
-          status: 'PASS',
-          oldId,
-          newId: posted.transactionId,
-          oldStatus,
-          oldRemovedAt,
-          newPendingId,
-          cashFlowAmount: posted.cashFlowAmount,
-          classification: posted.classification,
-          spendingAdjustment: posted.spendingAdjustment,
-          reportingBucket: 'Net Spending'
-        };
-        break;
-      } else {
-        pendingDoc = {
-          status: 'FAIL',
-          reason: `Source row exact conditions not met:\n` +
-                  `Old Pending semantic true: ${passOldPending ? 'PASS' : 'FAIL'}\n` +
-                  `Old Status removed: ${passOldStatus ? 'PASS' : 'FAIL'}\n` +
-                  `Old Removed At populated: ${passOldRemovedAt ? 'PASS' : 'FAIL'}\n` +
-                  `New Pending semantic false: ${passNewPending ? 'PASS' : 'FAIL'}\n` +
-                  `Pending Transaction ID exact match: ${passExactId ? 'PASS' : 'FAIL'}\n` +
-                  `New Status non-removed: ${passNewStatus ? 'PASS' : 'FAIL'}`,
-          oldId,
-          newId: posted.transactionId,
-          oldStatus,
-          oldRemovedAt,
-          newPendingId
-        };
-      }
+      if (
+  passOldPending &&
+  passOldStatus &&
+  passOldRemovedAt &&
+  passNewPending &&
+  passExactId &&
+  passNewStatus
+) {
+  // Collect EVERY valid superseded pending ID.
+  supersededPendingIds.add(oldId);
+
+  // Keep the first valid pair as the representative UI evidence,
+  // but continue scanning so all supersessions are excluded from
+  // the independent Removed/Reversed scenario.
+  if (pendingDoc.status !== 'PASS') {
+    pendingDoc = {
+      status: 'PASS',
+      oldId,
+      newId: posted.transactionId,
+      oldStatus,
+      oldRemovedAt,
+      newPendingId,
+      cashFlowAmount: posted.cashFlowAmount,
+      classification: posted.classification,
+      spendingAdjustment: posted.spendingAdjustment,
+      reportingBucket: 'Net Spending'
+    };
+  }
+} else if (pendingDoc.status !== 'PASS') {
+  // Only retain failure evidence until a valid pair has been found.
+  // A later invalid candidate must never overwrite an established PASS.
+  pendingDoc = {
+    status: 'FAIL',
+    reason:
+      `Source row exact conditions not met:\n` +
+      `Old Pending semantic true: ${passOldPending ? 'PASS' : 'FAIL'}\n` +
+      `Old Status removed: ${passOldStatus ? 'PASS' : 'FAIL'}\n` +
+      `Old Removed At populated: ${passOldRemovedAt ? 'PASS' : 'FAIL'}\n` +
+      `New Pending semantic false: ${passNewPending ? 'PASS' : 'FAIL'}\n` +
+      `Pending Transaction ID exact match: ${passExactId ? 'PASS' : 'FAIL'}\n` +
+      `New Status non-removed: ${passNewStatus ? 'PASS' : 'FAIL'}`,
+    oldId,
+    newId: posted.transactionId,
+    oldStatus,
+    oldRemovedAt,
+    newPendingId
+  };
+}
     }
   }
 
