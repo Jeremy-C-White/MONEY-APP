@@ -106,7 +106,7 @@ describe('Financial Rules Pass 1B', () => {
     expect(tx.classification).toBe('internal_transfer');
     expect(tx.countsTowardIncome).toBe(false);
   });
-  
+
   it('classifies credit card payment', () => {
     const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'LOAN_PAYMENTS', catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT' }));
     expect(tx.classification).toBe('credit_card_payment');

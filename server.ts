@@ -1696,10 +1696,15 @@ app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, re
 
 app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
+    const validRanges = ['6m', '12m', 'ytd'];
+    const rangeParam = req.query.range as string || '12m';
+    if (!validRanges.includes(rangeParam)) {
+      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, ytd" });
+    }
+    
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const range = typeof req.query.range === 'string' ? req.query.range : '12m';
     const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const trends = aggregateTrends(txs, range, financeTz);
+    const trends = aggregateTrends(txs, rangeParam, financeTz);
     res.json({ monthly: trends });
   } catch (error: any) {
     console.error("Dashboard Trends Error:", error);
@@ -1757,7 +1762,13 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
     const itemHealthMap = new Map();
     plaidItemsSnap.forEach((doc: any) => {
       const data = doc.data();
-      itemHealthMap.set(data.institution_name, data.health || "unknown");
+      if (Array.isArray(data.accounts)) {
+        for (const acc of data.accounts) {
+          if (acc.account_id) {
+            itemHealthMap.set(acc.account_id, data.health || "unknown");
+          }
+        }
+      }
     });
     
     const accountsMap: Record<string, any> = {};
@@ -1770,7 +1781,7 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
           accountMask: t.accountMask,
           accountType: t.accountType,
           accountSubtype: t.accountSubtype,
-          health: itemHealthMap.get(t.institutionName) || "unknown"
+          health: itemHealthMap.get(t.accountId) || "unknown"
         };
       }
     }

@@ -198,7 +198,7 @@ export function aggregateTrends(txs: NormalizedTransaction[], range: string = '1
     }
     iterMonth = `${y}-${String(m).padStart(2, '0')}`;
   }
-
+  
   for (const t of txs) {
     if (t.removed || t.pending) continue;
     
@@ -294,7 +294,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         break;
       case 'cash_withdrawal':
         cashWithdrawalCount++;
-        cashWithdrawalAmount += t.spendingAdjustment;
+        cashWithdrawalAmount += Math.abs(t.cashFlowAmount);
         break;
       case 'person_to_person':
         if (t.cashFlowAmount < 0) {

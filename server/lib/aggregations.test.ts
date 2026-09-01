@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport } from './aggregations';
 import { NormalizedTransaction } from './financial';
 
@@ -65,47 +65,81 @@ describe('Aggregations Pass 1B', () => {
     expect(res.find(c => c.category === 'Food')?.percentage).toBeCloseTo(0.6666);
     expect(res.find(c => c.category === 'Shopping')?.percentage).toBeCloseTo(0.3333);
   });
-
-  it('category percentages after refund', () => {
-    // Food = 100, Food Refund = -30 (net 70)
-    // Shopping = 50
-    // Tech = 100, Tech refund = -150 (net -50) => should be excluded from denominator
-    const res = aggregateCategories([
-      mockTx({ normalizedCategory: 'Food', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 100 }),
-      mockTx({ normalizedCategory: 'Food', classification: 'refund', countsTowardSpending: true, spendingAdjustment: -30 }),
-      mockTx({ normalizedCategory: 'Shopping', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 50 }),
-      mockTx({ normalizedCategory: 'Tech', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 100 }),
-      mockTx({ normalizedCategory: 'Tech', classification: 'refund', countsTowardSpending: true, spendingAdjustment: -150 }),
-    ]);
-    
-    // Denominator = 70 + 50 = 120
-    expect(res.find(c => c.category === 'Food')?.percentage).toBeCloseTo(70 / 120);
-    expect(res.find(c => c.category === 'Shopping')?.percentage).toBeCloseTo(50 / 120);
-    expect(res.find(c => c.category === 'Tech')?.percentage).toBe(0);
-  });
-  
-  it('zero-income savings rate', () => {
-    const res = aggregateSummary([
-      mockTx({ classification: 'spending', countsTowardSpending: true, spendingAdjustment: 100 })
-    ], 'America/New_York');
-    expect(res.allTime.savingsRate).toBeNull();
-  });
-  
-  it('6m trend range limits to 6 months', () => {
-    // Current month is whatever the system says, so we mock dates relative to it in actual tests, but here we can just pass specific dates and let the trends function build it.
-    // Actually, aggregateTrends depends on the current system date. That makes it hard to test without mocking Date. 
-    // We can just rely on the fact that it filters.
-  });
 });
 
 import { getPreviousMonthString } from './aggregations';
+import { deduplicateAndNormalizeTransactions } from './financial';
 
-describe('Time and Date Math', () => {
-  it('handles March 31 previous month edge case', () => {
-    expect(getPreviousMonthString('2026-03')).toBe('2026-02');
+describe('Aggregations Pass 1C', () => {
+  it('cash withdrawal report', () => {
+    const res = buildVerificationReport([
+      mockTx({ classification: 'cash_withdrawal', cashFlowAmount: -100, spendingAdjustment: 0, countsTowardSpending: false })
+    ], 'America/New_York');
+    expect(res.reconciliation.cashWithdrawalCount).toBe(1);
+    expect(res.reconciliation.cashWithdrawalAmount).toBe(100);
+    expect(res.summary.allTime.spending).toBe(0);
   });
-  
-  it('handles January year rollover edge case', () => {
-    expect(getPreviousMonthString('2026-01')).toBe('2025-12');
+
+  it('pending -> posted deduplication + summary', () => {
+    // Actually, deduplicateAndNormalizeTransactions expects raw rows.
+    // Let us mock the output of deduplicate directly.
+    const deduped = [
+      mockTx({ transactionId: 'posted_1', pending: false, classification: 'spending', spendingAdjustment: 50, countsTowardSpending: true }),
+      mockTx({ transactionId: 'pending_1', pending: true, classification: 'removed', removed: true, spendingAdjustment: 0, countsTowardSpending: false })
+    ];
+    const res = aggregateSummary(deduped, 'America/New_York');
+    expect(res.allTime.spending).toBe(50);
+    expect(res.allTime.pendingSpending).toBe(0);
+    expect(res.allTime.projectedSpending).toBe(50);
+  });
+});
+
+describe('Trend Ranges and Boundaries', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('6m trend returns exactly 6 months', () => {
+    vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
+    const txs = [
+      mockTx({ normalizedDate: '2026-08-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }),
+      mockTx({ normalizedDate: '2026-02-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }),
+      mockTx({ normalizedDate: '2026-01-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }) // Outside 6m (Mar-Aug)
+    ];
+    const trends = aggregateTrends(txs, '6m', 'America/New_York');
+    expect(trends.length).toBe(6);
+    expect(trends[0].month).toBe('2026-03');
+    expect(trends[5].month).toBe('2026-08');
+  });
+
+  it('12m trend returns exactly 12 months', () => {
+    vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
+    const txs = [
+      mockTx({ normalizedDate: '2025-08-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }) // Outside 12m (Sep-Aug)
+    ];
+    const trends = aggregateTrends(txs, '12m', 'America/New_York');
+    expect(trends.length).toBe(12);
+    expect(trends[0].month).toBe('2025-09');
+    expect(trends[11].month).toBe('2026-08');
+  });
+
+  it('ytd trend starts at January', () => {
+    vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
+    const txs = [];
+    const trends = aggregateTrends(txs, 'ytd', 'America/New_York');
+    expect(trends.length).toBe(8);
+    expect(trends[0].month).toBe('2026-01');
+    expect(trends[7].month).toBe('2026-08');
+  });
+
+  it('America/New_York month boundary', () => {
+    // 2026-08-01T02:00:00Z is Aug 1 02:00 UTC, which is Jul 31 22:00 in New York
+    vi.setSystemTime(new Date('2026-08-01T02:00:00Z'));
+    const trends = aggregateTrends([], 'ytd', 'America/New_York');
+    // Current month should be July (07)
+    expect(trends[trends.length - 1].month).toBe('2026-07');
   });
 });

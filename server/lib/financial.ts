@@ -112,7 +112,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
         countsTowardSpending = true;
         spendingAdjustment = -cashFlowAmount;
       } else if (cashFlowAmount > 0) {
-        countsTowardIncome = false; // Incoming P2P is not recognized income by default
+        countsTowardIncome = false;
       }
     } else {
       classification = 'other';
