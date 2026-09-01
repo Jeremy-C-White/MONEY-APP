@@ -1,52 +1,49 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTransaction, NormalizedTransaction } from './financial';
+import { classifyTransaction, deduplicateAndNormalizeTransactions } from './financial';
 
 function buildRow(overrides: Record<string, string>): any[] {
-  const row: any[] = new Array(25).fill('');
-  // 0: transaction_id
-  row[0] = overrides.txId || 'tx1';
-  // 10: name
+  const row = new Array(24).fill('');
+  row[0] = overrides.txId || 'test_tx';
+  row[1] = 'acc_1';
+  row[6] = overrides.accountType || 'depository';
+  row[7] = overrides.accountSubtype || 'checking';
+  row[8] = '45000'; // Date
   row[10] = overrides.name || 'Test Merchant';
-  // 11: merchant_name
-  row[11] = overrides.merchantName || '';
-  // 13: plaid amount
+  row[11] = overrides.merchantName || overrides.name || 'Test Merchant';
   row[13] = overrides.plaidAmount || '0';
-  // 14: cash flow amount
-  row[14] = overrides.cashFlowAmount || '0';
-  // 16: cat primary
-  row[16] = overrides.catPrimary || 'GENERAL_MERCHANDISE';
-  // 17: cat detailed
-  row[17] = overrides.catDetailed || 'GENERAL_MERCHANDISE_SUPERSTORES';
-  // 20: pending
+  row[14] = overrides.cashFlowAmount || '-50';
+  row[16] = overrides.catPrimary || 'FOOD_AND_DRINK';
+  row[17] = overrides.catDetailed || 'FOOD_AND_DRINK_RESTAURANT';
   row[20] = overrides.pending || 'FALSE';
-  // 22: status
+  row[21] = overrides.pendingTransactionId || '';
   row[22] = overrides.status || 'posted';
-  
   return row;
 }
 
 describe('Financial Rules Pass 1B', () => {
   it('classifies $50 purchase', () => {
-    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-50', plaidAmount: '50' }));
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-50' }));
     expect(tx.classification).toBe('spending');
     expect(tx.countsTowardSpending).toBe(true);
-    expect(tx.spendingAdjustment).toBe(50); // Positive spending
+    expect(tx.spendingAdjustment).toBe(50);
+    expect(tx.countsTowardIncome).toBe(false);
   });
-
+  
   it('classifies recognized $30 merchant refund', () => {
-    const tx = classifyTransaction(buildRow({ cashFlowAmount: '30', plaidAmount: '-30', catDetailed: 'GENERAL_MERCHANDISE_REFUND' }));
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '30', name: 'TARGET REFUND' }));
     expect(tx.classification).toBe('refund');
     expect(tx.countsTowardSpending).toBe(true);
     expect(tx.spendingAdjustment).toBe(-30);
+    expect(tx.countsTowardIncome).toBe(false);
   });
   
   it('does not classify positive inflow as refund without evidence', () => {
-    const tx = classifyTransaction(buildRow({ cashFlowAmount: '200', plaidAmount: '-200', catPrimary: 'GENERAL_MERCHANDISE', catDetailed: 'GENERAL_MERCHANDISE' }));
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '30', name: 'SOME RANDOM DEPOSIT' }));
     expect(tx.classification).toBe('other');
     expect(tx.countsTowardSpending).toBe(false);
-    expect(tx.spendingAdjustment).toBe(0);
+    expect(tx.countsTowardIncome).toBe(false);
   });
-
+  
   it('classifies internal transfer out', () => {
     const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'TRANSFER_OUT', catDetailed: 'TRANSFER_OUT_ACCOUNT_TRANSFER' }));
     expect(tx.classification).toBe('internal_transfer');
@@ -106,15 +103,13 @@ describe('Financial Rules Pass 1B', () => {
     expect(tx.classification).toBe('internal_transfer');
     expect(tx.countsTowardIncome).toBe(false);
   });
-
+  
   it('classifies credit card payment', () => {
     const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'LOAN_PAYMENTS', catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT' }));
     expect(tx.classification).toBe('credit_card_payment');
     expect(tx.countsTowardSpending).toBe(false);
   });
 });
-
-import { deduplicateAndNormalizeTransactions } from './financial';
 
 describe('Deduplication', () => {
   it('supersedes pending transaction with posted transaction', () => {
@@ -143,5 +138,133 @@ describe('Deduplication', () => {
     expect(posted?.classification).toBe('spending');
     expect(posted?.countsTowardSpending).toBe(true);
     expect(posted?.spendingAdjustment).toBe(50);
+  });
+});
+
+describe('New Reconciliation Tests', () => {
+  it('LOAN_PAYMENTS + credit-card account + automatic-payment description -> credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'LOAN_PAYMENTS', 
+      accountType: 'credit', 
+      name: 'AUTOMATIC PAYMENT - THANK', 
+      cashFlowAmount: '-500' 
+    }));
+    expect(tx.classification).toBe('credit_card_payment');
+  });
+
+  it('ordinary loan payment that is not a credit-card payment -> must NOT automatically become credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'LOAN_PAYMENTS', 
+      catDetailed: 'LOAN_PAYMENTS_STUDENT_LOAN', 
+      accountType: 'depository', 
+      name: 'NAVIENT PAYMENT', 
+      cashFlowAmount: '-200' 
+    }));
+    expect(tx.classification).toBe('spending'); // Assuming generic negative becomes spending
+  });
+
+  it('INTRST PYMNT savings credit -> interest_earned', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_IN', 
+      accountType: 'depository', 
+      accountSubtype: 'savings', 
+      name: 'INTRST PYMNT', 
+      cashFlowAmount: '4.22' 
+    }));
+    expect(tx.classification).toBe('interest_earned');
+  });
+
+  it('generic TRANSFER_IN -> still internal_transfer/other according to existing rules', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_IN', 
+      accountType: 'depository', 
+      name: 'UNKNOWN DEPOSIT', 
+      cashFlowAmount: '100' 
+    }));
+    expect(tx.classification).toBe('other');
+  });
+
+  it('TRANSFER_OUT_ACCOUNT_TRANSFER + "Venmo payment" -> person_to_person -> spending', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_OUT', 
+      catDetailed: 'TRANSFER_OUT_ACCOUNT_TRANSFER', 
+      name: 'Venmo payment', 
+      cashFlowAmount: '-50' 
+    }));
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardSpending).toBe(true);
+  });
+
+  it('TRANSFER_IN_ACCOUNT_TRANSFER + "Venmo from Jane" -> person_to_person -> not recognized income', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_IN', 
+      catDetailed: 'TRANSFER_IN_ACCOUNT_TRANSFER', 
+      name: 'Venmo from Jane', 
+      cashFlowAmount: '50' 
+    }));
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('TRANSFER_OUT_ACCOUNT_TRANSFER with no P2P/provider evidence -> internal_transfer', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_OUT', 
+      catDetailed: 'TRANSFER_OUT_ACCOUNT_TRANSFER', 
+      name: 'Online Transfer to Checking', 
+      cashFlowAmount: '-50' 
+    }));
+    expect(tx.classification).toBe('internal_transfer');
+  });
+
+  it('TRANSFER_IN_ACCOUNT_TRANSFER with no P2P/provider evidence -> internal_transfer', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'TRANSFER_IN', 
+      catDetailed: 'TRANSFER_IN_ACCOUNT_TRANSFER', 
+      name: 'Online Transfer from Savings', 
+      cashFlowAmount: '50' 
+    }));
+    expect(tx.classification).toBe('internal_transfer');
+  });
+
+  it('merchant expense $500 + same-merchant/category credit $500 -> net spending 0', () => {
+    const rawPurchase = buildRow({ txId: 'p1', name: 'United Airlines', catPrimary: 'TRAVEL', cashFlowAmount: '-500' });
+    const rawCredit = buildRow({ txId: 'c1', name: 'United Airlines', catPrimary: 'TRAVEL', cashFlowAmount: '500' });
+    
+    const txs = deduplicateAndNormalizeTransactions([['Transaction ID'], rawPurchase, rawCredit]);
+    expect(txs[0].classification).toBe('spending');
+    expect(txs[0].spendingAdjustment).toBe(500);
+    
+    expect(txs[1].classification).toBe('merchant_credit');
+    expect(txs[1].spendingAdjustment).toBe(-500);
+    
+    const net = txs[0].spendingAdjustment + txs[1].spendingAdjustment;
+    expect(net).toBe(0);
+  });
+
+  it('merchant expense $500 + same-merchant credit $200 -> net spending 300', () => {
+    const rawPurchase = buildRow({ txId: 'p1', name: 'Target', catPrimary: 'SHOPPING', cashFlowAmount: '-500' });
+    const rawCredit = buildRow({ txId: 'c1', name: 'Target', catPrimary: 'SHOPPING', cashFlowAmount: '200' });
+    
+    const txs = deduplicateAndNormalizeTransactions([['Transaction ID'], rawPurchase, rawCredit]);
+    expect(txs[1].classification).toBe('merchant_credit');
+    expect(txs[1].spendingAdjustment).toBe(-200);
+    
+    const net = txs[0].spendingAdjustment + txs[1].spendingAdjustment;
+    expect(net).toBe(300);
+  });
+
+  it('positive merchant credit with no corresponding spending evidence -> other', () => {
+    const rawCredit = buildRow({ txId: 'c1', name: 'Unknown Store', catPrimary: 'SHOPPING', cashFlowAmount: '200' });
+    const txs = deduplicateAndNormalizeTransactions([['Transaction ID'], rawCredit]);
+    expect(txs[0].classification).toBe('other');
+  });
+
+  it('purchase + credit-card payment -> purchase counted once', () => {
+    const rawPurchase = buildRow({ txId: 'p1', name: 'Target', cashFlowAmount: '-50' });
+    const rawPayment = buildRow({ txId: 'py1', name: 'AUTOMATIC PAYMENT', catPrimary: 'LOAN_PAYMENTS', accountType: 'credit', cashFlowAmount: '-1000' });
+    const txs = deduplicateAndNormalizeTransactions([['Transaction ID'], rawPurchase, rawPayment]);
+    
+    expect(txs[0].classification).toBe('spending');
+    expect(txs[1].classification).toBe('credit_card_payment');
   });
 });

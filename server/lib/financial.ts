@@ -6,6 +6,7 @@ export type Classification =
   'person_to_person' |
   'credit_card_payment' | 
   'refund' | 
+  'merchant_credit' |
   'interest_earned' | 
   'interest_paid' |
   'bank_fee' |
@@ -97,32 +98,49 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
                             descLower.includes('return') || 
                             descLower.includes('reversal');
 
+  const accountType = String(row[6] || '').toLowerCase();
+  const accountSubtype = String(row[7] || '').toLowerCase();
+
+  const isP2P = catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal');
+  
+  const isInterest = cashFlowAmount > 0 && 
+    (catDetailed.includes('INTEREST_EARNED') || catDetailed.includes('DIVIDEND') || 
+    ((accountType === 'depository' || accountSubtype === 'savings' || accountSubtype === 'cd') && 
+    (descLower.includes('interest') || descLower.includes('intrst') || descLower.includes('interest payment') || descLower.includes('interest paid'))));
+
+  const isCCPayment = (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) ||
+    ((accountType === 'credit' || catPrimary === 'LOAN_PAYMENTS') && 
+    (descLower.includes('automatic payment') || descLower.includes('payment - thank') || descLower.includes('card payment') || descLower.includes('credit card payment')));
+
   if (isRemoved) {
     classification = 'removed';
-  } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
-    if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
-      classification = 'internal_transfer';
-    } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
-      classification = 'cash_withdrawal';
-      countsTowardSpending = false;
-      countsTowardIncome = false;
-    } else if (catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal')) {
-      classification = 'person_to_person';
-      if (cashFlowAmount < 0) {
-        countsTowardSpending = true;
-        spendingAdjustment = -cashFlowAmount;
-      } else if (cashFlowAmount > 0) {
-        countsTowardIncome = false;
-      }
-    } else {
-      classification = 'other';
-    }
-  } else if (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) {
-    classification = 'credit_card_payment';
-  } else if (cashFlowAmount > 0 && (catDetailed.includes('INTEREST_EARNED') || catDetailed.includes('DIVIDEND'))) {
+  } else if (isInterest) {
     classification = 'interest_earned';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
+  } else if (isP2P) {
+    classification = 'person_to_person';
+    if (cashFlowAmount < 0) {
+      countsTowardSpending = true;
+      spendingAdjustment = -cashFlowAmount;
+    } else if (cashFlowAmount > 0) {
+      // Policy: Incoming P2P is deliberately NOT recognized household income by default
+      countsTowardIncome = false;
+      countsTowardSpending = false;
+    }
+  } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
+    // Policy: Cash withdrawals do not count toward spending immediately because withdrawal does not prove final cash consumption
+    classification = 'cash_withdrawal';
+    countsTowardSpending = false;
+    countsTowardIncome = false;
+  } else if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
+    classification = 'internal_transfer';
+  } else if (isCCPayment) {
+    classification = 'credit_card_payment';
+    countsTowardSpending = false;
+    countsTowardIncome = false;
+  } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
+    classification = 'other';
   } else if (cashFlowAmount > 0 && catPrimary === 'INCOME') {
     classification = 'income';
     countsTowardIncome = true;
@@ -146,12 +164,6 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     countsTowardSpending = true;
     spendingAdjustment = -cashFlowAmount; // Normal purchase makes spending go up (positive)
   }
-
-  // Preserve 'pending' logic for Pass 1 tests that check if it's 'pending', but handle actual spending via the isPending property
-  // Wait, if we rewrite classification = 'pending', we lose the actual classification!
-  // Let's keep the real classification, but components will check t.pending to segregate it.
-  // Wait, the prompt implies "classification = 'pending'" might be in my older tests.
-  // Actually, I should update tests if they expect classification='pending'. I will keep the actual classification, since the prompt says: "Pending spending must be visible separately".
 
   return {
     transactionId: txId,
@@ -190,17 +202,47 @@ export function deduplicateAndNormalizeTransactions(rawRows: any[][]): Normalize
   const postedTxWithPendingId = allTx.filter(t => !t.pending && !t.removed && t.pendingTransactionId);
   const supersededPendingIds = new Set(postedTxWithPendingId.map(t => t.pendingTransactionId));
   
-  return allTx.map(t => {
+  const deduplicatedTx = allTx.map(t => {
     if (t.pending && supersededPendingIds.has(t.transactionId)) {
       return {
         ...t,
-        classification: 'removed',
+        classification: 'removed' as Classification,
         removed: true,
         countsTowardSpending: false,
         countsTowardIncome: false,
         spendingAdjustment: 0,
         incomeAdjustment: 0,
       };
+    }
+    return t;
+  });
+
+  // Second pass: Context-aware merchant credit detection
+  const merchantCategorySpendingSet = new Set<string>();
+  const merchantSpendingSet = new Set<string>();
+  
+  for (const t of deduplicatedTx) {
+    if (!t.removed && !t.pending && t.classification === 'spending' && t.spendingAdjustment > 0 && t.normalizedMerchant) {
+      merchantCategorySpendingSet.add(`${t.normalizedMerchant}|${t.normalizedCategory}`);
+      merchantSpendingSet.add(t.normalizedMerchant);
+    }
+  }
+
+  return deduplicatedTx.map(t => {
+    if (!t.removed && !t.pending && t.cashFlowAmount > 0) {
+      if (t.classification === 'other' || t.classification === 'refund') {
+        const strictKey = `${t.normalizedMerchant}|${t.normalizedCategory}`;
+        if (t.normalizedMerchant && (merchantCategorySpendingSet.has(strictKey) || merchantSpendingSet.has(t.normalizedMerchant))) {
+          return {
+            ...t,
+            classification: 'merchant_credit' as Classification,
+            countsTowardSpending: true,
+            spendingAdjustment: -t.cashFlowAmount,
+            countsTowardIncome: false,
+            incomeAdjustment: 0
+          };
+        }
+      }
     }
     return t;
   });

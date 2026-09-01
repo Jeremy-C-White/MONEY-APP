@@ -79,8 +79,10 @@ export function DeveloperVerification({ user }: { user: any }) {
                 <li>Removed Rows: {data.reconciliation.removedCount}</li>
                 <li className="pt-2">Spending Rows: {data.reconciliation.spendingCount}</li>
                 <li>Income Rows: {data.reconciliation.incomeCount}</li>
-                <li>Credit Card Payment Rows: {data.reconciliation.creditCardCount}</li>
+                <li>Credit Card Payment Rows: {data.reconciliation.creditCardCount} (${data.reconciliation.creditCardAmount?.toFixed(2) || '0.00'})</li>
                 <li>Refund Rows: {data.reconciliation.refundCount}</li>
+                <li>Merchant Credit Rows: {data.reconciliation.merchantCreditCount} (${data.reconciliation.merchantCreditAmount?.toFixed(2) || '0.00'})</li>
+                <li>Interest Earned Rows: {data.reconciliation.interestEarnedCount} (${data.reconciliation.interestEarnedAmount?.toFixed(2) || '0.00'})</li>
               </ul>
               <ul className="list-disc pl-5 space-y-1 font-mono text-slate-700 bg-slate-50 p-4 rounded-lg">
                 <li>Internal Transfer Rows: {data.reconciliation.transferCount}</li>
@@ -94,6 +96,14 @@ export function DeveloperVerification({ user }: { user: any }) {
                   Category Math Reconciles: {data.reconciliation.categoryMathReconciles ? 'YES' : 'NO'}
                 </li>
                 <li className="text-xs text-slate-500">(Gross {data.reconciliation.grossPurchases.toFixed(0)} - Refunds {data.reconciliation.refunds.toFixed(0)} = Net {data.reconciliation.netSpending.toFixed(0)})</li>
+                {data.reconciliation.bridge && (
+                  <li className="pt-2 font-bold text-indigo-600">
+                    Accounting Bridge Reconciles: {data.reconciliation.bridge.accountingBridgeReconciles ? 'YES' : 'NO'}
+                    <div className="text-xs text-slate-500 font-normal mt-1">
+                      Raw Total: ${data.reconciliation.bridge.activePostedRawCashFlowTotal.toFixed(2)}
+                    </div>
+                  </li>
+                )}
               </ul>
             </div>
           </section>
