@@ -113,7 +113,10 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
 
   const isCCPayment = (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) ||
     ((accountType === 'credit' || accountSubtype.includes('credit card')) && 
-     (descLower.includes('automatic payment') || descLower.includes('payment - thank') || descLower.includes('card payment') || descLower.includes('credit card payment')));
+     (/automatic payment/.test(combinedDescLower) || 
+      /payment[\s\-]*thank/.test(combinedDescLower) || 
+      /card payment/.test(combinedDescLower) || 
+      /credit card payment/.test(combinedDescLower)));
 
   const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' && 
     (

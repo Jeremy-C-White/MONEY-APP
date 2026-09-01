@@ -489,3 +489,87 @@ describe('Semantic Earned Income Detection', () => {
     expect(tx.classification).toBe('income');
   });
 });
+
+
+describe('Semantic Credit Card Payment Detection', () => {
+  it('identifies Payment Thank You-Mobile on credit account as credit_card_payment despite INCOME_SALARY', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment Thank You-Mobile',
+      cashFlowAmount: '2835.80',
+      catPrimary: 'INCOME',
+      catDetailed: 'INCOME_SALARY',
+      accountType: 'credit',
+      accountSubtype: 'credit card'
+    }));
+    expect(tx.classification).toBe('credit_card_payment');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('identifies existing automatic payment on credit account', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'AUTOMATIC PAYMENT - THANK',
+      cashFlowAmount: '500',
+      accountType: 'credit'
+    }));
+    expect(tx.classification).toBe('credit_card_payment');
+  });
+
+  it('identifies payment punctuation variants', () => {
+    const variants = [
+      'PAYMENT - THANK YOU',
+      'PAYMENT THANK YOU',
+      'PAYMENT-THANK'
+    ];
+    for (const v of variants) {
+      const tx = classifyTransaction(buildRow({
+        name: v,
+        cashFlowAmount: '500',
+        accountType: 'credit'
+      }));
+      expect(tx.classification).toBe('credit_card_payment');
+    }
+  });
+
+  it('generic payment merchant without strong semantics is not credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment Depot Store',
+      cashFlowAmount: '-100',
+      accountType: 'credit'
+    }));
+    expect(tx.classification).not.toBe('credit_card_payment');
+  });
+
+  it('non-credit account with thank you name is not semantic credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment Thank You-Mobile',
+      cashFlowAmount: '100',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).not.toBe('credit_card_payment');
+  });
+
+  it('preserves existing explicit Plaid credit-card payment', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'UNKNOWN LOAN',
+      catPrimary: 'LOAN_PAYMENTS',
+      catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      cashFlowAmount: '-500',
+      accountType: 'loan'
+    }));
+    expect(tx.classification).toBe('credit_card_payment');
+  });
+
+  it('Sweetgreen payroll remains income and is unaffected', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Sweetgreen inc payroll ppd id',
+      cashFlowAmount: '810',
+      catPrimary: 'FOOD_AND_DRINK',
+      catDetailed: 'FOOD_AND_DRINK_RESTAURANT',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+});
