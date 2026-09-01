@@ -9,18 +9,14 @@ import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { google } from "googleapis";
 import * as crypto from "crypto";
 import * as jose from "jose";
+import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
+import { dashboardCache } from "./server/lib/cache";
 
-// Startup config validation
-let startupError: string | null = null;
+// Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
-if (process.env.NODE_ENV === 'production' || process.env.PLAID_ENV === 'production') {
-  requiredEnv.push('APP_URL');
-}
 for (const envVar of requiredEnv) {
   if (!process.env[envVar]) {
-    const msg = `CRITICAL: Missing required environment variable ${envVar}`;
-    console.error(msg);
-    if (!startupError) startupError = msg;
+    console.warn(`[Config Warning] Missing environment variable ${envVar}. Some features may be disabled until configured.`);
   }
 }
 
@@ -30,15 +26,13 @@ try {
     credential: applicationDefault(),
   });
   db = getFirestore(firebaseApp, "ai-studio-3aabea25-37f3-4131-89c3-c2aaa9384046");
-} catch (error) {
-  const msg = "CRITICAL: Error initializing Firebase Admin: " + error;
-  console.error(msg);
-  if (!startupError) startupError = msg;
-}
-
-if (startupError && (process.env.NODE_ENV === 'production' || process.env.PLAID_ENV === 'production')) {
-  console.error("Failing startup due to missing configuration in production mode.");
-  process.exit(1);
+} catch (error: any) {
+  console.warn("Firebase Admin initialization notice:", error?.message || error);
+  try {
+    db = getFirestore("ai-studio-3aabea25-37f3-4131-89c3-c2aaa9384046");
+  } catch (e) {
+    console.warn("Fallback getFirestore notice:", e);
+  }
 }
 
 function isGoogleAuthError(err: any): boolean {
@@ -92,11 +86,17 @@ function computeAccountFingerprint(institutionId: string, accounts: Array<{ name
 
 let plaidClient: PlaidApi | null = null;
 function getPlaidClient() {
-  if (!plaidClient) {
-    const clientId = process.env.PLAID_CLIENT_ID;
-    const secret = process.env.PLAID_SECRET;
-    const env = process.env.PLAID_ENV || "sandbox";
+  const clientId = process.env.PLAID_CLIENT_ID;
+  const secret = process.env.PLAID_SECRET;
+  const env = process.env.PLAID_ENV || "sandbox";
 
+  if (!clientId || !secret) {
+    const err = new Error("Plaid credentials are not configured. Please set PLAID_CLIENT_ID and PLAID_SECRET in Settings.");
+    (err as any).code = 'PLAID_CONFIG_MISSING';
+    throw err;
+  }
+
+  if (!plaidClient) {
     const configuration = new Configuration({
       basePath: PlaidEnvironments[env as keyof typeof PlaidEnvironments] || PlaidEnvironments.sandbox,
       baseOptions: {
@@ -112,10 +112,17 @@ function getPlaidClient() {
 }
 
 const getOauth2Client = () => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    const err = new Error("Google OAuth credentials are not configured. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in Settings.");
+    (err as any).code = 'GOOGLE_OAUTH_CONFIG_MISSING';
+    throw err;
+  }
   const redirectUri = process.env.APP_URL ? `${process.env.APP_URL}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback';
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
+    clientId,
+    clientSecret,
     redirectUri
   );
 };
@@ -159,12 +166,13 @@ async function startServer() {
   }));
   app.use(cors({ origin: process.env.APP_URL || 'http://localhost:3000' }));
 
-  // Intercept API calls if there's a startup configuration error
-  app.use('/api', (req, res, next) => {
-    if (startupError) {
-      return res.status(500).json({ error: "Server Configuration Error", details: startupError });
-    }
-    next();
+  // Health check endpoint
+  app.get("/api/health", (req, res) => {
+    res.json({
+      status: "ok",
+      plaidConfigured: !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET),
+      googleConfigured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+    });
   });
 
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -1605,6 +1613,7 @@ async function startServer() {
         }
       }
 
+      dashboardCache.invalidate(uid);
       res.json({ success: true, added: totalAdded, updated: totalUpdated, errors });
     } catch (error: any) {
       console.error(error);
@@ -1619,6 +1628,250 @@ async function startServer() {
       res.status(500).json({ error: msg, code });
     }
   });
+
+  
+async function fetchNormalizedTransactions(uid: string): Promise<NormalizedTransaction[]> {
+  const cached = dashboardCache.get(uid);
+  if (cached) return cached;
+
+  const userRef = db.collection('users').doc(uid);
+  const userDoc = await userRef.get();
+  const userData = userDoc.data();
+  if (!userData?.google_refresh_token || !userData?.spreadsheetId) {
+    throw new Error('Google Sheets not connected');
+  }
+
+  const oauth2Client = getOauth2Client();
+  oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
+  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+  
+  const getRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ 
+    spreadsheetId: userData.spreadsheetId, 
+    range: 'Transactions_Raw!A:Y',
+    valueRenderOption: 'UNFORMATTED_VALUE'
+  }));
+  
+  const rows = getRes.data.values || [];
+  const normalized = deduplicateAndNormalizeTransactions(rows);
+  
+  dashboardCache.set(uid, normalized);
+  return normalized;
+}
+
+
+app.get("/api/dashboard/summary", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    
+    let spending = 0;
+    let income = 0;
+    let activePostedCount = 0;
+    
+    // For "current period", let's just do all-time for this verification pass or YTD/current month.
+    // The prompt says "current month calculations use normalized YYYY-MM-DD dates."
+    // We'll calculate current month (UTC based) and all-time.
+    const now = new Date();
+    const currentMonthPrefix = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+    
+    let currentMonthSpending = 0;
+    let currentMonthIncome = 0;
+
+    for (const t of txs) {
+      if (t.removed) continue;
+      if (!t.pending) activePostedCount++;
+      
+      if (t.countsTowardSpending) {
+        spending += t.spendingAdjustment;
+        if (t.normalizedDate.startsWith(currentMonthPrefix)) {
+          currentMonthSpending += t.spendingAdjustment;
+        }
+      }
+      if (t.countsTowardIncome) {
+        income += t.incomeAdjustment;
+        if (t.normalizedDate.startsWith(currentMonthPrefix)) {
+          currentMonthIncome += t.incomeAdjustment;
+        }
+      }
+    }
+    
+    const netCashFlow = income - spending;
+    const currentMonthNetCashFlow = currentMonthIncome - currentMonthSpending;
+    const savingsRate = income > 0 ? (netCashFlow / income) : 0;
+    const currentMonthSavingsRate = currentMonthIncome > 0 ? (currentMonthNetCashFlow / currentMonthIncome) : 0;
+
+    res.json({
+      allTime: {
+        spending,
+        income,
+        netCashFlow,
+        savingsRate
+      },
+      currentMonth: {
+        month: currentMonthPrefix,
+        spending: currentMonthSpending,
+        income: currentMonthIncome,
+        netCashFlow: currentMonthNetCashFlow,
+        savingsRate: currentMonthSavingsRate
+      },
+      activePostedCount
+    });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/categories", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number }> = {};
+    
+    let totalNetSpending = 0;
+
+    for (const t of txs) {
+      if (t.removed || !t.countsTowardSpending) continue;
+      
+      const cat = t.normalizedCategory;
+      if (!categoryTotals[cat]) {
+        categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0 };
+      }
+      
+      categoryTotals[cat].transactionCount++;
+      categoryTotals[cat].netSpending += t.spendingAdjustment;
+      totalNetSpending += t.spendingAdjustment;
+      
+      if (t.classification === 'refund') {
+        categoryTotals[cat].refunds += t.spendingAdjustment; // it's a positive number reducing spending
+      } else {
+        categoryTotals[cat].grossPurchases += t.spendingAdjustment;
+      }
+    }
+    
+    const results = Object.entries(categoryTotals).map(([category, stats]) => ({
+      category,
+      ...stats,
+      percentage: totalNetSpending > 0 ? (stats.netSpending / totalNetSpending) : 0
+    })).sort((a, b) => b.netSpending - a.netSpending);
+    
+    res.json(results);
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const merchantTotals: Record<string, { netSpending: number, transactionCount: number }> = {};
+    
+    for (const t of txs) {
+      if (t.removed || !t.countsTowardSpending) continue;
+      
+      const merchant = t.normalizedMerchant || 'Unknown';
+      if (!merchantTotals[merchant]) {
+        merchantTotals[merchant] = { netSpending: 0, transactionCount: 0 };
+      }
+      
+      merchantTotals[merchant].transactionCount++;
+      merchantTotals[merchant].netSpending += t.spendingAdjustment;
+    }
+    
+    const results = Object.entries(merchantTotals)
+      .map(([merchant, stats]) => ({ merchant, ...stats }))
+      .sort((a, b) => b.netSpending - a.netSpending)
+      .slice(0, 50); // top 50
+    
+    res.json(results);
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const monthly: Record<string, { income: number, spending: number, netCashFlow: number }> = {};
+    
+    for (const t of txs) {
+      if (t.removed) continue;
+      
+      // normalizedDate is YYYY-MM-DD
+      const month = t.normalizedDate.substring(0, 7);
+      if (!month.match(/^\d{4}-\d{2}$/)) continue;
+      
+      if (!monthly[month]) {
+        monthly[month] = { income: 0, spending: 0, netCashFlow: 0 };
+      }
+      
+      if (t.countsTowardIncome) monthly[month].income += t.incomeAdjustment;
+      if (t.countsTowardSpending) monthly[month].spending += t.spendingAdjustment;
+    }
+    
+    for (const m of Object.keys(monthly)) {
+      monthly[m].netCashFlow = monthly[m].income - monthly[m].spending;
+    }
+    
+    const results = Object.entries(monthly)
+      .map(([month, stats]) => ({ month, ...stats }))
+      .sort((a, b) => a.month.localeCompare(b.month));
+      
+    res.json(results);
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/transactions", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    
+    // Sort by date desc
+    txs.sort((a, b) => b.normalizedDate.localeCompare(a.normalizedDate));
+    
+    // Basic pagination
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const offset = (page - 1) * limit;
+    
+    res.json({
+      data: txs.slice(offset, offset + limit),
+      total: txs.length,
+      page,
+      limit
+    });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    
+    const accountsMap: Record<string, any> = {};
+    for (const t of txs) {
+      if (!accountsMap[t.accountId]) {
+        accountsMap[t.accountId] = {
+          accountId: t.accountId,
+          institutionName: t.institutionName,
+          accountName: t.accountName,
+          accountMask: t.accountMask,
+          accountType: t.accountType,
+          accountSubtype: t.accountSubtype
+        };
+      }
+    }
+    
+    res.json(Object.values(accountsMap));
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({

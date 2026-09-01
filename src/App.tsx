@@ -3,6 +3,8 @@ import { usePlaidLink } from 'react-plaid-link';
 import { auth, signInWithGoogle, logOut } from './firebase';
 import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off, CheckCircle2, AlertTriangle } from 'lucide-react';
 
+import { DeveloperVerification } from './components/DeveloperVerification';
+
 export default function App() {
   const [user, setUser] = useState<any>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -591,6 +593,8 @@ export default function App() {
                 </div>
               </div>
             )}
+            
+            <DeveloperVerification user={user} />
           </div>
         )}
       </main>
