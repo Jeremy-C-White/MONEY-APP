@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTransaction, deduplicateAndNormalizeTransactions } from './financial';
+import { classifyTransaction, deduplicateAndNormalizeTransactions, parsePendingValue } from './financial';
 
 function buildRow(overrides: Record<string, string>): any[] {
   const row = new Array(24).fill('');
@@ -571,5 +571,25 @@ describe('Semantic Credit Card Payment Detection', () => {
       accountSubtype: 'checking'
     }));
     expect(tx.classification).toBe('income');
+  });
+});
+
+
+describe('parsePendingValue', () => {
+  it('parses boolean correctly', () => {
+    expect(parsePendingValue(true)).toBe(true);
+    expect(parsePendingValue(false)).toBe(false);
+  });
+  it('parses strings correctly', () => {
+    expect(parsePendingValue('TRUE')).toBe(true);
+    expect(parsePendingValue('true')).toBe(true);
+    expect(parsePendingValue('Yes')).toBe(true);
+    expect(parsePendingValue('yes')).toBe(true);
+    expect(parsePendingValue('FALSE')).toBe(false);
+    expect(parsePendingValue('false')).toBe(false);
+    expect(parsePendingValue('No')).toBe(false);
+    expect(parsePendingValue('no')).toBe(false);
+    expect(parsePendingValue('')).toBe(false);
+    expect(parsePendingValue(undefined)).toBe(false);
   });
 });

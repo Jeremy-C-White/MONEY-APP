@@ -1,4 +1,4 @@
-import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./financial";
+import { deduplicateAndNormalizeTransactions, NormalizedTransaction, parsePendingValue } from "./financial";
 import { buildVerificationReport } from "./aggregations";
 
 function findScenarioTx(txs: NormalizedTransaction[], predicate: (t: NormalizedTransaction) => boolean) {
@@ -28,8 +28,17 @@ export function generateAcceptanceReport(rawRows: any[]) {
       const newStatus = newRaw[22];  // Col W
 
       // Assert exactly the required relationship from the raw sheet
-      if (oldPending === 'TRUE' && oldStatus === 'removed' && oldRemovedAt &&
-          newPending === 'FALSE' && newPendingId === oldId && newStatus !== 'removed') {
+      const isOldPending = parsePendingValue(oldPending);
+      const isNewPending = parsePendingValue(newPending);
+      
+      const passOldPending = isOldPending;
+      const passOldStatus = oldStatus === 'removed';
+      const passOldRemovedAt = !!oldRemovedAt;
+      const passNewPending = !isNewPending;
+      const passExactId = newPendingId === oldId;
+      const passNewStatus = newStatus !== 'removed';
+      
+      if (passOldPending && passOldStatus && passOldRemovedAt && passNewPending && passExactId && passNewStatus) {
         supersededPendingIds.add(oldId);
         pendingDoc = {
           status: 'PASS',
@@ -47,9 +56,18 @@ export function generateAcceptanceReport(rawRows: any[]) {
       } else {
         pendingDoc = {
           status: 'FAIL',
-          reason: 'Source row exact conditions not met (Pending true/false, Status removed, Removed At populated, exact ID match)',
+          reason: `Source row exact conditions not met:\n` +
+                  `Old Pending semantic true: ${passOldPending ? 'PASS' : 'FAIL'}\n` +
+                  `Old Status removed: ${passOldStatus ? 'PASS' : 'FAIL'}\n` +
+                  `Old Removed At populated: ${passOldRemovedAt ? 'PASS' : 'FAIL'}\n` +
+                  `New Pending semantic false: ${passNewPending ? 'PASS' : 'FAIL'}\n` +
+                  `Pending Transaction ID exact match: ${passExactId ? 'PASS' : 'FAIL'}\n` +
+                  `New Status non-removed: ${passNewStatus ? 'PASS' : 'FAIL'}`,
           oldId,
-          newId: posted.transactionId
+          newId: posted.transactionId,
+          oldStatus,
+          oldRemovedAt,
+          newPendingId
         };
       }
     }
@@ -116,8 +134,8 @@ export function generateAcceptanceReport(rawRows: any[]) {
       outgoingP2P: evaluate(normalized, t => t.cashFlowAmount < 0 && isP2P(t), ['person_to_person'], 'P2P Outgoing / Net Spending'),
       incomingP2P: evaluate(normalized, t => t.cashFlowAmount > 0 && isP2P(t), ['person_to_person'], 'P2P Incoming'),
       removedReversed: independentRemovedTxs.length > 0 ? { status: 'PASS', count: independentRemovedTxs.length, reportingBucket: 'Removed Rows' } : { status: 'NOT EXERCISED' },
-      creditCardPayment: ccPayments.length > 0 ? { status: 'PASS', count: ccPayments.length, amount: ccPayments.reduce((s,t) => s + Math.abs(t.cashFlowAmount), 0), reportingBucket: 'Credit Card Payments' } : { status: 'NOT EXERCISED' },
-      merchantCredit: merchantCredits.length > 0 ? { status: 'PASS', count: merchantCredits.length, amount: merchantCredits.reduce((s,t) => s + Math.abs(t.cashFlowAmount), 0), reportingBucket: 'Merchant Credits' } : { status: 'NOT EXERCISED' }
+      creditCardPayment: report.reconciliation.creditCardCount > 0 ? { status: 'PASS', count: report.reconciliation.creditCardCount, amount: report.reconciliation.creditCardAmount, reportingBucket: 'Credit Card Payments' } : { status: 'NOT EXERCISED' },
+      merchantCredit: report.reconciliation.merchantCreditCount > 0 ? { status: 'PASS', count: report.reconciliation.merchantCreditCount, amount: report.reconciliation.merchantCredits, reportingBucket: 'Merchant Credits' } : { status: 'NOT EXERCISED' }
     },
     reconciliation: {
       postedSpending: report.reconciliation.netSpending,

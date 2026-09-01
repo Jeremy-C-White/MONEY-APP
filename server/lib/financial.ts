@@ -1,3 +1,9 @@
+export function parsePendingValue(value: string | boolean | undefined | null): boolean {
+  if (typeof value === 'boolean') return value;
+  const str = String(value || '').trim().toLowerCase();
+  return str === 'true' || str === 'yes';
+}
+
 export type Classification = 
   'spending' | 
   'income' | 
@@ -72,8 +78,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const rawCashFlowAmt = parseFloat(row[14] || '0');
   const cashFlowAmount = isNaN(rawCashFlowAmt) ? 0 : rawCashFlowAmt;
   
-  const isPendingStr = String(row[20] || '').toLowerCase();
-  const isPending = isPendingStr === 'true' || isPendingStr === 'yes';
+  const isPending = parsePendingValue(row[20]);
   
   const status = String(row[22] || '').toLowerCase();
   const isRemoved = status === 'removed' || !!row[23];
