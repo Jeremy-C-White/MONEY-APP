@@ -1660,6 +1660,74 @@ async function fetchNormalizedTransactions(uid: string): Promise<NormalizedTrans
 }
 
 
+
+async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
+  const userRef = db.collection('users').doc(uid);
+  const userDoc = await userRef.get();
+  const userData = userDoc.data();
+  if (!userData?.google_refresh_token || !userData?.spreadsheetId) {
+    throw new Error('Google Sheets not connected');
+  }
+
+  const oauth2Client = getOauth2Client();
+  oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
+  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+  
+  const getRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ 
+    spreadsheetId: userData.spreadsheetId, 
+    range: 'Transactions_Raw!A:Y',
+    valueRenderOption: 'UNFORMATTED_VALUE'
+  }));
+  
+  return getRes.data.values || [];
+}
+
+
+app.get("/api/dev/sandbox-acceptance", requireAuth, async (req: express.Request, res: express.Response) => {
+  if (process.env.PLAID_ENV !== 'sandbox') {
+    return res.status(403).json({ error: "Only available in Sandbox" });
+  }
+  try {
+    const uid = (req as any).user.uid;
+    const rawRows = await fetchRawTransactionsRows(uid);
+    // Dynamic import to avoid CJS require issue if sandbox-acceptance uses ES syntax in dev
+    // Wait, the typescript server is compiled to CJS eventually, but during dev it's tsx.
+    // So import() works. Actually just standard ES import or require.
+    // In server.ts we use import at the top. Let's add an import at the top instead!
+    const { generateAcceptanceReport } = await import("./server/lib/sandbox-acceptance");
+    const report = generateAcceptanceReport(rawRows);
+    res.json(report);
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/dev/sandbox-refresh", requireAuth, async (req: express.Request, res: express.Response) => {
+  if (process.env.PLAID_ENV !== 'sandbox') {
+    return res.status(403).json({ error: "Only available in Sandbox" });
+  }
+  try {
+    const uid = (req as any).user.uid;
+    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
+    if (plaidItemsSnap.empty) {
+      return res.status(400).json({ error: "No connected items found." });
+    }
+    const itemData = plaidItemsSnap.docs[0].data();
+    if (!itemData.access_token) {
+      return res.status(400).json({ error: "No access token found." });
+    }
+
+    const plaidClient = getPlaidClient();
+    await plaidClient.transactionsRefresh({
+      access_token: itemData.access_token,
+    });
+    
+    res.json({ success: true, message: "Sandbox refresh triggered. Webhook will arrive shortly." });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/dashboard/summary", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);

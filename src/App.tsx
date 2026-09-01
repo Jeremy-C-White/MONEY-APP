@@ -4,6 +4,7 @@ import { auth, signInWithGoogle, logOut } from './firebase';
 import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off, CheckCircle2, AlertTriangle } from 'lucide-react';
 
 import { DeveloperVerification } from './components/DeveloperVerification';
+import { SandboxAcceptance } from './components/SandboxAcceptance';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -595,6 +596,7 @@ export default function App() {
             )}
             
             <DeveloperVerification user={user} />
+            <SandboxAcceptance user={user} />
           </div>
         )}
       </main>
