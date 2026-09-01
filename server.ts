@@ -13,6 +13,7 @@ import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./se
 import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
+import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1631,7 +1632,10 @@ async function startServer() {
   });
 
   
-async function fetchNormalizedTransactions(uid: string): Promise<NormalizedTransaction[]> {
+async function fetchNormalizedTransactions(
+  uid: string,
+  options: { allowCredentialCleanup?: boolean } = {}
+): Promise<NormalizedTransaction[]> {
   const cached = dashboardCache.get(uid);
   if (cached) return cached;
 
@@ -1646,11 +1650,14 @@ async function fetchNormalizedTransactions(uid: string): Promise<NormalizedTrans
   oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
   const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
   
-  const getRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ 
+  const fetchRows = () => sheets.spreadsheets.values.get({
     spreadsheetId: userData.spreadsheetId, 
     range: 'Transactions_Raw!A:Y',
     valueRenderOption: 'UNFORMATTED_VALUE'
-  }));
+  });
+  const getRes = options.allowCredentialCleanup === false
+    ? await fetchRows()
+    : await withGoogleAuth(uid, fetchRows);
   
   const rows = getRes.data.values || [];
   const normalized = deduplicateAndNormalizeTransactions(rows);
@@ -1692,70 +1699,17 @@ app.get("/api/dev/accounts-preflight", requireAuth, async (req: express.Request,
     const uid = (req as any).user.uid;
     const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
     
-    let activeItemCount = 0;
-    let disconnectedItemCount = 0;
-    let activeItemsWithAccounts = 0;
-    let activeItemsWithoutAccounts = 0;
-    const healthBreakdown: Record<string, number> = {};
-    const itemsWithMissingAccounts: { institutionName: string; health: string }[] = [];
-    const uniquePersistedAccountIds = new Set<string>();
-
-    plaidItemsSnap.docs.forEach(doc => {
+    const items = plaidItemsSnap.docs.map(doc => {
       const data = doc.data();
-      const health = normalizeItemHealth(data);
-      healthBreakdown[health] = (healthBreakdown[health] || 0) + 1;
-
-      if (health === 'disconnected') {
-        disconnectedItemCount++;
-      } else {
-        activeItemCount++;
-        const accounts = data.accounts;
-        if (Array.isArray(accounts) && accounts.length > 0) {
-          activeItemsWithAccounts++;
-          accounts.forEach(acc => {
-            if (acc.id) uniquePersistedAccountIds.add(acc.id);
-            else if (acc.account_id) uniquePersistedAccountIds.add(acc.account_id);
-          });
-        } else {
-          activeItemsWithoutAccounts++;
-          itemsWithMissingAccounts.push({
-            institutionName: data.institution_name || 'Unknown',
-            health: health
-          });
-        }
-      }
+      return {
+        institutionName: data.institution_name,
+        health: normalizeItemHealth(data),
+        accounts: data.accounts
+      };
     });
+    const txs = await fetchNormalizedTransactions(uid, { allowCredentialCleanup: false });
 
-    const txs = await fetchNormalizedTransactions(uid);
-    const uniqueLedgerAccountIds = new Set<string>();
-    txs.forEach(t => uniqueLedgerAccountIds.add(t.accountId));
-
-    let idsInBoth = 0;
-    let persistedOnlyIds = 0;
-    let ledgerOnlyIds = 0;
-
-    for (const id of uniquePersistedAccountIds) {
-      if (uniqueLedgerAccountIds.has(id)) idsInBoth++;
-      else persistedOnlyIds++;
-    }
-    for (const id of uniqueLedgerAccountIds) {
-      if (!uniquePersistedAccountIds.has(id)) ledgerOnlyIds++;
-    }
-
-    res.json({
-      plaidItemCount: plaidItemsSnap.size,
-      activeItemCount,
-      disconnectedItemCount,
-      activeItemsWithAccounts,
-      activeItemsWithoutAccounts,
-      uniquePersistedAccountIds: uniquePersistedAccountIds.size,
-      uniqueLedgerAccountIds: uniqueLedgerAccountIds.size,
-      idsInBoth,
-      persistedOnlyIds,
-      ledgerOnlyIds,
-      healthBreakdown,
-      itemsWithMissingAccounts
-    });
+    res.json(buildAccountsPreflightReport(items, txs));
   } catch (error: any) {
     console.error("Accounts Preflight Error:", error);
     res.status(500).json({ error: error.message });

@@ -105,13 +105,13 @@ This operational procedure applies when `quota_state = exchange_in_progress` and
 
 FinSync maintains two distinct sources of truth for account data to guarantee accuracy between active bank connections and historical financial ledgers. These are accessible via separate endpoints:
 
-* **Connected Account Inventory (`GET /api/connected-accounts`)**: The source of truth for currently active, linked bank accounts. It reads directly from live `plaid_items` metadata and represents the real-time state of your Plaid connections (including health status). Used to manage active connections.
+* **Connected Account Inventory (`GET /api/connected-accounts`)**: The source of truth for accounts persisted on linked Plaid items, including disconnected health states. It reads stored `plaid_items` metadata without calling Plaid. Used to manage connected-account records.
 * **Ledger Account Inventory (`GET /api/accounts`)**: The source of truth for accounts present in your historical transaction ledger. It reads the normalized transaction history and extracts all distinct account IDs that have ever recorded a transaction. Used primarily for transaction filtering.
 
-**Why the separation?** Disconnecting a bank item removes it from the *connected* inventory to prevent further syncing, but the account must remain in the *ledger* inventory so historical transactions can still be viewed and filtered.
+**Why the separation?** The *connected* inventory preserves disconnected items and exposes their health state, while the *ledger* inventory preserves accounts represented in historical transactions so those transactions remain viewable and filterable.
 
 ### Accounts Preflight Diagnostic
-To safely evaluate the reconciliation between these two data sources without triggering syncs or external API calls, a read-only endpoint is available in development:
+To safely evaluate the reconciliation between these two data sources without calling Plaid, triggering syncs, or performing persistent writes, a read-only endpoint is available in development. When the ledger cache is empty, it reads normalized transaction rows from Google Sheets:
 * `GET /api/dev/accounts-preflight`
 * **Gated**: Requires `ENABLE_SANDBOX_ACCEPTANCE="true"`.
 * **Output**: Returns precise numerical counts of items, active vs disconnected states, missing metadata, unique account IDs in both sources, and any discrepancies (ledger-only vs connected-only IDs) to assist in debugging data integrity.
