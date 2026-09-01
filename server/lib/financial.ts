@@ -1,3 +1,17 @@
+export type Classification = 
+  'spending' | 
+  'income' | 
+  'internal_transfer' | 
+  'cash_withdrawal' |
+  'person_to_person' |
+  'credit_card_payment' | 
+  'refund' | 
+  'interest_earned' | 
+  'interest_paid' |
+  'pending' | 
+  'removed' | 
+  'other';
+
 export type NormalizedTransaction = {
   transactionId: string;
   accountId: string;
@@ -19,7 +33,7 @@ export type NormalizedTransaction = {
   pendingTransactionId: string;
   status: string;
   removed: boolean;
-  classification: 'spending' | 'income' | 'internal_transfer' | 'credit_card_payment' | 'refund' | 'interest' | 'pending' | 'removed' | 'other';
+  classification: Classification;
   countsTowardSpending: boolean;
   countsTowardIncome: boolean;
   spendingAdjustment: number;
@@ -70,39 +84,70 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const normalizedMerchant = merchantName ? merchantName : name;
   const normalizedCategory = catPrimary || 'UNCATEGORIZED';
 
-  let classification: NormalizedTransaction['classification'] = 'other';
+  let classification: Classification = 'other';
   let countsTowardSpending = false;
   let countsTowardIncome = false;
   let spendingAdjustment = 0;
   let incomeAdjustment = 0;
   
+  const descLower = name.toLowerCase() + ' ' + merchantName.toLowerCase();
+  const hasRefundEvidence = catDetailed.includes('REFUND') || 
+                            descLower.includes('refund') || 
+                            descLower.includes('return') || 
+                            descLower.includes('reversal');
+
   if (isRemoved) {
     classification = 'removed';
-  } else if (isPending) {
-    classification = 'pending';
   } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
-    classification = 'internal_transfer';
+    if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
+      classification = 'internal_transfer';
+    } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
+      classification = 'cash_withdrawal';
+      countsTowardSpending = true;
+      spendingAdjustment = -cashFlowAmount;
+    } else if (catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal')) {
+      classification = 'person_to_person';
+      if (cashFlowAmount < 0) {
+        countsTowardSpending = true;
+        spendingAdjustment = -cashFlowAmount;
+      } else if (cashFlowAmount > 0) {
+        countsTowardIncome = true;
+        incomeAdjustment = cashFlowAmount;
+      }
+    } else {
+      classification = 'other';
+    }
   } else if (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) {
     classification = 'credit_card_payment';
   } else if (cashFlowAmount > 0 && catPrimary === 'INCOME') {
     classification = 'income';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
-  } else if (cashFlowAmount > 0 && (catPrimary === 'BANK_FEES' && catDetailed.includes('INTEREST'))) {
-    classification = 'interest';
+  } else if (cashFlowAmount > 0 && (catDetailed.includes('INTEREST_EARNED') || catDetailed.includes('DIVIDEND'))) {
+    classification = 'interest_earned';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
-  } else if (cashFlowAmount > 0 && plaidAmount < 0) {
+  } else if (cashFlowAmount < 0 && (catDetailed.includes('INTEREST_CHARGE') || catDetailed.includes('FEE'))) {
+    classification = 'interest_paid';
+    countsTowardSpending = true;
+    spendingAdjustment = -cashFlowAmount;
+  } else if (cashFlowAmount > 0 && hasRefundEvidence) {
     classification = 'refund';
     countsTowardSpending = true;
-    spendingAdjustment = cashFlowAmount; 
+    spendingAdjustment = -cashFlowAmount; // Refund reduces spending, so it's a negative spending adjustment
+  } else if (cashFlowAmount > 0) {
+    classification = 'other';
   } else if (cashFlowAmount < 0) {
     classification = 'spending';
     countsTowardSpending = true;
-    spendingAdjustment = cashFlowAmount; 
-  } else {
-    classification = 'other';
+    spendingAdjustment = -cashFlowAmount; // Normal purchase makes spending go up (positive)
   }
+
+  // Preserve 'pending' logic for Pass 1 tests that check if it's 'pending', but handle actual spending via the isPending property
+  // Wait, if we rewrite classification = 'pending', we lose the actual classification!
+  // Let's keep the real classification, but components will check t.pending to segregate it.
+  // Wait, the prompt implies "classification = 'pending'" might be in my older tests.
+  // Actually, I should update tests if they expect classification='pending'. I will keep the actual classification, since the prompt says: "Pending spending must be visible separately".
 
   return {
     transactionId: txId,
@@ -125,7 +170,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     pendingTransactionId: String(row[21] || ''),
     status: status,
     removed: isRemoved,
-    classification,
+    classification: isRemoved ? 'removed' : classification, // Removed overrides
     countsTowardSpending,
     countsTowardIncome,
     spendingAdjustment,

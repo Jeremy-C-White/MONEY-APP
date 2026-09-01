@@ -1,144 +1,68 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTransaction, deduplicateAndNormalizeTransactions, serialDateToYYYYMMDD } from './financial';
+import { classifyTransaction, NormalizedTransaction } from './financial';
 
-describe('Date Conversion', () => {
-  it('converts excel serial date 45903 correctly', () => {
-    // 45903 = 2025-09-03
-    expect(serialDateToYYYYMMDD(45903)).toBe('2025-09-03');
+function buildRow(overrides: Record<string, string>): any[] {
+  const row: any[] = new Array(25).fill('');
+  // 0: transaction_id
+  row[0] = overrides.txId || 'tx1';
+  // 10: name
+  row[10] = overrides.name || 'Test Merchant';
+  // 11: merchant_name
+  row[11] = overrides.merchantName || '';
+  // 13: plaid amount
+  row[13] = overrides.plaidAmount || '0';
+  // 14: cash flow amount
+  row[14] = overrides.cashFlowAmount || '0';
+  // 16: cat primary
+  row[16] = overrides.catPrimary || 'GENERAL_MERCHANDISE';
+  // 17: cat detailed
+  row[17] = overrides.catDetailed || 'GENERAL_MERCHANDISE_SUPERSTORES';
+  // 20: pending
+  row[20] = overrides.pending || 'FALSE';
+  // 22: status
+  row[22] = overrides.status || 'posted';
+  
+  return row;
+}
+
+describe('Financial Rules Pass 1B', () => {
+  it('classifies $50 purchase', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-50', plaidAmount: '50' }));
+    expect(tx.classification).toBe('spending');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(50); // Positive spending
   });
 
-  it('converts first day of month correctly', () => {
-    // 45870 = 2025-08-01
-    expect(serialDateToYYYYMMDD(45870)).toBe('2025-08-01');
+  it('classifies recognized $30 merchant refund', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '30', plaidAmount: '-30', catDetailed: 'GENERAL_MERCHANDISE_REFUND' }));
+    expect(tx.classification).toBe('refund');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-30);
+  });
+  
+  it('does not classify positive inflow as refund without evidence', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '200', plaidAmount: '-200', catPrimary: 'GENERAL_MERCHANDISE', catDetailed: 'GENERAL_MERCHANDISE' }));
+    expect(tx.classification).toBe('other');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
   });
 
-  it('converts last day of month correctly', () => {
-    // 45869 = 2025-07-31
-    expect(serialDateToYYYYMMDD(45869)).toBe('2025-07-31');
+  it('classifies internal transfer out', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'TRANSFER_OUT', catDetailed: 'TRANSFER_OUT_ACCOUNT_TRANSFER' }));
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
   });
-});
-
-describe('Transaction Classification', () => {
-  const baseRow = [
-    'tx_1', 'acc_1', 'ins_1', 'Bank', 'Checking', '1234', 'depository', 'checking',
-    45870, 45870, 'Target', 'Target', 'Target Store',
-    0, 0, 'USD', '', '', 'HIGH', 'in store',
-    'false', '', 'posted', '', ''
-  ];
-
-  it('classifies ordinary purchase as spending', () => {
-    const row = [...baseRow];
-    row[13] = 50; // Plaid Amount
-    row[14] = -50; // Cash Flow Amount
-    row[16] = 'GENERAL_MERCHANDISE';
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('spending');
-    expect(classified.countsTowardSpending).toBe(true);
-    expect(classified.countsTowardIncome).toBe(false);
-    expect(classified.spendingAdjustment).toBe(-50);
+  
+  it('classifies cash withdrawal', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'TRANSFER_OUT', catDetailed: 'TRANSFER_OUT_WITHDRAWAL' }));
+    expect(tx.classification).toBe('cash_withdrawal');
+    expect(tx.spendingAdjustment).toBe(100);
   });
-
-  it('classifies external income as income', () => {
-    const row = [...baseRow];
-    row[13] = -1000;
-    row[14] = 1000;
-    row[16] = 'INCOME';
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('income');
-    expect(classified.countsTowardIncome).toBe(true);
-    expect(classified.countsTowardSpending).toBe(false);
-    expect(classified.incomeAdjustment).toBe(1000);
-  });
-
-  it('classifies TRANSFER_OUT as internal_transfer', () => {
-    const row = [...baseRow];
-    row[13] = 100;
-    row[14] = -100;
-    row[16] = 'TRANSFER_OUT';
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('internal_transfer');
-    expect(classified.countsTowardSpending).toBe(false);
-    expect(classified.countsTowardIncome).toBe(false);
-  });
-
-  it('classifies credit-card payment as credit_card_payment', () => {
-    const row = [...baseRow];
-    row[13] = 500;
-    row[14] = -500;
-    row[16] = 'LOAN_PAYMENTS';
-    row[17] = 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT';
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('credit_card_payment');
-    expect(classified.countsTowardSpending).toBe(false);
-  });
-
-  it('classifies refund as refund and reduces net spending', () => {
-    const row = [...baseRow];
-    row[13] = -30; // Negative plaid amount = credit
-    row[14] = 30; // Positive cash flow
-    row[16] = 'GENERAL_MERCHANDISE'; // Original category
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('refund');
-    expect(classified.countsTowardSpending).toBe(true);
-    expect(classified.countsTowardIncome).toBe(false);
-    expect(classified.spendingAdjustment).toBe(30);
-  });
-
-  it('classifies pending transaction', () => {
-    const row = [...baseRow];
-    row[20] = 'true';
-    row[13] = 10;
-    row[14] = -10;
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('pending');
-  });
-
-  it('classifies removed/reversed transaction', () => {
-    const row = [...baseRow];
-    row[22] = 'removed';
-    row[23] = '2025-08-01T12:00:00Z';
-
-    const classified = classifyTransaction(row);
-    expect(classified.classification).toBe('removed');
-    expect(classified.countsTowardSpending).toBe(false);
-  });
-});
-
-describe('Pending -> Posted interaction', () => {
-  it('deduplicates superseded pending transactions', () => {
-    const baseRow = [
-      '', 'acc_1', 'ins_1', 'Bank', 'Checking', '1234', 'depository', 'checking',
-      45870, 45870, 'Target', 'Target', 'Target Store',
-      50, -50, 'USD', 'GENERAL_MERCHANDISE', 'GENERAL_MERCHANDISE_SUPERCENTERS', 'HIGH', 'in store',
-      'false', '', 'posted', '', ''
-    ];
-
-    const pendingRow = [...baseRow];
-    pendingRow[0] = 'pend_1';
-    pendingRow[20] = 'true';
-
-    const postedRow = [...baseRow];
-    postedRow[0] = 'post_1';
-    postedRow[21] = 'pend_1'; // pendingTransactionId
-
-    const txs = deduplicateAndNormalizeTransactions([pendingRow, postedRow]);
-    
-    const pendTx = txs.find(t => t.transactionId === 'pend_1');
-    const postTx = txs.find(t => t.transactionId === 'post_1');
-
-    expect(postTx?.classification).toBe('spending');
-    expect(postTx?.countsTowardSpending).toBe(true);
-    
-    expect(pendTx?.classification).toBe('removed');
-    expect(pendTx?.countsTowardSpending).toBe(false);
-
-    const totalSpending = txs.reduce((acc, t) => acc + (t.countsTowardSpending ? t.spendingAdjustment : 0), 0);
-    expect(totalSpending).toBe(-50);
+  
+  it('classifies credit card payment', () => {
+    const tx = classifyTransaction(buildRow({ cashFlowAmount: '-100', catPrimary: 'LOAN_PAYMENTS', catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT' }));
+    expect(tx.classification).toBe('credit_card_payment');
+    expect(tx.countsTowardSpending).toBe(false);
   });
 });

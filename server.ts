@@ -10,6 +10,7 @@ import { google } from "googleapis";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
+import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 
 // Environment config check (log warnings gracefully without crashing startup)
@@ -177,9 +178,9 @@ async function startServer() {
 
   const requireAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: "Unauthorized" });
+    if (!authHeader?.startsWith("Bearer ")) return res.status(401).json({ error: "Unauthorized" });
     try {
-      const token = authHeader.split(' ')[1];
+      const token = authHeader.split(" ")[1];
       const decoded = await getAdminAuth().verifyIdToken(token);
       (req as any).user = decoded;
       next();
@@ -1662,61 +1663,11 @@ async function fetchNormalizedTransactions(uid: string): Promise<NormalizedTrans
 app.get("/api/dashboard/summary", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    
-    let spending = 0;
-    let income = 0;
-    let activePostedCount = 0;
-    
-    // For "current period", let's just do all-time for this verification pass or YTD/current month.
-    // The prompt says "current month calculations use normalized YYYY-MM-DD dates."
-    // We'll calculate current month (UTC based) and all-time.
-    const now = new Date();
-    const currentMonthPrefix = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    
-    let currentMonthSpending = 0;
-    let currentMonthIncome = 0;
-
-    for (const t of txs) {
-      if (t.removed) continue;
-      if (!t.pending) activePostedCount++;
-      
-      if (t.countsTowardSpending) {
-        spending += t.spendingAdjustment;
-        if (t.normalizedDate.startsWith(currentMonthPrefix)) {
-          currentMonthSpending += t.spendingAdjustment;
-        }
-      }
-      if (t.countsTowardIncome) {
-        income += t.incomeAdjustment;
-        if (t.normalizedDate.startsWith(currentMonthPrefix)) {
-          currentMonthIncome += t.incomeAdjustment;
-        }
-      }
-    }
-    
-    const netCashFlow = income - spending;
-    const currentMonthNetCashFlow = currentMonthIncome - currentMonthSpending;
-    const savingsRate = income > 0 ? (netCashFlow / income) : 0;
-    const currentMonthSavingsRate = currentMonthIncome > 0 ? (currentMonthNetCashFlow / currentMonthIncome) : 0;
-
-    res.json({
-      allTime: {
-        spending,
-        income,
-        netCashFlow,
-        savingsRate
-      },
-      currentMonth: {
-        month: currentMonthPrefix,
-        spending: currentMonthSpending,
-        income: currentMonthIncome,
-        netCashFlow: currentMonthNetCashFlow,
-        savingsRate: currentMonthSavingsRate
-      },
-      activePostedCount
-    });
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const summary = aggregateSummary(txs, financeTz);
+    res.json(summary);
   } catch (error: any) {
-    console.error(error);
+    console.error("Dashboard Summary Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1724,38 +1675,10 @@ app.get("/api/dashboard/summary", requireAuth, async (req: express.Request, res:
 app.get("/api/dashboard/categories", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number }> = {};
-    
-    let totalNetSpending = 0;
-
-    for (const t of txs) {
-      if (t.removed || !t.countsTowardSpending) continue;
-      
-      const cat = t.normalizedCategory;
-      if (!categoryTotals[cat]) {
-        categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0 };
-      }
-      
-      categoryTotals[cat].transactionCount++;
-      categoryTotals[cat].netSpending += t.spendingAdjustment;
-      totalNetSpending += t.spendingAdjustment;
-      
-      if (t.classification === 'refund') {
-        categoryTotals[cat].refunds += t.spendingAdjustment; // it's a positive number reducing spending
-      } else {
-        categoryTotals[cat].grossPurchases += t.spendingAdjustment;
-      }
-    }
-    
-    const results = Object.entries(categoryTotals).map(([category, stats]) => ({
-      category,
-      ...stats,
-      percentage: totalNetSpending > 0 ? (stats.netSpending / totalNetSpending) : 0
-    })).sort((a, b) => b.netSpending - a.netSpending);
-    
-    res.json(results);
+    const categories = aggregateCategories(txs);
+    res.json({ categories });
   } catch (error: any) {
-    console.error(error);
+    console.error("Dashboard Categories Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1763,28 +1686,10 @@ app.get("/api/dashboard/categories", requireAuth, async (req: express.Request, r
 app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const merchantTotals: Record<string, { netSpending: number, transactionCount: number }> = {};
-    
-    for (const t of txs) {
-      if (t.removed || !t.countsTowardSpending) continue;
-      
-      const merchant = t.normalizedMerchant || 'Unknown';
-      if (!merchantTotals[merchant]) {
-        merchantTotals[merchant] = { netSpending: 0, transactionCount: 0 };
-      }
-      
-      merchantTotals[merchant].transactionCount++;
-      merchantTotals[merchant].netSpending += t.spendingAdjustment;
-    }
-    
-    const results = Object.entries(merchantTotals)
-      .map(([merchant, stats]) => ({ merchant, ...stats }))
-      .sort((a, b) => b.netSpending - a.netSpending)
-      .slice(0, 50); // top 50
-    
-    res.json(results);
+    const merchants = aggregateMerchants(txs);
+    res.json({ merchants: merchants.slice(0, 50) });
   } catch (error: any) {
-    console.error(error);
+    console.error("Dashboard Merchants Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1792,34 +1697,22 @@ app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, re
 app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const monthly: Record<string, { income: number, spending: number, netCashFlow: number }> = {};
-    
-    for (const t of txs) {
-      if (t.removed) continue;
-      
-      // normalizedDate is YYYY-MM-DD
-      const month = t.normalizedDate.substring(0, 7);
-      if (!month.match(/^\d{4}-\d{2}$/)) continue;
-      
-      if (!monthly[month]) {
-        monthly[month] = { income: 0, spending: 0, netCashFlow: 0 };
-      }
-      
-      if (t.countsTowardIncome) monthly[month].income += t.incomeAdjustment;
-      if (t.countsTowardSpending) monthly[month].spending += t.spendingAdjustment;
-    }
-    
-    for (const m of Object.keys(monthly)) {
-      monthly[m].netCashFlow = monthly[m].income - monthly[m].spending;
-    }
-    
-    const results = Object.entries(monthly)
-      .map(([month, stats]) => ({ month, ...stats }))
-      .sort((a, b) => a.month.localeCompare(b.month));
-      
-    res.json(results);
+    const trends = aggregateTrends(txs);
+    res.json({ monthly: trends });
   } catch (error: any) {
-    console.error(error);
+    console.error("Dashboard Trends Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/verification", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const report = buildVerificationReport(txs, financeTz);
+    res.json(report);
+  } catch (error: any) {
+    console.error("Verification Report Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1828,29 +1721,42 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
     
-    // Sort by date desc
-    txs.sort((a, b) => b.normalizedDate.localeCompare(a.normalizedDate));
+    // Filters
+    const filtered = filterTransactions(txs, req.query);
     
-    // Basic pagination
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 50;
-    const offset = (page - 1) * limit;
+    // Pagination
+    const page = parseInt(req.query.page as string || "1");
+    let limit = parseInt(req.query.limit as string || "100");
+    if (limit > 1000) limit = 1000;
+    
+    const startIdx = (page - 1) * limit;
+    const paginated = filtered.slice(startIdx, startIdx + limit);
     
     res.json({
-      data: txs.slice(offset, offset + limit),
-      total: txs.length,
+      transactions: paginated,
+      total: filtered.length,
       page,
-      limit
+      limit,
+      totalPages: Math.ceil(filtered.length / limit)
     });
   } catch (error: any) {
-    console.error(error);
+    console.error("Transactions Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
 
 app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const uid = (req as any).user.uid;
+    const txs = await fetchNormalizedTransactions(uid);
+    
+    // Fetch plaidItems for health
+    const userDoc = await db.collection("users").doc(uid).get();
+    const plaidItems = userDoc.exists ? (userDoc.data()?.plaidItems || []) : [];
+    const itemHealthMap = new Map();
+    for (const item of plaidItems) {
+      itemHealthMap.set(item.institution_name, item.health);
+    }
     
     const accountsMap: Record<string, any> = {};
     for (const t of txs) {
@@ -1861,7 +1767,8 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
           accountName: t.accountName,
           accountMask: t.accountMask,
           accountType: t.accountType,
-          accountSubtype: t.accountSubtype
+          accountSubtype: t.accountSubtype,
+          health: itemHealthMap.get(t.institutionName) || "unknown"
         };
       }
     }
@@ -1872,7 +1779,6 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
     res.status(500).json({ error: error.message });
   }
 });
-
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },

@@ -11,61 +11,14 @@ export function DeveloperVerification({ user }: { user: any }) {
     try {
       const headers = { Authorization: `Bearer ${await user.getIdToken()}` };
       
-      const summaryRes = await fetch('/api/dashboard/summary', { headers });
-      const summary = await summaryRes.json();
+      const res = await fetch('/api/dashboard/verification', { headers });
+      const report = await res.json();
       
-      const catsRes = await fetch('/api/dashboard/categories', { headers });
-      const categories = await catsRes.json();
-      
-      const trendsRes = await fetch('/api/dashboard/trends', { headers });
-      const trends = await trendsRes.json();
-
-      const merchRes = await fetch('/api/dashboard/merchants', { headers });
-      const merchants = await merchRes.json();
-      
-      const txRes = await fetch('/api/transactions?limit=1000', { headers });
-      const txData = await txRes.json();
-      const transactions = txData.data || [];
-      
-      // Calculate Sandbox reconciliation totals from the raw data
-      let pendingCount = 0;
-      let removedCount = 0;
-      let spendingCount = 0;
-      let incomeCount = 0;
-      let transferCount = 0;
-      let creditCardCount = 0;
-      let refundCount = 0;
-      let otherCount = 0;
-      
-      for (const t of transactions) {
-        if (t.classification === 'pending') pendingCount++;
-        else if (t.classification === 'removed') removedCount++;
-        else if (t.classification === 'spending') spendingCount++;
-        else if (t.classification === 'income') incomeCount++;
-        else if (t.classification === 'internal_transfer') transferCount++;
-        else if (t.classification === 'credit_card_payment') creditCardCount++;
-        else if (t.classification === 'refund') refundCount++;
-        else otherCount++;
+      if (!res.ok) {
+        throw new Error(report.error || 'Failed to fetch verification report');
       }
       
-      setData({
-        summary,
-        categories: categories.slice(0, 10), // Top 10
-        trends,
-        merchants: merchants.slice(0, 10), // Top 10
-        reconciliation: {
-          totalRows: transactions.length, // Since removed ones are returned? Wait, transactions endpoint returns everything including removed, we just don't count them in spending.
-          pendingCount,
-          removedCount,
-          spendingCount,
-          incomeCount,
-          transferCount,
-          creditCardCount,
-          refundCount,
-          otherCount
-        }
-      });
-      
+      setData(report);
     } catch (e: any) {
       setError(e.message);
     } finally {
@@ -76,11 +29,14 @@ export function DeveloperVerification({ user }: { user: any }) {
   return (
     <div className="mt-8 p-6 bg-white border border-gray-200 rounded-xl shadow-sm">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-semibold text-gray-900">Developer Verification (Financial Pass 1)</h2>
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Developer Verification (Pass 1B)</h2>
+          <p className="text-sm text-slate-500 mt-1">Full-dataset reconciliation testing positive-spend semantics.</p>
+        </div>
         <button 
           onClick={fetchVerification} 
           disabled={loading}
-          className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+          className="px-4 py-2 bg-indigo-600 text-white rounded font-bold hover:bg-indigo-700 disabled:opacity-50"
         >
           {loading ? 'Running...' : 'Run Financial Verification'}
         </button>
@@ -92,97 +48,120 @@ export function DeveloperVerification({ user }: { user: any }) {
         <div className="space-y-8 text-sm">
           
           <section>
-            <h3 className="font-bold text-lg mb-2">1. Summary (All-Time)</h3>
+            <h3 className="font-bold text-lg mb-2 text-slate-800">1. Summary (All-Time)</h3>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-gray-500 text-xs">Spending</div>
-                <div className="text-lg font-mono">${data.summary.allTime.spending.toFixed(2)}</div>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Posted Spending</div>
+                <div className="text-xl font-mono mt-1">${data.summary.allTime.spending.toFixed(2)}</div>
               </div>
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-gray-500 text-xs">Income</div>
-                <div className="text-lg font-mono">${data.summary.allTime.income.toFixed(2)}</div>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Recognized Income</div>
+                <div className="text-xl font-mono mt-1">${data.summary.allTime.income.toFixed(2)}</div>
               </div>
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-gray-500 text-xs">Net Cash Flow</div>
-                <div className="text-lg font-mono">${data.summary.allTime.netCashFlow.toFixed(2)}</div>
+              <div className="p-4 bg-slate-50 rounded-lg border border-slate-100">
+                <div className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Net Cash Flow</div>
+                <div className="text-xl font-mono mt-1">${data.summary.allTime.netCashFlow.toFixed(2)}</div>
               </div>
-              <div className="p-3 bg-gray-50 rounded">
-                <div className="text-gray-500 text-xs">Active Posted Count</div>
-                <div className="text-lg font-mono">{data.summary.activePostedCount}</div>
+              <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+                <div className="text-amber-700 text-xs font-semibold uppercase tracking-wider">Pending Spending</div>
+                <div className="text-xl font-mono text-amber-700 mt-1">${data.summary.allTime.pendingSpending.toFixed(2)}</div>
               </div>
             </div>
           </section>
 
           <section>
-            <h3 className="font-bold text-lg mb-2">2. Reconciliation Report</h3>
-            <ul className="list-disc pl-5 space-y-1 font-mono">
-              <li>Total Rows Parsed (Limit 1000): {data.reconciliation.totalRows}</li>
-              <li>Pending Rows: {data.reconciliation.pendingCount}</li>
-              <li>Removed Rows: {data.reconciliation.removedCount}</li>
-              <li>Spending Rows: {data.reconciliation.spendingCount}</li>
-              <li>Income Rows: {data.reconciliation.incomeCount}</li>
-              <li>Internal Transfer Rows: {data.reconciliation.transferCount}</li>
-              <li>Credit Card Payment Rows: {data.reconciliation.creditCardCount}</li>
-              <li>Refund Rows: {data.reconciliation.refundCount}</li>
-              <li>Other/Unclassified Rows: {data.reconciliation.otherCount}</li>
-            </ul>
+            <h3 className="font-bold text-lg mb-2 text-slate-800">2. Complete Reconciliation Report</h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <ul className="list-disc pl-5 space-y-1 font-mono text-slate-700 bg-slate-50 p-4 rounded-lg">
+                <li>Total Raw Rows Parsed: {data.reconciliation.totalRowsParsed}</li>
+                <li>Active Posted Rows: {data.reconciliation.activePostedRows}</li>
+                <li>Pending Rows: {data.reconciliation.pendingCount}</li>
+                <li>Removed Rows: {data.reconciliation.removedCount}</li>
+                <li className="pt-2">Spending Rows: {data.reconciliation.spendingCount}</li>
+                <li>Income Rows: {data.reconciliation.incomeCount}</li>
+                <li>Credit Card Payment Rows: {data.reconciliation.creditCardCount}</li>
+                <li>Refund Rows: {data.reconciliation.refundCount}</li>
+              </ul>
+              <ul className="list-disc pl-5 space-y-1 font-mono text-slate-700 bg-slate-50 p-4 rounded-lg">
+                <li>Internal Transfer Rows: {data.reconciliation.transferCount}</li>
+                <li>Cash Withdrawal Rows: {data.reconciliation.cashWithdrawalCount} (${data.reconciliation.cashWithdrawalAmount.toFixed(2)})</li>
+                <li>P2P Rows: {data.reconciliation.p2pCount} (${data.reconciliation.p2pAmount.toFixed(2)})</li>
+                <li>Unknown Transfer Rows: {data.reconciliation.unknownTransferCount} (${data.reconciliation.unknownTransferAmount.toFixed(2)})</li>
+                <li>Unclassified Positive Rows: {data.reconciliation.unclassifiedPositiveCount} (${data.reconciliation.unclassifiedPositiveAmount.toFixed(2)})</li>
+                <li>Other Rows: {data.reconciliation.otherCount}</li>
+                <li className="pt-2 font-bold text-indigo-600">
+                  Category Math Reconciles: {data.reconciliation.categoryMathReconciles ? 'YES' : 'NO'}
+                </li>
+                <li className="text-xs text-slate-500">(Gross {data.reconciliation.grossPurchases.toFixed(0)} - Refunds {data.reconciliation.refunds.toFixed(0)} = Net {data.reconciliation.netSpending.toFixed(0)})</li>
+              </ul>
+            </div>
           </section>
 
           <div className="grid md:grid-cols-2 gap-8">
             <section>
-              <h3 className="font-bold text-lg mb-2">3. Top Categories</h3>
-              <table className="w-full text-left font-mono text-xs">
-                <thead>
-                  <tr className="border-b">
-                    <th className="py-2">Category</th>
-                    <th>Net Spending</th>
-                    <th>Refunds</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.categories.map((c: any) => (
-                    <tr key={c.category} className="border-b">
-                      <td className="py-1">{c.category}</td>
-                      <td>${c.netSpending.toFixed(2)}</td>
-                      <td>${c.refunds.toFixed(2)}</td>
+              <h3 className="font-bold text-lg mb-2 text-slate-800">3. Top Categories (Net)</h3>
+              <div className="bg-slate-50 rounded-lg p-1">
+                <table className="w-full text-left font-mono text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="py-2 px-2 text-slate-500">Category</th>
+                      <th className="px-2 text-slate-500">Net Spend</th>
+                      <th className="px-2 text-slate-500">Refunds</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.categories.slice(0, 10).map((c: any) => (
+                      <tr key={c.category} className="border-b border-slate-100 last:border-0 hover:bg-white">
+                        <td className="py-2 px-2">{c.category}</td>
+                        <td className="px-2">${c.netSpending.toFixed(2)}</td>
+                        <td className="px-2 text-slate-400">${c.refunds.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             <section>
-              <h3 className="font-bold text-lg mb-2">4. Top Merchants</h3>
-              <table className="w-full text-left font-mono text-xs">
-                <thead>
-                  <tr className="border-b">
-                    <th className="py-2">Merchant</th>
-                    <th>Net Spending</th>
-                    <th>Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.merchants.map((m: any) => (
-                    <tr key={m.merchant} className="border-b">
-                      <td className="py-1">{m.merchant}</td>
-                      <td>${m.netSpending.toFixed(2)}</td>
-                      <td>{m.transactionCount}</td>
+              <h3 className="font-bold text-lg mb-2 text-slate-800">4. Top Merchants</h3>
+              <div className="bg-slate-50 rounded-lg p-1">
+                <table className="w-full text-left font-mono text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200">
+                      <th className="py-2 px-2 text-slate-500">Merchant</th>
+                      <th className="px-2 text-slate-500">Net Spend</th>
+                      <th className="px-2 text-slate-500">Count</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {data.merchants.slice(0, 10).map((m: any) => (
+                      <tr key={m.merchant} className="border-b border-slate-100 last:border-0 hover:bg-white">
+                        <td className="py-2 px-2 truncate max-w-[150px]">{m.merchant}</td>
+                        <td className="px-2">${m.netSpending.toFixed(2)}</td>
+                        <td className="px-2 text-slate-400">{m.transactionCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
           </div>
 
           <section>
-            <h3 className="font-bold text-lg mb-2">5. Monthly Trends</h3>
-            <div className="flex gap-4 overflow-x-auto">
+            <h3 className="font-bold text-lg mb-2 text-slate-800">5. Monthly Trends (Civil Date)</h3>
+            <div className="flex gap-4 overflow-x-auto pb-4">
               {data.trends.map((t: any) => (
-                <div key={t.month} className="min-w-[120px] p-3 bg-gray-50 rounded font-mono text-xs text-center border">
-                  <div className="font-bold border-b pb-1 mb-1">{t.month}</div>
-                  <div className="text-green-600">+${t.income.toFixed(0)}</div>
-                  <div className="text-red-600">-${t.spending.toFixed(0)}</div>
-                  <div className="mt-1 pt-1 border-t">${t.netCashFlow.toFixed(0)}</div>
+                <div key={t.month} className="min-w-[140px] p-4 bg-slate-50 rounded-xl font-mono text-xs text-center border border-slate-100 shadow-sm">
+                  <div className="font-bold text-sm text-slate-700 border-b border-slate-200 pb-2 mb-2">{t.month}</div>
+                  <div className="flex justify-between text-emerald-600 mb-1">
+                    <span>In</span><span>+${t.income.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-600 mb-2">
+                    <span>Out</span><span>-${t.spending.toFixed(0)}</span>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-slate-200 font-bold text-slate-800 flex justify-between">
+                    <span>Net</span><span>${t.netCashFlow.toFixed(0)}</span>
+                  </div>
                 </div>
               ))}
             </div>
