@@ -226,7 +226,7 @@ describe('New Reconciliation Tests', () => {
     expect(tx.classification).toBe('internal_transfer');
   });
 
-  it('merchant expense $500 + same-merchant/category credit $500 -> net spending 0', () => {
+  it('same merchant + same category purchase/credit -> merchant_credit', () => {
     const rawPurchase = buildRow({ txId: 'p1', name: 'United Airlines', catPrimary: 'TRAVEL', cashFlowAmount: '-500' });
     const rawCredit = buildRow({ txId: 'c1', name: 'United Airlines', catPrimary: 'TRAVEL', cashFlowAmount: '500' });
     
@@ -241,16 +241,45 @@ describe('New Reconciliation Tests', () => {
     expect(net).toBe(0);
   });
 
-  it('merchant expense $500 + same-merchant credit $200 -> net spending 300', () => {
+  it('same merchant but materially different category with no refund evidence -> remain other', () => {
     const rawPurchase = buildRow({ txId: 'p1', name: 'Target', catPrimary: 'SHOPPING', cashFlowAmount: '-500' });
-    const rawCredit = buildRow({ txId: 'c1', name: 'Target', catPrimary: 'SHOPPING', cashFlowAmount: '200' });
+    const rawCredit = buildRow({ txId: 'c1', name: 'Target', catPrimary: 'ENTERTAINMENT', cashFlowAmount: '200' });
     
     const txs = deduplicateAndNormalizeTransactions([['Transaction ID'], rawPurchase, rawCredit]);
-    expect(txs[1].classification).toBe('merchant_credit');
-    expect(txs[1].spendingAdjustment).toBe(-200);
-    
-    const net = txs[0].spendingAdjustment + txs[1].spendingAdjustment;
-    expect(net).toBe(300);
+    expect(txs[1].classification).toBe('other');
+  });
+
+  it('LOAN_PAYMENTS + explicit CREDIT_CARD detailed category -> credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({
+      catPrimary: 'LOAN_PAYMENTS',
+      catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      name: 'UNKNOWN LOAN',
+      cashFlowAmount: '-500'
+    }));
+    expect(tx.classification).toBe('credit_card_payment');
+  });
+
+  it('loan account + LOAN_PAYMENTS + AUTOMATIC PAYMENT -> NOT credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({
+      accountType: 'loan',
+      accountSubtype: 'mortgage',
+      catPrimary: 'LOAN_PAYMENTS',
+      name: 'AUTOMATIC PAYMENT',
+      cashFlowAmount: '-500'
+    }));
+    expect(tx.classification).toBe('spending'); // Not credit card
+  });
+
+  it('depository account + generic LOAN_PAYMENTS + AUTOMATIC PAYMENT -> NOT credit_card_payment', () => {
+    const tx = classifyTransaction(buildRow({
+      accountType: 'depository',
+      accountSubtype: 'checking',
+      catPrimary: 'LOAN_PAYMENTS',
+      catDetailed: 'LOAN_PAYMENTS_OTHER',
+      name: 'AUTOMATIC PAYMENT',
+      cashFlowAmount: '-500'
+    }));
+    expect(tx.classification).toBe('spending');
   });
 
   it('positive merchant credit with no corresponding spending evidence -> other', () => {

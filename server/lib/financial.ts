@@ -109,7 +109,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     (descLower.includes('interest') || descLower.includes('intrst') || descLower.includes('interest payment') || descLower.includes('interest paid'))));
 
   const isCCPayment = (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) ||
-    ((accountType === 'credit' || catPrimary === 'LOAN_PAYMENTS') && 
+    ((accountType === 'credit' || accountSubtype.includes('credit card')) && 
     (descLower.includes('automatic payment') || descLower.includes('payment - thank') || descLower.includes('card payment') || descLower.includes('credit card payment')));
 
   if (isRemoved) {
@@ -219,20 +219,18 @@ export function deduplicateAndNormalizeTransactions(rawRows: any[][]): Normalize
 
   // Second pass: Context-aware merchant credit detection
   const merchantCategorySpendingSet = new Set<string>();
-  const merchantSpendingSet = new Set<string>();
   
   for (const t of deduplicatedTx) {
     if (!t.removed && !t.pending && t.classification === 'spending' && t.spendingAdjustment > 0 && t.normalizedMerchant) {
       merchantCategorySpendingSet.add(`${t.normalizedMerchant}|${t.normalizedCategory}`);
-      merchantSpendingSet.add(t.normalizedMerchant);
     }
   }
 
   return deduplicatedTx.map(t => {
     if (!t.removed && !t.pending && t.cashFlowAmount > 0) {
-      if (t.classification === 'other' || t.classification === 'refund') {
+      if (t.classification === 'other') {
         const strictKey = `${t.normalizedMerchant}|${t.normalizedCategory}`;
-        if (t.normalizedMerchant && (merchantCategorySpendingSet.has(strictKey) || merchantSpendingSet.has(t.normalizedMerchant))) {
+        if (t.normalizedMerchant && merchantCategorySpendingSet.has(strictKey)) {
           return {
             ...t,
             classification: 'merchant_credit' as Classification,

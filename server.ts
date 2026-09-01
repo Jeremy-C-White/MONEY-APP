@@ -10,7 +10,7 @@ import { google } from "googleapis";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
-import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport } from "./server/lib/aggregations";
+import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 
 // Environment config check (log warnings gracefully without crashing startup)
@@ -1759,17 +1759,8 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
     
     // Fetch plaidItems for health from plaid_items collection
     const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    const itemHealthMap = new Map();
-    plaidItemsSnap.forEach((doc: any) => {
-      const data = doc.data();
-      if (Array.isArray(data.accounts)) {
-        for (const acc of data.accounts) {
-          if (acc.account_id) {
-            itemHealthMap.set(acc.account_id, data.health || "unknown");
-          }
-        }
-      }
-    });
+    const plaidItemsData = plaidItemsSnap.docs.map(doc => doc.data());
+    const itemHealthMap = buildAccountHealthMap(plaidItemsData);
     
     const accountsMap: Record<string, any> = {};
     for (const t of txs) {

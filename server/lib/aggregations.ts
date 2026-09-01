@@ -102,14 +102,14 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
 }
 
 export function aggregateCategories(txs: NormalizedTransaction[]) {
-  const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number }> = {};
+  const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number, merchantCredits: number }> = {};
   
   for (const t of txs) {
     if (t.removed || t.pending || !t.countsTowardSpending) continue;
     
     const cat = t.normalizedCategory;
     if (!categoryTotals[cat]) {
-      categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0 };
+      categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0, merchantCredits: 0 };
     }
     
     categoryTotals[cat].transactionCount++;
@@ -117,6 +117,8 @@ export function aggregateCategories(txs: NormalizedTransaction[]) {
     
     if (t.classification === 'refund') {
       categoryTotals[cat].refunds += Math.abs(t.spendingAdjustment); // Keep refund tracked as a positive absolute value for display
+    } else if (t.classification === 'merchant_credit') {
+      categoryTotals[cat].merchantCredits += Math.abs(t.spendingAdjustment);
     } else {
       categoryTotals[cat].grossPurchases += t.spendingAdjustment;
     }
@@ -235,6 +237,20 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
     result = result.filter(t => (t.normalizedMerchant || '').toLowerCase().includes(s) || (t.name || '').toLowerCase().includes(s));
   }
   return result;
+}
+
+export function buildAccountHealthMap(plaidItemsData: any[]): Map<string, string> {
+  const itemHealthMap = new Map<string, string>();
+  for (const data of plaidItemsData) {
+    if (Array.isArray(data.accounts)) {
+      for (const acc of data.accounts) {
+        if (acc.id) {
+          itemHealthMap.set(acc.id, data.health || 'unknown');
+        }
+      }
+    }
+  }
+  return itemHealthMap;
 }
 
 export function buildVerificationReport(txs: NormalizedTransaction[], financeTimezone: string) {
@@ -367,6 +383,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
 
   const grossPurchases = categories.reduce((sum, c) => sum + c.grossPurchases, 0);
   const refunds = categories.reduce((sum, c) => sum + c.refunds, 0);
+  const merchantCredits = categories.reduce((sum, c) => sum + c.merchantCredits, 0);
   
   const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard + 
                     bridgeInternalTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming + 
@@ -405,10 +422,11 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       otherCount,
       grossPurchases,
       refunds,
+      merchantCredits,
       netSpending: summary.allTime.spending,
       recognizedIncome: summary.allTime.income,
       netCashFlow: summary.allTime.netCashFlow,
-      categoryMathReconciles: Math.abs(summary.allTime.spending - (grossPurchases - refunds)) < 0.01,
+      categoryMathReconciles: Math.abs(summary.allTime.spending - (grossPurchases - refunds - merchantCredits)) < 0.01,
       bridge: {
         activePostedRawCashFlowTotal,
         recognizedSpending: bridgeSpending,

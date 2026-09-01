@@ -92,26 +92,6 @@ describe('Aggregations Pass 1C', () => {
     expect(res.allTime.pendingSpending).toBe(0);
     expect(res.allTime.projectedSpending).toBe(50);
   });
-
-  it('maps account health securely by account id, isolating same-institution health drift', () => {
-    const plaidItems = [
-      {
-        institution_name: 'Wells Fargo',
-        health: 'healthy',
-        accounts: [{ id: 'account_1' }]
-      },
-      {
-        institution_name: 'Wells Fargo',
-        health: 'login_required',
-        accounts: [{ id: 'account_2' }]
-      }
-    ];
-
-    const healthMap = buildAccountHealthMap(plaidItems);
-
-    expect(healthMap.get('account_1')).toBe('healthy');
-    expect(healthMap.get('account_2')).toBe('login_required');
-  });
 });
 
 describe('Trend Ranges and Boundaries', () => {
@@ -161,5 +141,23 @@ describe('Trend Ranges and Boundaries', () => {
     const trends = aggregateTrends([], 'ytd', 'America/New_York');
     // Current month should be July (07)
     expect(trends[trends.length - 1].month).toBe('2026-07');
+  });
+});
+describe('Account Health Mapping', () => {
+  it('maps account health securely by account id, isolating same-institution health drift', () => {
+    const plaidItems = [
+      {
+        health: 'good',
+        accounts: [{ id: 'acc_1', name: 'Checking' }]
+      },
+      {
+        health: 'login_required',
+        accounts: [{ id: 'acc_2', name: 'Savings' }]
+      }
+    ];
+    
+    const healthMap = buildAccountHealthMap(plaidItems);
+    expect(healthMap.get('acc_1')).toBe('good');
+    expect(healthMap.get('acc_2')).toBe('login_required');
   });
 });

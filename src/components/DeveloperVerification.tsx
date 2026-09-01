@@ -95,7 +95,7 @@ export function DeveloperVerification({ user }: { user: any }) {
                 <li className="pt-2 font-bold text-indigo-600">
                   Category Math Reconciles: {data.reconciliation.categoryMathReconciles ? 'YES' : 'NO'}
                 </li>
-                <li className="text-xs text-slate-500">(Gross {data.reconciliation.grossPurchases.toFixed(0)} - Refunds {data.reconciliation.refunds.toFixed(0)} = Net {data.reconciliation.netSpending.toFixed(0)})</li>
+                <li className="text-xs text-slate-500">(Gross {data.reconciliation.grossPurchases.toFixed(0)} - Refunds {data.reconciliation.refunds.toFixed(0)} - Merchant Credits {data.reconciliation.merchantCredits?.toFixed(0) || '0'} = Net {data.reconciliation.netSpending.toFixed(0)})</li>
                 {data.reconciliation.bridge && (
                   <li className="pt-2 font-bold text-indigo-600">
                     Accounting Bridge Reconciles: {data.reconciliation.bridge.accountingBridgeReconciles ? 'YES' : 'NO'}
