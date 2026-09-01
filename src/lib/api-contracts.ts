@@ -6,6 +6,7 @@ import type {
   Transaction,
   TransactionsResponse,
   TrendPoint,
+  AccountSummary,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -108,12 +109,11 @@ export function extractTransactionsResponse(
   return record as unknown as TransactionsResponse;
 }
 
-export function extractAccountsResponse(data: unknown): import('../types/finance').AccountSummary[] {
-  return requireArrayField<import('../types/finance').AccountSummary>(
-    data,
-    'accounts',
-    'accounts'
-  );
+export function extractAccountsResponse(data: unknown): AccountSummary[] {
+  if (!Array.isArray(data)) {
+    throw new Error('Invalid accounts response.');
+  }
+  return data as AccountSummary[];
 }
 
 export interface OverviewPayloads {

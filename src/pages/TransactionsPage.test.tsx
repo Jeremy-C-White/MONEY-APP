@@ -49,16 +49,10 @@ describe('TransactionsPage', () => {
 
   it('renders a valid transactions response', async () => {
     const apiFetch = vi.fn().mockImplementation(async (url) => {
-      if (url.includes('/api/transactions')) {
-        return { ok: true, json: async () => mockRes };
-      }
-      if (url.includes('/api/accounts')) {
-        return { ok: true, json: async () => ({ accounts: [] }) };
-      }
-      if (url.includes('/api/dashboard/categories')) {
-        return { ok: true, json: async () => ({ categories: [] }) };
-      }
-      if (url.includes('/api/accounts')) return { ok: true, json: async () => ({ accounts: [] }) }; if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) }; return { ok: true, json: async () => ({}) };
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => mockRes };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
     });
 
     await act(async () => {
@@ -71,7 +65,7 @@ describe('TransactionsPage', () => {
     });
 
     // Validates that amount is formatted correctly
-    expect(container.textContent).toContain('$4.50');
+    expect(container.textContent).toContain('-$4.50');
     // Validates category/classification labels
     expect(container.textContent).toContain('Food & dining');
     // Validates account context
@@ -83,10 +77,10 @@ describe('TransactionsPage', () => {
 
   it('requests pending status when Pending is selected', async () => {
     const apiFetch = vi.fn().mockImplementation(async (url) => {
-      if (url.includes('/api/transactions')) {
-        return { ok: true, json: async () => mockRes };
-      }
-      if (url.includes('/api/accounts')) return { ok: true, json: async () => ({ accounts: [] }) }; if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) }; return { ok: true, json: async () => ({}) };
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => mockRes };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
     });
 
     await act(async () => {
@@ -110,10 +104,10 @@ describe('TransactionsPage', () => {
 
   it('shows error state when response structure is invalid', async () => {
     const apiFetch = vi.fn().mockImplementation(async (url) => {
-      if (url.includes('/api/transactions')) {
-        return { ok: true, json: async () => ({ transactions: 'not_an_array' }) };
-      }
-      if (url.includes('/api/accounts')) return { ok: true, json: async () => ({ accounts: [] }) }; if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) }; return { ok: true, json: async () => ({}) };
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => ({ transactions: 'not_an_array' }) };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
     });
 
     await act(async () => {

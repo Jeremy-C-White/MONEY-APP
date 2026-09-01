@@ -242,9 +242,14 @@ describe('presentation formatters', () => {
 
 describe('extractAccountsResponse', () => {
   it('extracts accounts array', () => {
-    const result = extractAccountsResponse({ accounts: [{ accountId: 'acc_1' }] });
+    const result = extractAccountsResponse([{ accountId: 'acc_1' }]);
     expect(result).toHaveLength(1);
     expect(result[0].accountId).toBe('acc_1');
+  });
+
+  it('throws on non-array input', () => {
+    expect(() => extractAccountsResponse({ accounts: [] })).toThrow('Invalid accounts response.');
+    expect(() => extractAccountsResponse(null)).toThrow('Invalid accounts response.');
   });
 });
 

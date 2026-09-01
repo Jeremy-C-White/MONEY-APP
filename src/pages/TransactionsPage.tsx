@@ -48,25 +48,32 @@ export function TransactionsPage({
 
   // Fetch options once
   useEffect(() => {
-    const fetchOptions = async () => {
+    const fetchAccounts = async () => {
       try {
-        const [accRes, catRes] = await Promise.all([
-          apiFetch('/api/accounts'),
-          apiFetch('/api/dashboard/categories')
-        ]);
-        if (accRes.ok) {
-          const accData = await accRes.json();
-          setAccounts(extractAccountsResponse(accData));
-        }
-        if (catRes.ok) {
-          const catData = await catRes.json();
-          setCategories(catData.categories || []);
+        const res = await apiFetch('/api/accounts');
+        if (res.ok) {
+          const data = await res.json();
+          setAccounts(extractAccountsResponse(data));
         }
       } catch (e) {
-        console.warn("Failed to load filter options", e);
+        console.warn("Failed to load account filter options", e);
       }
     };
-    fetchOptions();
+
+    const fetchCategories = async () => {
+      try {
+        const res = await apiFetch('/api/dashboard/categories');
+        if (res.ok) {
+          const data = await res.json();
+          setCategories(data.categories || []);
+        }
+      } catch (e) {
+        console.warn("Failed to load category filter options", e);
+      }
+    };
+
+    fetchAccounts();
+    fetchCategories();
   }, [apiFetch]);
 
   // Debounce search
