@@ -321,8 +321,10 @@ export function OverviewPage({
               </h4>
               <div className="space-y-3">
                 {pendingTxs.map((transaction) => (
-                  <TransactionRow key={transaction.transactionId} tx={transaction} />
-                ))}
+  <React.Fragment key={transaction.transactionId}>
+    <TransactionRow tx={transaction} />
+  </React.Fragment>
+))}
               </div>
             </div>
           )}
@@ -344,8 +346,10 @@ export function OverviewPage({
             ) : (
               <div className="space-y-3">
                 {postedTxs.map((transaction) => (
-                  <TransactionRow key={transaction.transactionId} tx={transaction} />
-                ))}
+  <React.Fragment key={transaction.transactionId}>
+    <TransactionRow tx={transaction} />
+  </React.Fragment>
+))}
               </div>
             )}
           </div>

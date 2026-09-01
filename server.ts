@@ -21,19 +21,18 @@ for (const envVar of requiredEnv) {
   }
 }
 
+const FIREBASE_PROJECT_ID = process.env.FIREBASE_PROJECT_ID || "gen-lang-client-0864937792";
+const FIRESTORE_DATABASE_ID = process.env.FIRESTORE_DATABASE_ID || "ai-studio-3aabea25-37f3-4131-89c3-c2aaa9384046";
+
 let db: FirebaseFirestore.Firestore | any = null;
 try {
   const firebaseApp = initializeApp({
     credential: applicationDefault(),
+    projectId: FIREBASE_PROJECT_ID,
   });
-  db = getFirestore(firebaseApp, "ai-studio-3aabea25-37f3-4131-89c3-c2aaa9384046");
+  db = getFirestore(firebaseApp, FIRESTORE_DATABASE_ID);
 } catch (error: any) {
   console.warn("Firebase Admin initialization notice:", error?.message || error);
-  try {
-    db = getFirestore("ai-studio-3aabea25-37f3-4131-89c3-c2aaa9384046");
-  } catch (e) {
-    console.warn("Fallback getFirestore notice:", e);
-  }
 }
 
 function isGoogleAuthError(err: any): boolean {
