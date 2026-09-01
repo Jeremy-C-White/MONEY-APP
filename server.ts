@@ -12,6 +12,7 @@ import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
 import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
+import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1840,6 +1841,27 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   }
 });
 
+app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
+    const accounts = buildConnectedAccounts(plaidItemsSnap.docs.map(doc => {
+      const item = doc.data();
+      return {
+        institutionName: item.institution_name,
+        health: normalizeItemHealth(item),
+        accounts: item.accounts
+      };
+    }));
+
+    res.json(accounts);
+  } catch (error: any) {
+    console.error("Connected Accounts Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Ledger account inventory. Used by Transactions filters. Represents accounts present in normalized transaction history. Do not repurpose as the connected-account source.
 app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;
