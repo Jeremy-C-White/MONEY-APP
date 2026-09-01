@@ -1683,6 +1683,85 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
 }
 
 
+app.get("/api/dev/accounts-preflight", requireAuth, async (req: express.Request, res: express.Response) => {
+  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
+    return res.status(403).json({ error: "Only available in Sandbox" });
+  }
+
+  try {
+    const uid = (req as any).user.uid;
+    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
+    
+    let activeItemCount = 0;
+    let disconnectedItemCount = 0;
+    let activeItemsWithAccounts = 0;
+    let activeItemsWithoutAccounts = 0;
+    const healthBreakdown: Record<string, number> = {};
+    const itemsWithMissingAccounts: { institutionName: string; health: string }[] = [];
+    const uniquePersistedAccountIds = new Set<string>();
+
+    plaidItemsSnap.docs.forEach(doc => {
+      const data = doc.data();
+      const health = normalizeItemHealth(data);
+      healthBreakdown[health] = (healthBreakdown[health] || 0) + 1;
+
+      if (health === 'disconnected') {
+        disconnectedItemCount++;
+      } else {
+        activeItemCount++;
+        const accounts = data.accounts;
+        if (Array.isArray(accounts) && accounts.length > 0) {
+          activeItemsWithAccounts++;
+          accounts.forEach(acc => {
+            if (acc.id) uniquePersistedAccountIds.add(acc.id);
+            else if (acc.account_id) uniquePersistedAccountIds.add(acc.account_id);
+          });
+        } else {
+          activeItemsWithoutAccounts++;
+          itemsWithMissingAccounts.push({
+            institutionName: data.institution_name || 'Unknown',
+            health: health
+          });
+        }
+      }
+    });
+
+    const txs = await fetchNormalizedTransactions(uid);
+    const uniqueLedgerAccountIds = new Set<string>();
+    txs.forEach(t => uniqueLedgerAccountIds.add(t.accountId));
+
+    let idsInBoth = 0;
+    let persistedOnlyIds = 0;
+    let ledgerOnlyIds = 0;
+
+    for (const id of uniquePersistedAccountIds) {
+      if (uniqueLedgerAccountIds.has(id)) idsInBoth++;
+      else persistedOnlyIds++;
+    }
+    for (const id of uniqueLedgerAccountIds) {
+      if (!uniquePersistedAccountIds.has(id)) ledgerOnlyIds++;
+    }
+
+    res.json({
+      plaidItemCount: plaidItemsSnap.size,
+      activeItemCount,
+      disconnectedItemCount,
+      activeItemsWithAccounts,
+      activeItemsWithoutAccounts,
+      uniquePersistedAccountIds: uniquePersistedAccountIds.size,
+      uniqueLedgerAccountIds: uniqueLedgerAccountIds.size,
+      idsInBoth,
+      persistedOnlyIds,
+      ledgerOnlyIds,
+      healthBreakdown,
+      itemsWithMissingAccounts
+    });
+  } catch (error: any) {
+    console.error("Accounts Preflight Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/dev/sandbox-acceptance", requireAuth, async (req: express.Request, res: express.Response) => {
   if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
     return res.status(403).json({ error: "Only available in Sandbox" });
@@ -1841,6 +1920,7 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   }
 });
 
+// Connected account inventory. Source of truth for connected accounts. Represents accounts present in connected Plaid items. Do not repurpose as the ledger-account source.
 app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;

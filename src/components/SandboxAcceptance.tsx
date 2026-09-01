@@ -8,6 +8,29 @@ export function SandboxAcceptance({ user, plaidItems = [] }: { user: any, plaidI
   const [refreshMsg, setRefreshMsg] = useState('');
   const [selectedItemId, setSelectedItemId] = useState('');
 
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [preflightData, setPreflightData] = useState<any>(null);
+  const [preflightError, setPreflightError] = useState('');
+
+  const runPreflight = async () => {
+    setPreflightLoading(true);
+    setPreflightError('');
+    try {
+      const headers = { Authorization: `Bearer ${await user.getIdToken()}` };
+      const res = await fetch('/api/dev/accounts-preflight', { headers });
+      const report = await res.json();
+      
+      if (!res.ok) {
+        throw new Error(report.error || 'Failed to run accounts preflight');
+      }
+      setPreflightData(report);
+    } catch (e: any) {
+      setPreflightError(e.message);
+    } finally {
+      setPreflightLoading(false);
+    }
+  };
+
   const fetchAcceptance = async () => {
     setLoading(true);
     setError('');
@@ -119,6 +142,13 @@ export function SandboxAcceptance({ user, plaidItems = [] }: { user: any, plaidI
           >
             {loading ? 'Running...' : 'Run Acceptance Suite'}
           </button>
+          <button 
+            onClick={runPreflight}
+            disabled={preflightLoading}
+            className="px-4 py-2 bg-indigo-800 text-white rounded font-bold hover:bg-indigo-700 disabled:opacity-50 text-sm w-full"
+          >
+            {preflightLoading ? 'Running Preflight...' : 'Run Accounts Preflight'}
+          </button>
         </div>
       </div>
 
@@ -128,9 +158,22 @@ export function SandboxAcceptance({ user, plaidItems = [] }: { user: any, plaidI
         </div>
       )}
       
+      {preflightError && (
+        <div className="mb-6 p-4 bg-rose-50 text-rose-700 border border-rose-200 rounded-lg">
+          {preflightError}
+        </div>
+      )}
+      
       {refreshMsg && (
         <div className="mb-6 p-4 bg-amber-50 text-amber-700 border border-amber-200 rounded-lg font-bold">
           {refreshMsg}
+        </div>
+      )}
+
+      {preflightData && (
+        <div className="mb-6 p-4 bg-white rounded-lg border border-slate-200 shadow-sm font-mono text-sm">
+          <h3 className="font-bold mb-2">Accounts Preflight Data</h3>
+          <pre className="whitespace-pre-wrap">{JSON.stringify(preflightData, null, 2)}</pre>
         </div>
       )}
 
