@@ -19,7 +19,7 @@ interface AppShellProps {
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
-  { id: 'accounts', label: 'Accounts', icon: Wallet, disabled: true },
+  { id: 'accounts', label: 'Accounts', icon: Wallet },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
@@ -44,26 +44,15 @@ export function AppShell({
           {NAV_ITEMS.map((item) => (
             <button
               key={item.id}
-              onClick={() => {
-                if (item.disabled) return;
-                setActiveTab(item.id);
-              }}
-              disabled={item.disabled}
+              onClick={() => setActiveTab(item.id)}
               className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                 activeTab === item.id
                   ? 'bg-indigo-50 text-indigo-700'
-                  : item.disabled
-                    ? 'text-slate-300 cursor-not-allowed'
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
               }`}
             >
               <item.icon className="w-5 h-5" />
               <span>{item.label}</span>
-              {item.disabled && (
-                <span className="ml-auto text-[10px] uppercase tracking-wider text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                  Soon
-                </span>
-              )}
             </button>
           ))}
         </nav>
@@ -120,17 +109,11 @@ export function AppShell({
             {NAV_ITEMS.map((item) => (
               <button
                 key={item.id}
-                onClick={() => {
-                  if (item.disabled) return;
-                  setActiveTab(item.id);
-                }}
-                disabled={item.disabled}
+                onClick={() => setActiveTab(item.id)}
                 className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
                   activeTab === item.id
                     ? 'text-indigo-600'
-                    : item.disabled
-                      ? 'text-slate-300 cursor-not-allowed'
-                      : 'text-slate-500'
+                    : 'text-slate-500'
                 }`}
               >
                 <item.icon

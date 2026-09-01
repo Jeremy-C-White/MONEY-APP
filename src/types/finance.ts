@@ -185,3 +185,5 @@ export interface AccountSummary {
   accountSubtype: string;
   health: string;
 }
+
+export type ConnectedAccount = AccountSummary;

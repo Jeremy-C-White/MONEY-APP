@@ -7,6 +7,7 @@ import {
   extractTransactionsResponse,
   normalizeOverviewPayloads,
   extractAccountsResponse,
+  extractConnectedAccountsResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -250,6 +251,32 @@ describe('extractAccountsResponse', () => {
   it('throws on non-array input', () => {
     expect(() => extractAccountsResponse({ accounts: [] })).toThrow('Invalid accounts response.');
     expect(() => extractAccountsResponse(null)).toThrow('Invalid accounts response.');
+  });
+});
+
+describe('extractConnectedAccountsResponse', () => {
+  const connectedAccount = {
+    accountId: 'acc_1',
+    institutionName: 'Example Bank',
+    accountName: 'Checking',
+    accountMask: '1234',
+    accountType: 'depository',
+    accountSubtype: 'checking',
+    health: 'healthy',
+  };
+
+  it('accepts the connected-account top-level array contract', () => {
+    expect(extractConnectedAccountsResponse([connectedAccount])).toEqual([connectedAccount]);
+    expect(extractConnectedAccountsResponse([])).toEqual([]);
+  });
+
+  it('rejects wrappers and malformed account records', () => {
+    expect(() => extractConnectedAccountsResponse({ accounts: [] })).toThrow(
+      'Invalid connected accounts response.'
+    );
+    expect(() => extractConnectedAccountsResponse([{ ...connectedAccount, accountName: null }])).toThrow(
+      'Invalid connected accounts response.'
+    );
   });
 });
 

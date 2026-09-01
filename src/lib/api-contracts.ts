@@ -7,6 +7,7 @@ import type {
   TransactionsResponse,
   TrendPoint,
   AccountSummary,
+  ConnectedAccount,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -114,6 +115,30 @@ export function extractAccountsResponse(data: unknown): AccountSummary[] {
     throw new Error('Invalid accounts response.');
   }
   return data as AccountSummary[];
+}
+
+export function extractConnectedAccountsResponse(data: unknown): ConnectedAccount[] {
+  if (!Array.isArray(data)) {
+    throw new Error('Invalid connected accounts response.');
+  }
+
+  const requiredFields = [
+    'accountId',
+    'institutionName',
+    'accountName',
+    'accountMask',
+    'accountType',
+    'accountSubtype',
+    'health',
+  ];
+
+  if (data.some(account => (
+    !isRecord(account) || requiredFields.some(field => typeof account[field] !== 'string')
+  ))) {
+    throw new Error('Invalid connected accounts response.');
+  }
+
+  return data as ConnectedAccount[];
 }
 
 export interface OverviewPayloads {
