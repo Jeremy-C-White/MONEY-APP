@@ -9,8 +9,7 @@ import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { google } from "googleapis";
 import * as crypto from "crypto";
 import * as jose from "jose";
-import { buildConnectedAccounts } from './server/lib/accounts';
-import { deduplicateAndNormalizeTransactions, NormalizedTransaction, normalizeItemHealth } from "./server/lib/financial";
+import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
 import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 
@@ -130,6 +129,16 @@ const getOauth2Client = () => {
 
 const CURRENT_MIGRATION_VERSION = 2;
 
+function normalizeItemHealth(data: any): string {
+  const health = data.health || data.status || 'unknown';
+  if (health === 'healthy' || health === 'disconnected' || health === 'login_required' || health === 'pending_disconnect' || health === 'permission_revoked') {
+    return health;
+  }
+  if (health === 'ITEM_LOGIN_REQUIRED') return 'login_required';
+  if (health === 'PENDING_DISCONNECT') return 'pending_disconnect';
+  if (health === 'sync_available') return 'healthy'; // sync_available means healthy but has_updates
+  return health;
+}
 
 function validateProductionLockOwnership(lockDoc: FirebaseFirestore.DocumentSnapshot | null | undefined, sessionId: string) {
   if (!lockDoc || !lockDoc.exists) {
@@ -1831,37 +1840,6 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   }
 });
 
-// Ledger account inventory.
-// Used by Transactions filters.
-// Represents accounts present in normalized transaction history.
-// Do not repurpose as the connected-account source.
-// Connected account inventory.
-// Used by the Accounts page.
-// Represents account metadata persisted on Plaid Item documents.
-// Does not derive account existence from transaction history.
-app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    const plaidItems = plaidItemsSnap.docs.map(doc => doc.data());
-    
-    const connectedAccounts = buildConnectedAccounts(plaidItems);
-    
-    // For preflight/debugging locally
-    plaidItems.forEach(item => {
-      let health = item.health || 'unknown';
-      if (item.accounts && item.accounts.length === 0 && health !== 'disconnected') {
-        console.warn('ACTIVE EMPTY/MISSING ACCOUNTS ITEM FOUND:', item.institution_name, health);
-      }
-    });
-
-    res.json(connectedAccounts);
-  } catch (err: any) {
-    console.error("Error fetching connected accounts:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;
@@ -1893,8 +1871,7 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
     res.status(500).json({ error: error.message });
   }
 });
-  
-if (process.env.NODE_ENV !== "production") {
+  if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -1908,12 +1885,9 @@ if (process.env.NODE_ENV !== "production") {
     });
   }
 
-
-  app.listen(PORT
-, "0.0.0.0", () => {
+  app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
   });
 }
 
 startServer();
-

@@ -101,19 +101,6 @@ This operational procedure applies when `quota_state = exchange_in_progress` and
 * **Trial Quota Irreversibility**: Deleting an item in Plaid Sandbox/Production via `/item/remove` revokes token access, but Plaid's billing ledger retains the item count against your Trial limit.
 * **Google Sheets Vault Security**: Transaction sync runs exclusively server-side via distributed lease locks (`users/{uid}/locks/sync`), ensuring atomic batches and protecting raw sheets tokens.
 
-
-## API Endpoints
-
-### Accounts & Connections
-* **`GET /api/connected-accounts`**
-  Returns a top-level array of all connected financial accounts and their normalized health status. This endpoint reads directly from the `plaid_items` collection and does not infer account existence from transaction history.
-* **`GET /api/accounts`**
-  Returns an array of ledger accounts present in the normalized transaction history. Used primarily for filtering the transactions view.
-
-### Transactions
-* **`GET /api/transactions`**
-  Returns the normalized transaction ledger fetched from Google Sheets.
-
 ## Environment Setup
 
 You must configure the following environment variables in `.env` before running:
