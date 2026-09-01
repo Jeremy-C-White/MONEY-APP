@@ -1684,7 +1684,7 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
 
 
 app.get("/api/dev/sandbox-acceptance", requireAuth, async (req: express.Request, res: express.Response) => {
-  if (process.env.PLAID_ENV !== 'sandbox') {
+  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
     return res.status(403).json({ error: "Only available in Sandbox" });
   }
   try {
@@ -1703,18 +1703,31 @@ app.get("/api/dev/sandbox-acceptance", requireAuth, async (req: express.Request,
 });
 
 app.post("/api/dev/sandbox-refresh", requireAuth, async (req: express.Request, res: express.Response) => {
-  if (process.env.PLAID_ENV !== 'sandbox') {
+  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
     return res.status(403).json({ error: "Only available in Sandbox" });
   }
   try {
     const uid = (req as any).user.uid;
-    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    if (plaidItemsSnap.empty) {
-      return res.status(400).json({ error: "No connected items found." });
+    const { internalItemId } = req.body;
+    
+    if (!internalItemId) {
+      return res.status(400).json({ error: "internalItemId is required." });
     }
-    const itemData = plaidItemsSnap.docs[0].data();
+
+    const itemSnap = await db.collection("plaid_items").doc(internalItemId).get();
+    if (!itemSnap.exists) {
+      return res.status(404).json({ error: "Connected item not found." });
+    }
+    
+    const itemData = itemSnap.data()!;
+    if (itemData.userId !== uid) {
+      return res.status(403).json({ error: "Unauthorized access to item." });
+    }
     if (!itemData.access_token) {
       return res.status(400).json({ error: "No access token found." });
+    }
+    if (['pending_disconnect', 'permission_revoked', 'login_required'].includes(itemData.health || '')) {
+       return res.status(400).json({ error: "Item is disconnected or requires repair." });
     }
 
     const plaidClient = getPlaidClient();

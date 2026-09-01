@@ -84,7 +84,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const merchantName = String(row[11] || '');
   const name = String(row[10] || '');
   const normalizedMerchant = merchantName ? merchantName : name;
-  const normalizedCategory = catPrimary || 'UNCATEGORIZED';
+  let normalizedCategory = catPrimary || 'UNCATEGORIZED';
 
   let classification: Classification = 'other';
   let countsTowardSpending = false;
@@ -92,6 +92,9 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   let spendingAdjustment = 0;
   let incomeAdjustment = 0;
   
+  const originalDescription = String(row[12] || '');
+  const combinedDescLower = (name + ' ' + merchantName + ' ' + originalDescription).toLowerCase();
+
   const descLower = name.toLowerCase() + ' ' + merchantName.toLowerCase();
   const hasRefundEvidence = catDetailed.includes('REFUND') || 
                             descLower.includes('refund') || 
@@ -110,7 +113,13 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
 
   const isCCPayment = (catPrimary === 'LOAN_PAYMENTS' && catDetailed.includes('CREDIT_CARD')) ||
     ((accountType === 'credit' || accountSubtype.includes('credit card')) && 
-    (descLower.includes('automatic payment') || descLower.includes('payment - thank') || descLower.includes('card payment') || descLower.includes('credit card payment')));
+     (descLower.includes('automatic payment') || descLower.includes('payment - thank') || descLower.includes('card payment') || descLower.includes('credit card payment')));
+
+  const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' && 
+    (
+      catPrimary === 'INCOME' || 
+      /\b(payroll|direct deposit|direct dep|salary|wages|paycheck|pay check|gusto|adp|paychex|trinet|intuit payroll)\b/.test(combinedDescLower)
+    );
 
   if (isRemoved) {
     classification = 'removed';
@@ -128,23 +137,28 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       countsTowardIncome = false;
       countsTowardSpending = false;
     }
+  } else if (cashFlowAmount > 0 && hasRefundEvidence) {
+    classification = 'refund';
+    countsTowardSpending = true;
+    spendingAdjustment = -cashFlowAmount; // Refund reduces spending, so it's a negative spending adjustment
   } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
     // Policy: Cash withdrawals do not count toward spending immediately because withdrawal does not prove final cash consumption
     classification = 'cash_withdrawal';
     countsTowardSpending = false;
     countsTowardIncome = false;
-  } else if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
-    classification = 'internal_transfer';
   } else if (isCCPayment) {
     classification = 'credit_card_payment';
     countsTowardSpending = false;
     countsTowardIncome = false;
-  } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
-    classification = 'other';
-  } else if (cashFlowAmount > 0 && catPrimary === 'INCOME') {
+  } else if (isEarnedIncome) {
     classification = 'income';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
+    normalizedCategory = 'INCOME';
+  } else if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
+    classification = 'internal_transfer';
+  } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
+    classification = 'other';
   } else if (cashFlowAmount < 0 && catDetailed.includes('INTEREST_CHARGE')) {
     classification = 'interest_paid';
     countsTowardSpending = true;
@@ -153,10 +167,6 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'bank_fee';
     countsTowardSpending = true;
     spendingAdjustment = -cashFlowAmount;
-  } else if (cashFlowAmount > 0 && hasRefundEvidence) {
-    classification = 'refund';
-    countsTowardSpending = true;
-    spendingAdjustment = -cashFlowAmount; // Refund reduces spending, so it's a negative spending adjustment
   } else if (cashFlowAmount > 0) {
     classification = 'other';
   } else if (cashFlowAmount < 0) {

@@ -22,7 +22,7 @@ function buildRawRow(overrides: Record<string, string>): any[] {
 }
 
 describe('Sandbox Acceptance Logic', () => {
-  it('exact pending->posted ID matching requires Removed At', () => {
+  it('exact pending->posted ID matching requires Removed At and proper status/pending flags', () => {
     const rawPending = buildRawRow({ txId: 'old_1', pending: 'TRUE', cashFlowAmount: '-50', status: 'removed', removedAt: '2026-08-15' });
     const rawPosted = buildRawRow({ txId: 'new_1', pending: 'FALSE', cashFlowAmount: '-50', pendingTransactionId: 'old_1' });
     
@@ -54,22 +54,51 @@ describe('Sandbox Acceptance Logic', () => {
     expect(report.scenarios.payrollIncome.status).toBe('NOT EXERCISED');
   });
 
-  it('present correct scenario returns PASS', () => {
-    const rawWithdrawal = buildRawRow({ txId: 'w_1', cashFlowAmount: '-100', catDetailed: 'TRANSFER_OUT_WITHDRAWAL' });
+  it('explicit cash withdrawal returns PASS', () => {
+    const rawWithdrawal = buildRawRow({ txId: 'w_1', cashFlowAmount: '-100', catPrimary: 'TRANSFER_OUT', catDetailed: 'TRANSFER_OUT_WITHDRAWAL' });
     const report = generateAcceptanceReport([['Transaction ID'], rawWithdrawal]);
     expect(report.scenarios.cashWithdrawal.status).toBe('PASS');
   });
 
-  it('present incorrect scenario returns FAIL', () => {
-    // A withdrawal that we somehow incorrectly mapped to spending (mocked by overriding classification - well, classification is derived from row)
-    // To simulate FAIL, we need a row that looks like withdrawal to the acceptance script but gets classified differently by financial.ts
-    // Wait, financial.ts treats TRANSFER_OUT_WITHDRAWAL as cash_withdrawal.
-    // If we make it an ATM purchase? 'ATM FEE' -> bank_fee. But our acceptance looks for 'atm' in name.
+  it('ATM fee does NOT exercise cash-withdrawal scenario', () => {
     const rawAtmFee = buildRawRow({ txId: 'w_1', name: 'ATM FEE', cashFlowAmount: '-5', catDetailed: 'BANK_FEES_ATM_FEE' });
-    // financial.ts classifies BANK_FEES as bank_fee (countsTowardSpending).
-    // The acceptance logic isCashWithdrawal matches 'atm'.
-    // So it will see it as a candidate for cash withdrawal but its classification is bank_fee. Thus FAIL.
     const report = generateAcceptanceReport([['Transaction ID'], rawAtmFee]);
-    expect(report.scenarios.cashWithdrawal.status).toBe('FAIL');
+    expect(report.scenarios.cashWithdrawal.status).toBe('NOT EXERCISED');
+  });
+
+  it('actual other positive returns PASS for ambiguous positive', () => {
+    const rawOtherPos = buildRawRow({ txId: 'op_1', cashFlowAmount: '50', catDetailed: 'OTHER_MISCELLANEOUS' });
+    const report = generateAcceptanceReport([['Transaction ID'], rawOtherPos]);
+    expect(report.scenarios.ambiguousPositive.status).toBe('PASS');
+  });
+
+  it('ambiguous merchant_credit does NOT exercise ambiguous-positive scenario', () => {
+    const rawSpend = buildRawRow({ txId: 'mc_0', cashFlowAmount: '-50', catDetailed: 'OTHER_MISCELLANEOUS', name: 'AMAZON CREDIT' });
+    const rawCredit = buildRawRow({ txId: 'mc_1', cashFlowAmount: '50', catDetailed: 'OTHER_MISCELLANEOUS', name: 'AMAZON CREDIT' });
+    const report = generateAcceptanceReport([['Transaction ID'], rawSpend, rawCredit]);
+    expect(report.scenarios.ambiguousPositive.status).toBe('NOT EXERCISED');
+  });
+
+  it('interest_earned does NOT exercise ambiguous-positive scenario', () => {
+    const rawInterest = buildRawRow({ txId: 'ie_1', cashFlowAmount: '5', catDetailed: 'INCOME_INTEREST_EARNED', name: 'INTEREST' });
+    const report = generateAcceptanceReport([['Transaction ID'], rawInterest]);
+    expect(report.scenarios.ambiguousPositive.status).toBe('NOT EXERCISED');
+  });
+
+  it('pending superseded row does NOT automatically satisfy independent Removed/Reversed scenario', () => {
+    const rawPending = buildRawRow({ txId: 'old_1', pending: 'TRUE', cashFlowAmount: '-50', status: 'removed', removedAt: '2026-08-15' });
+    const rawPosted = buildRawRow({ txId: 'new_1', pending: 'FALSE', cashFlowAmount: '-50', pendingTransactionId: 'old_1' });
+    const report = generateAcceptanceReport([['Transaction ID'], rawPending, rawPosted]);
+    
+    expect(report.scenarios.removedReversed.status).toBe('NOT EXERCISED');
+    expect(report.scenarios.pendingToPosted.status).toBe('PASS');
+  });
+
+  it('independent removed row satisfies Removed/Reversed scenario', () => {
+    const rawRemoved = buildRawRow({ txId: 'rm_1', pending: 'FALSE', cashFlowAmount: '-50', status: 'removed', removedAt: '2026-08-15' });
+    const report = generateAcceptanceReport([['Transaction ID'], rawRemoved]);
+    
+    expect(report.scenarios.removedReversed.status).toBe('PASS');
+    expect(report.scenarios.removedReversed.count).toBe(1);
   });
 });

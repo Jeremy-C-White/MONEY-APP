@@ -596,7 +596,9 @@ export default function App() {
             )}
             
             <DeveloperVerification user={user} />
-            <SandboxAcceptance user={user} />
+            {(import.meta as any).env.VITE_ENABLE_SANDBOX_ACCEPTANCE === 'true' && (
+              <SandboxAcceptance user={user} plaidItems={plaidItems} />
+            )}
           </div>
         )}
       </main>

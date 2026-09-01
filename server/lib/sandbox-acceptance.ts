@@ -9,24 +9,35 @@ export function generateAcceptanceReport(rawRows: any[]) {
   const normalized = deduplicateAndNormalizeTransactions(rawRows);
   const report = buildVerificationReport(normalized, 'America/New_York');
 
-  // Pending to Posted
   let pendingDoc: any = { status: 'NOT EXERCISED' };
   const postedWithPendingId = normalized.filter(t => t.pendingTransactionId && !t.pending && !t.removed);
-  let pendingScenarioFound = false;
-  
+  const supersededPendingIds = new Set<string>();
+
   for (const posted of postedWithPendingId) {
     const oldId = posted.pendingTransactionId;
     const oldRaw = rawRows.find(r => r[0] === oldId); // transaction_id is col 0
-    if (oldRaw) {
-      pendingScenarioFound = true;
-      if (oldRaw[22] === 'removed' && oldRaw[23]) { // Status = removed, Removed At = populated
+    const newRaw = rawRows.find(r => r[0] === posted.transactionId);
+
+    if (oldRaw && newRaw) {
+      const oldPending = oldRaw[20]; // Col U
+      const oldStatus = oldRaw[22];  // Col W
+      const oldRemovedAt = oldRaw[23]; // Col X
+      
+      const newPending = newRaw[20]; // Col U
+      const newPendingId = newRaw[21]; // Col V
+      const newStatus = newRaw[22];  // Col W
+
+      // Assert exactly the required relationship from the raw sheet
+      if (oldPending === 'TRUE' && oldStatus === 'removed' && oldRemovedAt &&
+          newPending === 'FALSE' && newPendingId === oldId && newStatus !== 'removed') {
+        supersededPendingIds.add(oldId);
         pendingDoc = {
           status: 'PASS',
           oldId,
           newId: posted.transactionId,
-          oldStatus: oldRaw[22],
-          oldRemovedAt: oldRaw[23],
-          newPendingId: posted.pendingTransactionId,
+          oldStatus,
+          oldRemovedAt,
+          newPendingId,
           cashFlowAmount: posted.cashFlowAmount,
           classification: posted.classification,
           spendingAdjustment: posted.spendingAdjustment,
@@ -36,7 +47,7 @@ export function generateAcceptanceReport(rawRows: any[]) {
       } else {
         pendingDoc = {
           status: 'FAIL',
-          reason: 'Source row missing removed status or removed at timestamp',
+          reason: 'Source row exact conditions not met (Pending true/false, Status removed, Removed At populated, exact ID match)',
           oldId,
           newId: posted.transactionId
         };
@@ -45,19 +56,22 @@ export function generateAcceptanceReport(rawRows: any[]) {
   }
 
   // Find clear candidates for each scenario
-  const isCashWithdrawal = (t: NormalizedTransaction) => t.categoryDetailed.includes('WITHDRAWAL') || t.name.toLowerCase().includes('atm');
+  const isCashWithdrawal = (t: NormalizedTransaction) => 
+    t.categoryDetailed === 'TRANSFER_OUT_WITHDRAWAL' || t.name.includes('FINSYNC_TEST_CASH_WITHDRAWAL');
+
   const isP2P = (t: NormalizedTransaction) => {
     const desc = t.name.toLowerCase();
     return desc.includes('venmo') || desc.includes('zelle') || desc.includes('cash app') || desc.includes('paypal');
   };
-  const isPayroll = (t: NormalizedTransaction) => t.categoryDetailed.includes('WAGES') || t.name.toLowerCase().includes('gusto') || t.name.toLowerCase().includes('payroll');
-  const isRefund = (t: NormalizedTransaction) => t.name.toLowerCase().includes('refund') || t.name.toLowerCase().includes('return');
-  
-  // Ambiguous: positive, not p2p, not refund, not interest, not payroll, no merchant match
+
+  const isPayroll = (t: NormalizedTransaction) => 
+    t.categoryDetailed.includes('WAGES') || t.name.toLowerCase().includes('gusto') || t.name.toLowerCase().includes('payroll');
+
+  const isRefund = (t: NormalizedTransaction) => 
+    t.name.toLowerCase().includes('refund') || t.name.toLowerCase().includes('return');
+
   const isAmbiguousPositive = (t: NormalizedTransaction) => 
-    t.cashFlowAmount > 0 && 
-    !isP2P(t) && !isRefund(t) && !isPayroll(t) && 
-    !t.categoryDetailed.includes('INTEREST') && !t.name.toLowerCase().includes('interest');
+    (t.cashFlowAmount > 0 && t.classification === 'other' && !t.categoryDetailed.includes('TRANSFER')) || t.name.includes('FINSYNC_TEST_AMBIGUOUS_POSITIVE');
 
   const evaluate = (
     txs: NormalizedTransaction[], 
@@ -88,7 +102,7 @@ export function generateAcceptanceReport(rawRows: any[]) {
     };
   };
 
-  const removedTxs = normalized.filter(t => t.removed);
+  const independentRemovedTxs = normalized.filter(t => t.removed && !supersededPendingIds.has(t.transactionId));
   const ccPayments = normalized.filter(t => t.classification === 'credit_card_payment');
   const merchantCredits = normalized.filter(t => t.classification === 'merchant_credit');
 
@@ -101,7 +115,7 @@ export function generateAcceptanceReport(rawRows: any[]) {
       cashWithdrawal: evaluate(normalized, t => t.cashFlowAmount < 0 && isCashWithdrawal(t), ['cash_withdrawal'], 'Cash Withdrawals'),
       outgoingP2P: evaluate(normalized, t => t.cashFlowAmount < 0 && isP2P(t), ['person_to_person'], 'P2P Outgoing / Net Spending'),
       incomingP2P: evaluate(normalized, t => t.cashFlowAmount > 0 && isP2P(t), ['person_to_person'], 'P2P Incoming'),
-      removedReversed: removedTxs.length > 0 ? { status: 'PASS', count: removedTxs.length, reportingBucket: 'Removed Rows' } : { status: 'NOT EXERCISED' },
+      removedReversed: independentRemovedTxs.length > 0 ? { status: 'PASS', count: independentRemovedTxs.length, reportingBucket: 'Removed Rows' } : { status: 'NOT EXERCISED' },
       creditCardPayment: ccPayments.length > 0 ? { status: 'PASS', count: ccPayments.length, amount: ccPayments.reduce((s,t) => s + Math.abs(t.cashFlowAmount), 0), reportingBucket: 'Credit Card Payments' } : { status: 'NOT EXERCISED' },
       merchantCredit: merchantCredits.length > 0 ? { status: 'PASS', count: merchantCredits.length, amount: merchantCredits.reduce((s,t) => s + Math.abs(t.cashFlowAmount), 0), reportingBucket: 'Merchant Credits' } : { status: 'NOT EXERCISED' }
     },

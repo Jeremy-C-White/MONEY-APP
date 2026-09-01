@@ -320,3 +320,172 @@ describe('Sandbox Acceptance Integration Rules', () => {
     expect(tx.spendingAdjustment).toBe(-50);
   });
 });
+
+describe('Semantic Earned Income Detection', () => {
+  it('identifies positive checking deposit with payroll description as income despite incorrect Plaid category', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Sweetgreen inc payroll ppd id',
+      cashFlowAmount: '810',
+      catPrimary: 'FOOD_AND_DRINK',
+      catDetailed: 'FOOD_AND_DRINK_RESTAURANT',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).toBe('income');
+    expect(tx.normalizedCategory).toBe('INCOME');
+    expect(tx.categoryPrimary).toBe('FOOD_AND_DRINK');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it('identifies direct deposit', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'DIRECT DEPOSIT ACME CORP',
+      cashFlowAmount: '1000',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies salary/paycheck', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Salary',
+      cashFlowAmount: '1000',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies Gusto processor', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Gusto payment',
+      cashFlowAmount: '1000',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies ADP processor', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'ADP WAGE PAY',
+      cashFlowAmount: '1000',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies Paychex processor', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PAYCHEX DIR DEP',
+      cashFlowAmount: '1000',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies TriNet processor', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'TRINET HR PAY',
+      cashFlowAmount: '1000',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('identifies Intuit Payroll processor', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'INTUIT PAYROLL',
+      cashFlowAmount: '1000',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('negative payroll-looking transaction is not income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payroll service fee',
+      cashFlowAmount: '-100',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).not.toBe('income');
+  });
+
+  it('positive non-depository payroll-looking transaction is not semantic earned income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PAYROLL',
+      cashFlowAmount: '1000',
+      accountType: 'credit'
+    }));
+    expect(tx.classification).not.toBe('income');
+  });
+
+  it('generic positive ACH is not automatically income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'ACH Deposit',
+      cashFlowAmount: '100',
+      accountType: 'depository',
+      accountSubtype: 'checking'
+    }));
+    expect(tx.classification).not.toBe('income');
+  });
+
+  it('generic positive PPD is not automatically income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PPD ID 12345',
+      cashFlowAmount: '100',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).not.toBe('income');
+  });
+
+  it('incoming P2P takes precedence over income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Venmo payout payroll',
+      cashFlowAmount: '100',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('interest takes precedence over income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Interest Payment payroll account',
+      cashFlowAmount: '10',
+      accountType: 'depository',
+      accountSubtype: 'savings'
+    }));
+    expect(tx.classification).toBe('interest_earned');
+  });
+
+  it('explicit refund takes precedence over income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Refund Amazon payroll item',
+      cashFlowAmount: '50',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('refund');
+  });
+
+  it('generic account transfer is not income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Transfer from Checking',
+      cashFlowAmount: '100',
+      catDetailed: 'TRANSFER_IN_ACCOUNT_TRANSFER',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('internal_transfer');
+  });
+
+  it('payroll + generic account transfer becomes income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Gusto payroll',
+      cashFlowAmount: '1000',
+      catDetailed: 'TRANSFER_IN_ACCOUNT_TRANSFER',
+      accountType: 'depository'
+    }));
+    expect(tx.classification).toBe('income');
+  });
+});

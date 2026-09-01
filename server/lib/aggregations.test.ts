@@ -161,3 +161,30 @@ describe('Account Health Mapping', () => {
     expect(healthMap.get('acc_2')).toBe('login_required');
   });
 });
+
+describe('Aggregations Semantic Income Prevention', () => {
+  it('prevents semantic income from inflating spending despite raw category', () => {
+    // Mimic the exact outcome of classifyTransaction for a payroll masquerading as FOOD_AND_DRINK
+    const tx = mockTx({
+      classification: 'income',
+      countsTowardIncome: true,
+      incomeAdjustment: 810,
+      countsTowardSpending: false,
+      spendingAdjustment: 0,
+      categoryPrimary: 'FOOD_AND_DRINK',
+      normalizedCategory: 'INCOME',
+      normalizedMerchant: 'Sweetgreen inc payroll'
+    });
+    
+    const summary = aggregateSummary([tx], 'America/New_York');
+    expect(summary.allTime.income).toBe(810);
+    expect(summary.allTime.spending).toBe(0); // MUST NOT inflate spending
+    
+    const categories = aggregateCategories([tx]);
+    // The transaction should not be in the spending category list
+    const foodAndDrink = categories.find(c => c.category === 'FOOD_AND_DRINK');
+    expect(foodAndDrink).toBeUndefined(); // or its amount is 0 if your aggregator works differently
+    const incomeCat = categories.find(c => c.category === 'INCOME');
+    expect(incomeCat).toBeUndefined(); // Assuming aggregateCategories only tracks spending
+  });
+});
