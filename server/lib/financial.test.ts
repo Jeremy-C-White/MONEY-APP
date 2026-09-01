@@ -297,3 +297,26 @@ describe('New Reconciliation Tests', () => {
     expect(txs[1].classification).toBe('credit_card_payment');
   });
 });
+describe('Sandbox Acceptance Integration Rules', () => {
+  it('classifies payroll income', () => {
+    const tx = classifyTransaction(buildRow({ 
+      catPrimary: 'INCOME', 
+      catDetailed: 'INCOME_WAGES', 
+      name: 'GUSTO PAY', 
+      cashFlowAmount: '2000' 
+    }));
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.incomeAdjustment).toBe(2000);
+  });
+  
+  it('explicit refund with REFUND string', () => {
+    const tx = classifyTransaction(buildRow({ 
+      name: 'AMAZON REFUND', 
+      cashFlowAmount: '50' 
+    }));
+    expect(tx.classification).toBe('refund');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-50);
+  });
+});
