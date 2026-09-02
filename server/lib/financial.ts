@@ -4,21 +4,22 @@ export function parsePendingValue(value: string | boolean | undefined | null): b
   return str === 'true' || str === 'yes';
 }
 
-export type Classification = 
-  'spending' | 
-  'income' | 
-  'internal_transfer' | 
+export type Classification =
+  'spending' |
+  'income' |
+  'internal_transfer' |
   'investment_transfer' |
   'cash_withdrawal' |
   'person_to_person' |
-  'credit_card_payment' | 
-  'refund' | 
+  'credit_card_payment' |
+  'refund' |
   'merchant_credit' |
-  'interest_earned' | 
+  'interest_earned' |
   'interest_paid' |
   'bank_fee' |
-  'pending' | 
-  'removed' | 
+  'reimbursement' |
+  'pending' |
+  'removed' |
   'other';
 
 export type NormalizedTransaction = {
@@ -143,11 +144,33 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       /card payment/.test(combinedDescLower) || 
       /credit card payment/.test(combinedDescLower)));
 
-  const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' && 
+  const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' &&
     (
-      catPrimary === 'INCOME' || 
+      catPrimary === 'INCOME' ||
       /\b(payroll|direct deposit|direct dep|salary|wages|paycheck|pay check|gusto|adp|paychex|trinet|intuit payroll)\b/.test(combinedDescLower)
     );
+
+  // IRS/state tax refunds are income, not a reduction of gross spending: they
+  // don't attach to any spending category, so treating them as 'refund' left
+  // every category's Refunds column at $0 while the bridge silently
+  // subtracted the total. Must be checked before hasRefundEvidence below,
+  // since catDetailed here also contains the substring "REFUND".
+  const isIncomeTaxRefund = cashFlowAmount > 0 && catDetailed === 'INCOME_TAX_REFUND';
+
+  // Credit card cash-back rewards read as plain unclassified inflows
+  // (OTHER_OTHER) with no other signal tying them to income.
+  const isCashBackReward = cashFlowAmount > 0 &&
+    (combinedDescLower.includes('cash reward') ||
+      combinedDescLower.includes('cashback') ||
+      combinedDescLower.includes('cash back'));
+
+  // Mobile check deposits (TRANSFER_IN_DEPOSIT) are mostly reimbursements,
+  // not earnings, per the owner - deliberately not counted as income.
+  // Per-transaction correction is a follow-up; this only stops them from
+  // being silently swept into the generic 'other' bucket below.
+  const isReimbursement = cashFlowAmount > 0 &&
+    accountType === 'depository' &&
+    catDetailed === 'TRANSFER_IN_DEPOSIT';
 
   if (isRemoved) {
     classification = 'removed';
@@ -165,6 +188,11 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       countsTowardIncome = false;
       countsTowardSpending = false;
     }
+  } else if (isIncomeTaxRefund) {
+    classification = 'income';
+    countsTowardIncome = true;
+    incomeAdjustment = cashFlowAmount;
+    normalizedCategory = 'INCOME';
   } else if (cashFlowAmount > 0 && hasRefundEvidence) {
     classification = 'refund';
     countsTowardSpending = true;
@@ -183,10 +211,21 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
     normalizedCategory = 'INCOME';
+  } else if (isCashBackReward) {
+    classification = 'income';
+    countsTowardIncome = true;
+    incomeAdjustment = cashFlowAmount;
+    normalizedCategory = 'INCOME';
   } else if (isInvestmentTransfer) {
     classification = 'investment_transfer';
   } else if (isConfirmedInternalTransfer) {
     classification = 'internal_transfer';
+  } else if (isReimbursement) {
+    classification = 'reimbursement';
+    countsTowardSpending = false;
+    countsTowardIncome = false;
+    spendingAdjustment = 0;
+    incomeAdjustment = 0;
   } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
     classification = 'other';
   } else if (cashFlowAmount < 0 && catDetailed.includes('INTEREST_CHARGE')) {

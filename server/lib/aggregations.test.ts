@@ -332,9 +332,32 @@ describe('filterTransactions', () => {
       mockTx({ transactionId: 't2', pending: true, removed: true }),
       mockTx({ transactionId: 't3', pending: false, removed: false })
     ];
-    
+
     const result = filterTransactions(txs, { status: 'pending' });
     expect(result.length).toBe(1);
     expect(result[0].transactionId).toBe('t1');
+  });
+});
+
+describe('Reimbursement bucket', () => {
+  it('accountingBridgeReconciles stays true with a reimbursement transaction present', () => {
+    const res = buildVerificationReport([
+      mockTx({ transactionId: 't1', classification: 'reimbursement', cashFlowAmount: 1197.69 }),
+      mockTx({ transactionId: 't2', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 50, cashFlowAmount: -50 }),
+    ], 'America/New_York');
+
+    expect(res.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+  });
+
+  it('reimbursementAmount matches the cash flow total of reimbursement rows', () => {
+    const res = buildVerificationReport([
+      mockTx({ transactionId: 't1', classification: 'reimbursement', cashFlowAmount: 1197.69 }),
+      mockTx({ transactionId: 't2', classification: 'reimbursement', cashFlowAmount: 850 }),
+    ], 'America/New_York');
+
+    expect(res.reconciliation.reimbursementCount).toBe(2);
+    expect(res.reconciliation.reimbursementAmount).toBe(2047.69);
+    expect(res.summary.allTime.spending).toBe(0);
+    expect(res.summary.allTime.income).toBe(0);
   });
 });

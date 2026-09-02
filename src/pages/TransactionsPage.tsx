@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { AlertCircle, RefreshCcw, Search, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
-import { 
-  formatCurrency, 
-  getClassificationLabel, 
-  getCategoryLabel, 
-  formatFriendlyDate 
+import {
+  formatCurrency,
+  getClassificationLabel,
+  getCategoryLabel,
+  getCategoryDisplayLabel,
+  formatFriendlyDate
 } from '../lib/formatters';
 import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
 import type { Transaction, AccountSummary } from '../types/finance';
@@ -331,7 +332,7 @@ export function TransactionsPage({
                     {tx.pending && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Pending</span>}
                     {tx.classification === 'other' && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Needs Review</span>}
                     {tx.classification !== 'other' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getClassificationLabel(tx.classification)}</span>}
-                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryLabel(tx.normalizedCategory)}</span>
+                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryDisplayLabel(tx.normalizedCategory, tx.classification)}</span>
                   </div>
                   
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between font-medium">
@@ -369,7 +370,7 @@ export function TransactionsPage({
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-slate-600 font-medium bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
-                          {getCategoryLabel(tx.normalizedCategory)}
+                          {getCategoryDisplayLabel(tx.normalizedCategory, tx.classification)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-medium">
