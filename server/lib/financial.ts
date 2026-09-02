@@ -8,6 +8,7 @@ export type Classification =
   'spending' | 
   'income' | 
   'internal_transfer' | 
+  'investment_transfer' |
   'cash_withdrawal' |
   'person_to_person' |
   'credit_card_payment' | 
@@ -109,7 +110,26 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const accountType = String(row[6] || '').toLowerCase();
   const accountSubtype = String(row[7] || '').toLowerCase();
 
-  const isP2P = catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal');
+  const isVisaDirectP2P = cashFlowAmount < 0 &&
+    catPrimary === 'TRANSFER_OUT' &&
+    catDetailed === 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS' &&
+    /money transfer authorized.*visa direct/.test(combinedDescLower);
+
+  const isP2P = catDetailed.includes('MONEY_SEND') || descLower.includes('venmo') || descLower.includes('zelle') || descLower.includes('cash app') || descLower.includes('paypal') || isVisaDirectP2P;
+
+  const isInvestmentTransfer = cashFlowAmount < 0 &&
+    catPrimary === 'TRANSFER_OUT' &&
+    catDetailed === 'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS';
+
+  const isConfirmedInternalTransfer =
+    catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' ||
+    catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER' ||
+    ((catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') &&
+      (
+        /save as you go transfer (debit to|credit from)/.test(combinedDescLower) ||
+        (cashFlowAmount < 0 && /apple gs savings transfer/.test(combinedDescLower)) ||
+        /nfcu acctverify/.test(combinedDescLower)
+      ));
   
   const isInterest = cashFlowAmount > 0 && 
     (catDetailed.includes('INTEREST_EARNED') || catDetailed.includes('DIVIDEND') || 
@@ -163,7 +183,9 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;
     normalizedCategory = 'INCOME';
-  } else if (catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' || catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER') {
+  } else if (isInvestmentTransfer) {
+    classification = 'investment_transfer';
+  } else if (isConfirmedInternalTransfer) {
     classification = 'internal_transfer';
   } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
     classification = 'other';

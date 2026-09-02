@@ -92,6 +92,32 @@ describe('Aggregations Pass 1C', () => {
     expect(res.allTime.pendingSpending).toBe(0);
     expect(res.allTime.projectedSpending).toBe(50);
   });
+
+  it('reports investment transfers outside Needs Review and preserves the accounting bridge', () => {
+    const res = buildVerificationReport([
+      mockTx({
+        classification: 'investment_transfer',
+        cashFlowAmount: -500,
+        categoryPrimary: 'TRANSFER_OUT',
+        categoryDetailed: 'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS'
+      }),
+      mockTx({
+        transactionId: 'review_1',
+        classification: 'other',
+        cashFlowAmount: 100,
+        categoryPrimary: 'TRANSFER_IN'
+      })
+    ], 'America/New_York');
+
+    expect(res.reconciliation.investmentTransferCount).toBe(1);
+    expect(res.reconciliation.investmentTransferAmount).toBe(500);
+    expect(res.reconciliation.unknownTransferCount).toBe(1);
+    expect(res.reconciliation.unknownTransferAmount).toBe(100);
+    expect(res.reconciliation.bridge.investmentTransfers).toBe(-500);
+    expect(res.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+    expect(res.summary.allTime.spending).toBe(0);
+    expect(res.summary.allTime.income).toBe(0);
+  });
 });
 
 describe('Trend Ranges and Boundaries', () => {

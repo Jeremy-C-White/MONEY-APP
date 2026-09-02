@@ -74,6 +74,7 @@ export function getClassificationLabel(classification: string | undefined): stri
   switch (classification) {
     case 'person_to_person': return 'Person-to-person';
     case 'internal_transfer': return 'Internal transfer';
+    case 'investment_transfer': return 'Investment transfer';
     case 'credit_card_payment': return 'Credit card payment';
     case 'merchant_credit': return 'Merchant credit';
     case 'refund': return 'Refund';

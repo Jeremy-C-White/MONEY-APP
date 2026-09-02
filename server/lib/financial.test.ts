@@ -111,6 +111,73 @@ describe('Financial Rules Pass 1B', () => {
   });
 });
 
+describe('Confirmed transfer reconciliation', () => {
+  it('classifies investment and retirement fund transfers separately from spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'SOFI SECURITIES ACH Jul 20 20260717032771 JEREMY WHITE',
+      cashFlowAmount: '-300',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS'
+    }));
+
+    expect(tx.classification).toBe('investment_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it.each([
+    ['SAVE AS YOU GO TRANSFER DEBIT TO XXXXXXXXXXX3569', '-1', 'TRANSFER_OUT', 'TRANSFER_OUT_SAVINGS'],
+    ['SAVE AS YOU GO TRANSFER CREDIT FROM XXXXXXXXXXX7357', '1', 'TRANSFER_IN', 'TRANSFER_IN_OTHER_TRANSFER_IN'],
+    ['APPLE GS SAVINGS TRANSFER 910130061426 Jeremy White', '-500', 'TRANSFER_OUT', 'TRANSFER_OUT_SAVINGS'],
+    ['NFCU ACCTVERIFY 250312 1200269 NAME NOT PRESENT', '-0.19', 'TRANSFER_OUT', 'TRANSFER_OUT_OTHER_TRANSFER_OUT']
+  ])('classifies confirmed own-account movement %s as internal', (name, cashFlowAmount, catPrimary, catDetailed) => {
+    const tx = classifyTransaction(buildRow({ name, cashFlowAmount, catPrimary, catDetailed }));
+
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('classifies confirmed outgoing Visa Direct app transfers as P2P spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MONEY TRANSFER AUTHORIZED ON 07/30 White Jeremy Visa Direct CA S585211486237120 CARD 3625',
+      cashFlowAmount: '-150',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS'
+    }));
+
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(150);
+  });
+
+  it('does not treat an unrelated Visa Direct transfer as confirmed P2P', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'VISA DIRECT TRANSFER',
+      cashFlowAmount: '-150',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS'
+    }));
+
+    expect(tx.classification).toBe('other');
+  });
+
+  it.each([
+    ['MOBILE DEPOSIT : REF NUMBER :410130858177', 'TRANSFER_IN_DEPOSIT'],
+    ['APPLE CASH BANK XFER Jeremy White Jeremy White', 'TRANSFER_IN_TRANSFER_IN_FROM_APPS']
+  ])('keeps ambiguous incoming transfer %s in review', (name, catDetailed) => {
+    const tx = classifyTransaction(buildRow({
+      name,
+      cashFlowAmount: '100',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed
+    }));
+
+    expect(tx.classification).toBe('other');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+});
+
 describe('Deduplication', () => {
   it('supersedes pending transaction with posted transaction', () => {
     const rawPending = buildRow({ txId: 'pending_1', pending: 'TRUE', cashFlowAmount: '-50' });

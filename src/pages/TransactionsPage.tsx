@@ -10,7 +10,7 @@ import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api
 import type { Transaction, AccountSummary } from '../types/finance';
 
 const CLASSIFICATIONS = [
-  'spending', 'income', 'internal_transfer', 'cash_withdrawal',
+  'spending', 'income', 'internal_transfer', 'investment_transfer', 'cash_withdrawal',
   'person_to_person', 'credit_card_payment', 'refund', 'merchant_credit',
   'interest_earned', 'interest_paid', 'bank_fee', 'other'
 ];

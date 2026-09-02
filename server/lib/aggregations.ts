@@ -264,6 +264,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let spendingCount = 0;
   let incomeCount = 0;
   let transferCount = 0;
+  let investmentTransferCount = 0;
+  let investmentTransferAmount = 0;
   let creditCardCount = 0;
   let creditCardAmount = 0;
   let refundCount = 0;
@@ -290,6 +292,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let bridgeRefundsAndCredits = 0;
   let bridgeCreditCard = 0;
   let bridgeInternalTransfer = 0;
+  let bridgeInvestmentTransfer = 0;
   let bridgeCashWithdrawal = 0;
   let bridgeP2POutgoing = 0;
   let bridgeP2PIncoming = 0;
@@ -333,6 +336,11 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       case 'internal_transfer':
         transferCount++;
         bridgeInternalTransfer += t.cashFlowAmount;
+        break;
+      case 'investment_transfer':
+        investmentTransferCount++;
+        investmentTransferAmount += Math.abs(t.cashFlowAmount);
+        bridgeInvestmentTransfer += t.cashFlowAmount;
         break;
       case 'credit_card_payment':
         creditCardCount++;
@@ -386,7 +394,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   const merchantCredits = categories.reduce((sum, c) => sum + c.merchantCredits, 0);
   
   const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard + 
-                    bridgeInternalTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming + 
+                    bridgeInternalTransfer + bridgeInvestmentTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming +
                     bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified;
 
   return {
@@ -402,6 +410,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       spendingCount,
       incomeCount,
       transferCount,
+      investmentTransferCount,
+      investmentTransferAmount,
       creditCardCount,
       creditCardAmount,
       refundCount,
@@ -434,6 +444,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         refundsAndCredits: bridgeRefundsAndCredits,
         creditCardPayments: bridgeCreditCard,
         internalTransfers: bridgeInternalTransfer,
+        investmentTransfers: bridgeInvestmentTransfer,
         cashWithdrawals: bridgeCashWithdrawal,
         p2pOutgoing: bridgeP2POutgoing,
         p2pIncoming: bridgeP2PIncoming,

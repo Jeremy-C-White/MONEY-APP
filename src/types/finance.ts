@@ -2,6 +2,7 @@ export type TransactionClassification =
   | 'spending'
   | 'income'
   | 'internal_transfer'
+  | 'investment_transfer'
   | 'cash_withdrawal'
   | 'person_to_person'
   | 'credit_card_payment'
@@ -86,6 +87,7 @@ export interface DashboardVerificationBridge {
   refundsAndCredits: number;
   creditCardPayments: number;
   internalTransfers: number;
+  investmentTransfers: number;
   cashWithdrawals: number;
   p2pOutgoing: number;
   p2pIncoming: number;
@@ -104,6 +106,8 @@ export interface DashboardVerificationReconciliation {
   spendingCount: number;
   incomeCount: number;
   transferCount: number;
+  investmentTransferCount: number;
+  investmentTransferAmount: number;
   creditCardCount: number;
   creditCardAmount: number;
   refundCount: number;
