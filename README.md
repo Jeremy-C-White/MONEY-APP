@@ -146,6 +146,22 @@ APP_URL=http://localhost:3000
 
 To receive live transaction updates, configure your Plaid Dashboard to send webhooks to `${APP_URL}/api/plaid/webhook`.
 
+### Automatic Transaction Sync
+
+FinSync can enqueue a protected Google Cloud Task whenever a verified Plaid `SYNC_UPDATES_AVAILABLE` webhook arrives. The task invokes the same cursor-based, lease-protected sync pipeline used by the manual Sync button. Manual sync remains available as a fallback.
+
+Automatic sync requires a Cloud Tasks queue and an OIDC service account in the same Google Cloud project as the deployed app. Configure:
+
+```env
+AUTO_SYNC_ENABLED=true
+CLOUD_TASKS_PROJECT_ID=your-google-cloud-project-id
+CLOUD_TASKS_LOCATION=us-central1
+CLOUD_TASKS_QUEUE=finsync-sync
+CLOUD_TASKS_SERVICE_ACCOUNT_EMAIL=finsync-tasks@your-google-cloud-project-id.iam.gserviceaccount.com
+```
+
+`CLOUD_TASKS_TARGET_URL` defaults to `${APP_URL}/api/internal/sync`, and `CLOUD_TASKS_OIDC_AUDIENCE` defaults to `APP_URL`. The internal worker verifies the task's Google-issued OIDC token and requires the configured service-account email. Do not expose a shared task secret in client-side environment variables.
+
 ## Getting Started
 
 1. Install dependencies: `npm ci`

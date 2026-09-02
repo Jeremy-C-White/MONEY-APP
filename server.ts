@@ -7,6 +7,7 @@ import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { google } from "googleapis";
+import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
@@ -14,6 +15,7 @@ import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTre
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
+import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -159,6 +161,14 @@ function validateProductionLockOwnership(lockDoc: FirebaseFirestore.DocumentSnap
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const autoSyncConfig = getAutoSyncConfig(process.env, FIREBASE_PROJECT_ID);
+  const missingAutoSyncConfig = getMissingAutoSyncConfig(autoSyncConfig);
+  const taskApiAuth = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+  const taskOidcVerifier = new OAuth2Client();
+
+  if (autoSyncConfig.enabled && missingAutoSyncConfig.length > 0) {
+    console.warn(`[Config Warning] Automatic sync is enabled but missing: ${missingAutoSyncConfig.join(', ')}`);
+  }
 
   // Save raw body for webhook signature verification
   app.use(express.json({
@@ -173,7 +183,8 @@ async function startServer() {
     res.json({
       status: "ok",
       plaidConfigured: !!(process.env.PLAID_CLIENT_ID && process.env.PLAID_SECRET),
-      googleConfigured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+      googleConfigured: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+      autoSyncConfigured: autoSyncConfig.enabled && missingAutoSyncConfig.length === 0
     });
   });
 
@@ -188,6 +199,53 @@ async function startServer() {
     } catch (err) {
       res.status(401).json({ error: "Invalid token" });
     }
+  };
+
+  const requireCloudTaskAuth = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (!autoSyncConfig.enabled || missingAutoSyncConfig.length > 0) {
+      return res.status(503).json({ error: "Automatic sync is not configured" });
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Missing task identity" });
+    }
+
+    try {
+      const ticket = await taskOidcVerifier.verifyIdToken({
+        idToken: authHeader.slice("Bearer ".length),
+        audience: autoSyncConfig.audience,
+      });
+      const payload = ticket.getPayload() as unknown as Record<string, unknown> | undefined;
+      if (!isAuthorizedTaskIdentity(payload, autoSyncConfig.serviceAccountEmail)) {
+        return res.status(403).json({ error: "Invalid task identity" });
+      }
+
+      const uid = typeof req.body?.uid === 'string' ? req.body.uid.trim() : '';
+      if (!uid) return res.status(400).json({ error: "Missing sync user" });
+      (req as any).user = { uid };
+      (req as any).isCloudTask = true;
+      next();
+    } catch (error) {
+      console.error("Cloud Task authentication failed", error);
+      res.status(401).json({ error: "Invalid task token" });
+    }
+  };
+
+  const enqueueAutomaticSync = async (uid: string, itemId: string) => {
+    if (!autoSyncConfig.enabled) return { queued: false, reason: 'disabled' };
+    if (missingAutoSyncConfig.length > 0) {
+      throw new Error(`Automatic sync configuration missing: ${missingAutoSyncConfig.join(', ')}`);
+    }
+
+    const request = buildCloudTaskRequest(autoSyncConfig, { uid, itemId });
+    const authClient = await taskApiAuth.getClient();
+    await authClient.request({
+      url: `https://cloudtasks.googleapis.com/v2/${request.parent}/tasks`,
+      method: 'POST',
+      data: { task: request.task },
+    });
+    return { queued: true, reason: 'queued' };
   };
 
   // --- GOOGLE OAUTH ROUTES ---
@@ -362,6 +420,8 @@ async function startServer() {
           institution_name: d.institution_name,
           health: normalizeItemHealth(d),
           has_updates: !!d.has_updates,
+          auto_sync_status: d.auto_sync_status || null,
+          auto_sync_error: d.auto_sync_error || null,
           accounts: d.accounts || []
         }))
         .filter((d: any) => d.health !== 'disconnected');
@@ -1252,7 +1312,40 @@ async function startServer() {
       const itemRef = db.collection('plaid_items').doc(internalId);
 
       if (webhook_type === 'TRANSACTIONS' && webhook_code === 'SYNC_UPDATES_AVAILABLE') {
-        await itemRef.update({ has_updates: true });
+        await itemRef.update({
+          has_updates: true,
+          auto_sync_requested_at: FieldValue.serverTimestamp(),
+        });
+
+        if (autoSyncConfig.enabled) {
+          const indexedUid = idxDoc.data()?.user_id;
+          const itemDoc = indexedUid ? null : await itemRef.get();
+          const uid = indexedUid || itemDoc?.data()?.userId;
+
+          if (!uid) {
+            await itemRef.update({
+              auto_sync_status: 'enqueue_failed',
+              auto_sync_error: 'Plaid item owner is missing',
+            });
+          } else {
+            try {
+              await itemRef.update({
+                auto_sync_status: 'queued',
+                auto_sync_error: FieldValue.delete(),
+              });
+              await enqueueAutomaticSync(uid, item_id);
+              await itemRef.update({
+                auto_sync_queued_at: FieldValue.serverTimestamp(),
+              });
+            } catch (enqueueError: any) {
+              console.error("Failed to enqueue automatic sync", enqueueError);
+              await itemRef.update({
+                auto_sync_status: 'enqueue_failed',
+                auto_sync_error: String(enqueueError?.message || enqueueError).slice(0, 500),
+              });
+            }
+          }
+        }
       } else if (webhook_type === 'ITEM') {
         if (webhook_code === 'ERROR') {
           if (error?.error_code === 'ITEM_LOGIN_REQUIRED') {
@@ -1277,7 +1370,7 @@ async function startServer() {
 
   // --- SYNC PIPELINE ---
 
-  app.post("/api/sync", requireAuth, async (req, res) => {
+  const handleSyncRequest = async (req: express.Request, res: express.Response) => {
     let jobId = crypto.randomUUID();
     let heartbeatInterval: NodeJS.Timeout | null = null;
     let lostLease = false;
@@ -1290,7 +1383,12 @@ async function startServer() {
       const refreshToken = userDoc.data()?.google_refresh_token;
       let sheetId = userDoc.data()?.spreadsheetId;
 
-      if (!refreshToken) return res.status(400).json({ error: "Google Sheets not connected" });
+      if (!refreshToken) {
+        if ((req as any).isCloudTask) {
+          return res.status(200).json({ success: false, terminal: true, error: "Google Sheets not connected" });
+        }
+        return res.status(400).json({ error: "Google Sheets not connected" });
+      }
 
       // Atomic Lease Lock
       await db.runTransaction(async (t) => {
@@ -1334,6 +1432,7 @@ async function startServer() {
       }, 30000);
 
       let errors: string[] = [];
+      let hasRetryableErrors = false;
       let totalAdded = 0;
       let totalUpdated = 0;
 
@@ -1449,6 +1548,14 @@ async function startServer() {
           let removed: any[] = [];
 
           try {
+            if (item.has_updates) {
+              await itemDoc.ref.update({
+                auto_sync_status: 'running',
+                auto_sync_started_at: FieldValue.serverTimestamp(),
+                auto_sync_error: FieldValue.delete(),
+              });
+            }
+
             let restarts = 0;
             while (hasMore) {
               try {
@@ -1581,10 +1688,26 @@ async function startServer() {
 
             // Durably commit cursor
             if (lostLease) throw new Error("Sync lease lost, aborting...");
-            await itemDoc.ref.update({ cursor: cursor, has_updates: false });
+            const syncRequestTime = item.auto_sync_requested_at?.toMillis?.() || 0;
+            await db.runTransaction(async (transaction) => {
+              const currentItemDoc = await transaction.get(itemDoc.ref);
+              const currentRequestTime = currentItemDoc.data()?.auto_sync_requested_at?.toMillis?.() || 0;
+              const newerSyncRequested = currentRequestTime > syncRequestTime;
+              transaction.update(itemDoc.ref, {
+                cursor: cursor,
+                has_updates: newerSyncRequested,
+                auto_sync_status: newerSyncRequested ? 'queued' : 'idle',
+                auto_sync_completed_at: FieldValue.serverTimestamp(),
+                auto_sync_error: FieldValue.delete(),
+              });
+            });
 
           } catch (itemErr: any) {
              console.error(`Failed syncing item ${item.institution_name}`, itemErr);
+             await itemDoc.ref.update({
+               auto_sync_status: 'failed',
+               auto_sync_error: String(itemErr?.message || itemErr).slice(0, 500),
+             }).catch(console.warn);
              
              if (itemErr.code === 'GOOGLE_REAUTH_REQUIRED' || itemErr.code === 401 || itemErr.response?.data?.error === 'invalid_grant' || itemErr.message?.includes('invalid_grant')) {
                 await userRef.update({ google_refresh_token: FieldValue.delete() }).catch(console.warn);
@@ -1598,6 +1721,8 @@ async function startServer() {
              errors.push(`${item.institution_name}: ${itemErr.message}`);
              if (itemErr.response?.data?.error_code === 'ITEM_LOGIN_REQUIRED') {
                 await itemDoc.ref.update({ health: 'login_required' });
+             } else {
+                hasRetryableErrors = true;
              }
           }
         }
@@ -1616,6 +1741,9 @@ async function startServer() {
       }
 
       dashboardCache.invalidate(uid);
+      if ((req as any).isCloudTask && hasRetryableErrors) {
+        return res.status(500).json({ success: false, error: 'Automatic sync encountered a retryable error', errors });
+      }
       res.json({ success: true, added: totalAdded, updated: totalUpdated, errors });
     } catch (error: any) {
       console.error(error);
@@ -1625,11 +1753,20 @@ async function startServer() {
         return res.status(409).json({ code: 'SYNC_ALREADY_RUNNING', error: 'A transaction sync is already in progress.' });
       }
       if (code === 'GOOGLE_REAUTH_REQUIRED') {
+        if ((req as any).isCloudTask) {
+          return res.status(200).json({ success: false, terminal: true, code, error: 'Google reauthorization required' });
+        }
         return res.status(401).json({ code: 'GOOGLE_REAUTH_REQUIRED', error: 'Google reauthorization required' });
+      }
+      if ((req as any).isCloudTask && (code === 'SHEET_SCHEMA_MISMATCH' || code === 'GOOGLE_OAUTH_CONFIG_MISSING')) {
+        return res.status(200).json({ success: false, terminal: true, code, error: msg });
       }
       res.status(500).json({ error: msg, code });
     }
-  });
+  };
+
+  app.post("/api/sync", requireAuth, handleSyncRequest);
+  app.post("/api/internal/sync", requireCloudTaskAuth, handleSyncRequest);
 
   
 async function fetchNormalizedTransactions(

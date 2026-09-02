@@ -128,6 +128,14 @@ export default function App() {
     }
   };
 
+  useEffect(() => {
+    if (!user) return;
+    const intervalId = window.setInterval(() => {
+      void fetchStatus();
+    }, 60000);
+    return () => window.clearInterval(intervalId);
+  }, [user]);
+
   const generateLinkToken = async (internalItemId?: string) => {
     if (!user) return;
     try {
@@ -574,13 +582,27 @@ export default function App() {
                       </p>
                     </div>
                     <div className="flex items-center gap-3">
-                      {item.has_updates ? (
+                      {item.health === 'login_required' ? (
                         <button
                            onClick={() => generateLinkToken(item.internal_id)}
                            className="flex items-center gap-1.5 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg hover:bg-amber-100 font-medium transition-colors"
                         >
                            <RefreshCcw className="h-3.5 w-3.5" />
                            Repair
+                        </button>
+                      ) : item.has_updates && (item.auto_sync_status === 'queued' || item.auto_sync_status === 'running') ? (
+                        <span className="flex items-center gap-1.5 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg font-medium">
+                          {item.auto_sync_status === 'running' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCcw className="h-3.5 w-3.5" />}
+                          {item.auto_sync_status === 'running' ? 'Syncing' : 'Sync queued'}
+                        </span>
+                      ) : item.has_updates ? (
+                        <button
+                          onClick={triggerServerSync}
+                          title={item.auto_sync_error || 'Automatic sync is unavailable; run it now.'}
+                          className="flex items-center gap-1.5 text-indigo-600 bg-indigo-50 px-3 py-1.5 rounded-lg hover:bg-indigo-100 font-medium transition-colors"
+                        >
+                          <RefreshCcw className="h-3.5 w-3.5" />
+                          Sync now
                         </button>
                       ) : (
                         <span className="flex items-center gap-1.5 text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-lg font-medium">
