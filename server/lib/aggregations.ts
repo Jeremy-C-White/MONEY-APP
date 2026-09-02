@@ -137,7 +137,9 @@ export function aggregateCategories(txs: NormalizedTransaction[]) {
   for (const t of txs) {
     if (t.removed || t.pending || !t.countsTowardSpending) continue;
     
-    const cat = t.normalizedCategory;
+    const cat = t.classification === 'refund' && t.overrideOffsetCategory
+      ? t.overrideOffsetCategory
+      : t.normalizedCategory;
     if (!categoryTotals[cat]) {
       categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0, merchantCredits: 0 };
     }
@@ -256,7 +258,16 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
   if (filters.endDate) result = result.filter(t => t.normalizedDate <= filters.endDate);
   if (filters.institution) result = result.filter(t => t.institutionName === filters.institution);
   if (filters.account) result = result.filter(t => t.accountId === filters.account);
-  if (filters.category) result = result.filter(t => t.normalizedCategory === filters.category);
+  if (filters.category) {
+    result = result.filter(t => (
+      t.classification === 'refund' && t.overrideOffsetCategory
+        ? t.overrideOffsetCategory
+        : t.normalizedCategory
+    ) === filters.category);
+  }
+  if (String(filters.overridden || '').toLowerCase() === 'true') {
+    result = result.filter(t => t.isOverridden);
+  }
   if (filters.classification) {
     const classifications = String(filters.classification)
       .split(',')
@@ -275,6 +286,32 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
     result = result.filter(t => (t.normalizedMerchant || '').toLowerCase().includes(s) || (t.name || '').toLowerCase().includes(s));
   }
   return result;
+}
+
+export function buildTransactionsPage(txs: NormalizedTransaction[], filters: any) {
+  const filtered = filterTransactions(txs, filters)
+    .slice()
+    .sort((a, b) => {
+      const dateCompare = b.normalizedDate.localeCompare(a.normalizedDate);
+      if (dateCompare !== 0) return dateCompare;
+      return b.transactionId.localeCompare(a.transactionId);
+    });
+
+  const requestedPage = parseInt(String(filters.page || '1'), 10);
+  const requestedLimit = parseInt(String(filters.limit || '100'), 10);
+  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const limit = Number.isFinite(requestedLimit) && requestedLimit > 0
+    ? Math.min(requestedLimit, 1000)
+    : 100;
+  const startIndex = (page - 1) * limit;
+
+  return {
+    transactions: filtered.slice(startIndex, startIndex + limit),
+    total: filtered.length,
+    page,
+    limit,
+    totalPages: Math.ceil(filtered.length / limit),
+  };
 }
 
 export function buildAccountHealthMap(plaidItemsData: any[]): Map<string, string> {

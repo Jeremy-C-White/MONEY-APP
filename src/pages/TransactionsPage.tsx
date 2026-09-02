@@ -6,10 +6,12 @@ import {
   getCategoryLabel,
   getCategoryDisplayLabel,
   isNeedsReviewClassification,
+  getTransactionClassificationLabel,
   formatFriendlyDate
 } from '../lib/formatters';
 import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
 import type { Transaction, AccountSummary } from '../types/finance';
+import { TransactionOverrideActions } from '../components/TransactionOverrideActions';
 
 const CLASSIFICATIONS = [
   'spending', 'income', 'internal_transfer', 'investment_transfer', 'cash_withdrawal',
@@ -24,7 +26,7 @@ export function TransactionsPage({
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
 }) {
-  const [viewMode, setViewMode] = useState<'posted' | 'pending' | 'needs_review'>('posted');
+  const [viewMode, setViewMode] = useState<'posted' | 'pending' | 'needs_review' | 'overridden'>('posted');
   
   const [page, setPage] = useState(1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -119,6 +121,9 @@ export function TransactionsPage({
       } else if (viewMode === 'needs_review') {
         params.set('status', 'posted');
         params.set('classification', 'other,unclassified_deposit');
+      } else if (viewMode === 'overridden') {
+        params.set('status', 'posted');
+        params.set('overridden', 'true');
       } else {
         params.set('status', 'posted');
       }
@@ -200,6 +205,12 @@ export function TransactionsPage({
             onClick={() => updateFilter(setViewMode, 'needs_review')}
           >
             Needs Review
+          </button>
+          <button
+            className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
+            onClick={() => updateFilter(setViewMode, 'overridden')}
+          >
+            Reviewed
           </button>
         </div>
       </div>
@@ -286,6 +297,12 @@ export function TransactionsPage({
           </div>
         )}
 
+        {viewMode === 'needs_review' && !loading && !error && (
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+            {total} {total === 1 ? 'transaction remains' : 'transactions remain'} to review.
+          </div>
+        )}
+
         {loading && initialLoad ? (
           <div className="space-y-4">
             {[1, 2, 3, 4, 5].map(i => (
@@ -331,10 +348,18 @@ export function TransactionsPage({
                   
                   <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
                     {tx.pending && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Pending</span>}
-                    {isNeedsReviewClassification(tx.classification) && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">{getClassificationLabel(tx.classification)}</span>}
-                    {!isNeedsReviewClassification(tx.classification) && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getClassificationLabel(tx.classification)}</span>}
-                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryDisplayLabel(tx.normalizedCategory, tx.classification)}</span>
+                    {isNeedsReviewClassification(tx.classification) && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
+                    {!isNeedsReviewClassification(tx.classification) && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
+                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}</span>
                   </div>
+
+                  <TransactionOverrideActions
+                    transaction={tx}
+                    categories={categories}
+                    reviewable={viewMode === 'needs_review'}
+                    apiFetch={apiFetch}
+                    onChanged={loadTransactions}
+                  />
                   
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between font-medium">
                     <span>{tx.institutionName} ••••{tx.accountMask}</span>
@@ -365,13 +390,20 @@ export function TransactionsPage({
                         <p className="font-bold text-slate-900">{tx.normalizedMerchant || tx.name}</p>
                         <div className="flex gap-2 mt-1.5">
                           {tx.pending && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Pending</span>}
-                          {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getClassificationLabel(tx.classification)}</span>}
-                          {!isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getClassificationLabel(tx.classification)}</span>}
+                          {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
+                          {!isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                         </div>
+                        <TransactionOverrideActions
+                          transaction={tx}
+                          categories={categories}
+                          reviewable={viewMode === 'needs_review'}
+                          apiFetch={apiFetch}
+                          onChanged={loadTransactions}
+                        />
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-slate-600 font-medium bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
-                          {getCategoryDisplayLabel(tx.normalizedCategory, tx.classification)}
+                          {getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-medium">

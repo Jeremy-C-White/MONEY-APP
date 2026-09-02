@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { classifyTransaction, deduplicateAndNormalizeTransactions, parsePendingValue } from './financial';
+import { classifyTransaction, deduplicateAndNormalizeTransactions, parsePendingValue, type TransactionOverride } from './financial';
+import { buildVerificationReport } from './aggregations';
 
 function buildRow(overrides: Record<string, string>): any[] {
   const row = new Array(24).fill('');
@@ -789,5 +790,108 @@ describe('parsePendingValue', () => {
     expect(parsePendingValue('no')).toBe(false);
     expect(parsePendingValue('')).toBe(false);
     expect(parsePendingValue(undefined)).toBe(false);
+  });
+});
+
+describe('Transaction overrides', () => {
+  const override = (
+    classification: TransactionOverride['classification'],
+    offsetCategory: string | null = null,
+    note: string | null = null
+  ): TransactionOverride => ({ classification, offsetCategory, note });
+
+  it.each([
+    ['income', true, false, 200, 0],
+    ['spending', false, true, 0, -200],
+    ['refund', false, true, 0, -200],
+    ['internal_transfer', false, false, 0, 0],
+  ] as const)(
+    'recomputes adjustments for a %s override',
+    (classification, countsTowardIncome, countsTowardSpending, incomeAdjustment, spendingAdjustment) => {
+      const row = buildRow({
+        txId: 'deposit_1',
+        cashFlowAmount: '200',
+        catPrimary: 'TRANSFER_IN',
+        catDetailed: 'TRANSFER_IN_DEPOSIT',
+      });
+      const transactions = deduplicateAndNormalizeTransactions(
+        [row],
+        new Map([['deposit_1', override(classification, classification === 'refund' ? 'FOOD_AND_DRINK' : null, 'Reviewed')]])
+      );
+
+      expect(transactions[0]).toMatchObject({
+        classification,
+        countsTowardIncome,
+        countsTowardSpending,
+        incomeAdjustment,
+        spendingAdjustment,
+        isOverridden: true,
+        overrideNote: 'Reviewed',
+        overrideOffsetCategory: classification === 'refund' ? 'FOOD_AND_DRINK' : null,
+      });
+    }
+  );
+
+  it.each([
+    { pending: 'TRUE', status: 'posted' },
+    { pending: 'FALSE', status: 'removed' },
+  ])('ignores overrides for pending or removed transactions', ({ pending, status }) => {
+    const row = buildRow({
+      txId: 'blocked_1',
+      cashFlowAmount: '200',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+      pending,
+      status,
+    });
+    const [transaction] = deduplicateAndNormalizeTransactions(
+      [row],
+      new Map([['blocked_1', override('income')]])
+    );
+
+    expect(transaction.isOverridden).toBe(false);
+    expect(transaction.classification).not.toBe('income');
+  });
+
+  it('removing an override restores the original classifier result', () => {
+    const row = buildRow({
+      txId: 'deposit_1',
+      cashFlowAmount: '200',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+    });
+    const [overridden] = deduplicateAndNormalizeTransactions(
+      [row],
+      new Map([['deposit_1', override('income')]])
+    );
+    const [restored] = deduplicateAndNormalizeTransactions([row], new Map());
+
+    expect(overridden.classification).toBe('income');
+    expect(restored.classification).toBe('unclassified_deposit');
+    expect(restored.isOverridden).toBe(false);
+  });
+
+  it('an empty override map leaves every reconciliation figure unchanged', () => {
+    const rows = [
+      ['Transaction ID'],
+      buildRow({ txId: 'spend_1', cashFlowAmount: '-50' }),
+      buildRow({
+        txId: 'deposit_1',
+        cashFlowAmount: '200',
+        catPrimary: 'TRANSFER_IN',
+        catDetailed: 'TRANSFER_IN_DEPOSIT',
+      }),
+    ];
+
+    const baseline = buildVerificationReport(
+      deduplicateAndNormalizeTransactions(rows),
+      'America/New_York'
+    );
+    const withEmptyOverrides = buildVerificationReport(
+      deduplicateAndNormalizeTransactions(rows, new Map()),
+      'America/New_York'
+    );
+
+    expect(withEmptyOverrides.reconciliation).toEqual(baseline.reconciliation);
   });
 });

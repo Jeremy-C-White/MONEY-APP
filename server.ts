@@ -4,18 +4,25 @@ import { createServer as createViteServer } from "vite";
 import cors from "cors";
 import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import { initializeApp, applicationDefault } from "firebase-admin/app";
-import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { google } from "googleapis";
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
-import { deduplicateAndNormalizeTransactions, NormalizedTransaction } from "./server/lib/financial";
-import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, filterTransactions, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
+import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type TransactionOverride } from "./server/lib/financial";
+import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
+import {
+  parseStoredTransactionOverride,
+  removeTransactionOverride,
+  saveTransactionOverride,
+  TransactionOverrideRequestError,
+  type TransactionOverrideServiceDependencies,
+} from "./server/lib/transaction-overrides";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1792,16 +1799,40 @@ async function fetchNormalizedTransactions(
     range: 'Transactions_Raw!A:Y',
     valueRenderOption: 'UNFORMATTED_VALUE'
   });
-  const getRes = options.allowCredentialCleanup === false
-    ? await fetchRows()
-    : await withGoogleAuth(uid, fetchRows);
-  
+  const rowsPromise = options.allowCredentialCleanup === false
+    ? fetchRows()
+    : withGoogleAuth(uid, fetchRows);
+  const overridesPromise = userRef.collection('transaction_overrides').get();
+  const [getRes, overridesSnapshot] = await Promise.all([rowsPromise, overridesPromise]);
+
+  const overrides = new Map<string, TransactionOverride>();
+  for (const document of overridesSnapshot.docs) {
+    const override = parseStoredTransactionOverride(document.data());
+    if (override) overrides.set(document.id, override);
+  }
+
   const rows = getRes.data.values || [];
-  const normalized = deduplicateAndNormalizeTransactions(rows);
+  const normalized = deduplicateAndNormalizeTransactions(rows, overrides);
   
   dashboardCache.set(uid, normalized);
   return normalized;
 }
+
+const transactionOverrideDependencies: TransactionOverrideServiceDependencies = {
+  loadTransactions: fetchNormalizedTransactions,
+  setOverride: async (uid, transactionId, override) => {
+    await db.collection('users').doc(uid)
+      .collection('transaction_overrides').doc(transactionId)
+      .set(override);
+  },
+  deleteOverride: async (uid, transactionId) => {
+    await db.collection('users').doc(uid)
+      .collection('transaction_overrides').doc(transactionId)
+      .delete();
+  },
+  invalidateCache: uid => dashboardCache.invalidate(uid),
+  reviewedAt: () => Timestamp.now(),
+};
 
 
 
@@ -1975,36 +2006,76 @@ app.get("/api/dashboard/verification", requireAuth, async (req: express.Request,
   }
 });
 
+app.get("/api/transactions/overrides", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const snapshot = await db.collection('users').doc(uid)
+      .collection('transaction_overrides')
+      .orderBy('reviewedAt', 'desc')
+      .get();
+
+    const overrides = snapshot.docs.flatMap(document => {
+      const data = document.data();
+      const parsed = parseStoredTransactionOverride(data);
+      if (!parsed) return [];
+      return [{
+        transactionId: document.id,
+        ...parsed,
+        reviewedAt: data.reviewedAt,
+        reviewedBy: data.reviewedBy,
+      }];
+    });
+
+    res.json({ overrides });
+  } catch (error: any) {
+    console.error("Transaction Overrides List Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/transactions/:transactionId/override", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const transactionId = req.params.transactionId;
+    const override = await saveTransactionOverride(
+      transactionOverrideDependencies,
+      uid,
+      transactionId,
+      req.body
+    );
+
+    res.json({ transactionId, override });
+  } catch (error: any) {
+    if (error instanceof TransactionOverrideRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Transaction Override Write Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/transactions/:transactionId/override", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const transactionId = req.params.transactionId;
+    await removeTransactionOverride(transactionOverrideDependencies, uid, transactionId);
+    res.json({ success: true, transactionId });
+  } catch (error: any) {
+    if (error instanceof TransactionOverrideRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Transaction Override Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/transactions", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    
-    // Filters and deterministic newest-first sort
-    // Note: This in-memory sort is appropriate for the current cached ledger size.
-    // If the ledger grows to several thousand+ rows, ordering/pagination should move closer to the data/cache layer.
-    const filtered = filterTransactions(txs, req.query)
-      .slice()
-      .sort((a, b) => {
-        const dateCompare = b.normalizedDate.localeCompare(a.normalizedDate);
-        if (dateCompare !== 0) return dateCompare;
-        return b.transactionId.localeCompare(a.transactionId);
-      });
-    
-    // Pagination
-    const page = parseInt(req.query.page as string || "1");
-    let limit = parseInt(req.query.limit as string || "100");
-    if (limit > 1000) limit = 1000;
-    
-    const startIdx = (page - 1) * limit;
-    const paginated = filtered.slice(startIdx, startIdx + limit);
-    
-    res.json({
-      transactions: paginated,
-      total: filtered.length,
-      page,
-      limit,
-      totalPages: Math.ceil(filtered.length / limit)
-    });
+
+    // This in-memory sort/pagination is appropriate for the current cached ledger size.
+    // If the ledger grows substantially, it should move closer to the data/cache layer.
+    res.json(buildTransactionsPage(txs, req.query));
   } catch (error: any) {
     console.error("Transactions Error:", error);
     res.status(500).json({ error: error.message });

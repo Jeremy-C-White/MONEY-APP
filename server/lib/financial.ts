@@ -4,23 +4,95 @@ export function parsePendingValue(value: string | boolean | undefined | null): b
   return str === 'true' || str === 'yes';
 }
 
-export type Classification =
-  'spending' |
-  'income' |
-  'internal_transfer' |
-  'investment_transfer' |
-  'cash_withdrawal' |
-  'person_to_person' |
-  'credit_card_payment' |
-  'refund' |
-  'merchant_credit' |
-  'interest_earned' |
-  'interest_paid' |
-  'bank_fee' |
-  'unclassified_deposit' |
-  'pending' |
-  'removed' |
-  'other';
+export const CLASSIFICATIONS = [
+  'spending',
+  'income',
+  'internal_transfer',
+  'investment_transfer',
+  'cash_withdrawal',
+  'person_to_person',
+  'credit_card_payment',
+  'refund',
+  'merchant_credit',
+  'interest_earned',
+  'interest_paid',
+  'bank_fee',
+  'unclassified_deposit',
+  'pending',
+  'removed',
+  'other',
+] as const;
+
+export type Classification = typeof CLASSIFICATIONS[number];
+
+export type TransactionOverride = {
+  classification: Classification;
+  offsetCategory: string | null;
+  note: string | null;
+  reviewedAt?: unknown;
+  reviewedBy?: string;
+};
+
+export function isClassification(value: unknown): value is Classification {
+  return typeof value === 'string' && CLASSIFICATIONS.includes(value as Classification);
+}
+
+export type ClassificationAdjustments = {
+  countsTowardSpending: boolean;
+  countsTowardIncome: boolean;
+  spendingAdjustment: number;
+  incomeAdjustment: number;
+};
+
+export function getClassificationAdjustments(
+  classification: Classification,
+  cashFlowAmount: number
+): ClassificationAdjustments {
+  switch (classification) {
+    case 'spending':
+    case 'interest_paid':
+    case 'bank_fee':
+      return {
+        countsTowardSpending: true,
+        countsTowardIncome: false,
+        spendingAdjustment: -cashFlowAmount,
+        incomeAdjustment: 0,
+      };
+    case 'refund':
+    case 'merchant_credit':
+      return {
+        countsTowardSpending: true,
+        countsTowardIncome: false,
+        spendingAdjustment: -cashFlowAmount,
+        incomeAdjustment: 0,
+      };
+    case 'income':
+    case 'interest_earned':
+      return {
+        countsTowardSpending: false,
+        countsTowardIncome: true,
+        spendingAdjustment: 0,
+        incomeAdjustment: cashFlowAmount,
+      };
+    case 'person_to_person':
+      if (cashFlowAmount < 0) {
+        return {
+          countsTowardSpending: true,
+          countsTowardIncome: false,
+          spendingAdjustment: -cashFlowAmount,
+          incomeAdjustment: 0,
+        };
+      }
+      break;
+  }
+
+  return {
+    countsTowardSpending: false,
+    countsTowardIncome: false,
+    spendingAdjustment: 0,
+    incomeAdjustment: 0,
+  };
+}
 
 export type NormalizedTransaction = {
   transactionId: string;
@@ -48,6 +120,9 @@ export type NormalizedTransaction = {
   countsTowardIncome: boolean;
   spendingAdjustment: number;
   incomeAdjustment: number;
+  isOverridden: boolean;
+  overrideNote: string | null;
+  overrideOffsetCategory: string | null;
 };
 
 // Google Sheets dates are days since Dec 30, 1899
@@ -94,10 +169,6 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   let normalizedCategory = catPrimary || 'UNCATEGORIZED';
 
   let classification: Classification = 'other';
-  let countsTowardSpending = false;
-  let countsTowardIncome = false;
-  let spendingAdjustment = 0;
-  let incomeAdjustment = 0;
   
   const originalDescription = String(row[12] || '');
   const combinedDescLower = (name + ' ' + merchantName + ' ' + originalDescription).toLowerCase();
@@ -175,45 +246,23 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'removed';
   } else if (isInterest) {
     classification = 'interest_earned';
-    countsTowardIncome = true;
-    incomeAdjustment = cashFlowAmount;
   } else if (isP2P) {
     classification = 'person_to_person';
-    if (cashFlowAmount < 0) {
-      countsTowardSpending = true;
-      spendingAdjustment = -cashFlowAmount;
-    } else if (cashFlowAmount > 0) {
-      // Policy: Incoming P2P is deliberately NOT recognized household income by default
-      countsTowardIncome = false;
-      countsTowardSpending = false;
-    }
   } else if (isIncomeTaxRefund) {
     classification = 'income';
-    countsTowardIncome = true;
-    incomeAdjustment = cashFlowAmount;
     normalizedCategory = 'INCOME';
   } else if (cashFlowAmount > 0 && hasRefundEvidence) {
     classification = 'refund';
-    countsTowardSpending = true;
-    spendingAdjustment = -cashFlowAmount; // Refund reduces spending, so it's a negative spending adjustment
   } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
     // Policy: Cash withdrawals do not count toward spending immediately because withdrawal does not prove final cash consumption
     classification = 'cash_withdrawal';
-    countsTowardSpending = false;
-    countsTowardIncome = false;
   } else if (isCCPayment) {
     classification = 'credit_card_payment';
-    countsTowardSpending = false;
-    countsTowardIncome = false;
   } else if (isEarnedIncome) {
     classification = 'income';
-    countsTowardIncome = true;
-    incomeAdjustment = cashFlowAmount;
     normalizedCategory = 'INCOME';
   } else if (isCashBackReward) {
     classification = 'income';
-    countsTowardIncome = true;
-    incomeAdjustment = cashFlowAmount;
     normalizedCategory = 'INCOME';
   } else if (isInvestmentTransfer) {
     classification = 'investment_transfer';
@@ -221,27 +270,19 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'internal_transfer';
   } else if (isUnclassifiedDeposit) {
     classification = 'unclassified_deposit';
-    countsTowardSpending = false;
-    countsTowardIncome = false;
-    spendingAdjustment = 0;
-    incomeAdjustment = 0;
   } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
     classification = 'other';
   } else if (cashFlowAmount < 0 && catDetailed.includes('INTEREST_CHARGE')) {
     classification = 'interest_paid';
-    countsTowardSpending = true;
-    spendingAdjustment = -cashFlowAmount;
   } else if (cashFlowAmount < 0 && catDetailed.includes('FEE')) {
     classification = 'bank_fee';
-    countsTowardSpending = true;
-    spendingAdjustment = -cashFlowAmount;
   } else if (cashFlowAmount > 0) {
     classification = 'other';
   } else if (cashFlowAmount < 0) {
     classification = 'spending';
-    countsTowardSpending = true;
-    spendingAdjustment = -cashFlowAmount; // Normal purchase makes spending go up (positive)
   }
+
+  const adjustments = getClassificationAdjustments(classification, cashFlowAmount);
 
   return {
     transactionId: txId,
@@ -265,17 +306,41 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     status: status,
     removed: isRemoved,
     classification: isRemoved ? 'removed' : classification, // Removed overrides
-    countsTowardSpending,
-    countsTowardIncome,
-    spendingAdjustment,
-    incomeAdjustment,
+    ...adjustments,
+    isOverridden: false,
+    overrideNote: null,
+    overrideOffsetCategory: null,
   };
 }
 
-export function deduplicateAndNormalizeTransactions(rawRows: any[][]): NormalizedTransaction[] {
+export function applyTransactionOverride(
+  transaction: NormalizedTransaction,
+  override: TransactionOverride | undefined
+): NormalizedTransaction {
+  if (!override || transaction.pending || transaction.removed) return transaction;
+
+  return {
+    ...transaction,
+    classification: override.classification,
+    ...getClassificationAdjustments(override.classification, transaction.cashFlowAmount),
+    isOverridden: true,
+    overrideNote: override.note,
+    overrideOffsetCategory: override.classification === 'refund'
+      ? override.offsetCategory
+      : null,
+  };
+}
+
+export function deduplicateAndNormalizeTransactions(
+  rawRows: any[][],
+  overrides: Map<string, TransactionOverride> = new Map()
+): NormalizedTransaction[] {
   // Ignore header row if passed (checking if row[0] === 'Transaction ID')
   const dataRows = rawRows.filter(r => r[0] !== 'Transaction ID');
-  const allTx = dataRows.map(classifyTransaction);
+  const allTx = dataRows.map(row => {
+    const transaction = classifyTransaction(row);
+    return applyTransactionOverride(transaction, overrides.get(transaction.transactionId));
+  });
   
   const postedTxWithPendingId = allTx.filter(t => !t.pending && !t.removed && t.pendingTransactionId);
   const supersededPendingIds = new Set(postedTxWithPendingId.map(t => t.pendingTransactionId));
@@ -290,6 +355,9 @@ export function deduplicateAndNormalizeTransactions(rawRows: any[][]): Normalize
         countsTowardIncome: false,
         spendingAdjustment: 0,
         incomeAdjustment: 0,
+        isOverridden: false,
+        overrideNote: null,
+        overrideOffsetCategory: null,
       };
     }
     return t;
@@ -306,16 +374,13 @@ export function deduplicateAndNormalizeTransactions(rawRows: any[][]): Normalize
 
   return deduplicatedTx.map(t => {
     if (!t.removed && !t.pending && t.cashFlowAmount > 0) {
-      if (t.classification === 'other') {
+      if (!t.isOverridden && t.classification === 'other') {
         const strictKey = `${t.normalizedMerchant}|${t.normalizedCategory}`;
         if (t.normalizedMerchant && merchantCategorySpendingSet.has(strictKey)) {
           return {
             ...t,
             classification: 'merchant_credit' as Classification,
-            countsTowardSpending: true,
-            spendingAdjustment: -t.cashFlowAmount,
-            countsTowardIncome: false,
-            incomeAdjustment: 0
+            ...getClassificationAdjustments('merchant_credit', t.cashFlowAmount)
           };
         }
       }
