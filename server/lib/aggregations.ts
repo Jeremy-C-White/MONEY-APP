@@ -314,6 +314,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let unknownTransferCount = 0;
   let unknownTransferAmount = 0;
   let otherCount = 0;
+  let reimbursementCount = 0;
+  let reimbursementAmount = 0;
 
   // Accounting bridge
   let activePostedRawCashFlowTotal = 0;
@@ -330,6 +332,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let bridgeBankFeeInterestPaid = 0;
   let bridgeUnknownTransfer = 0;
   let bridgeOtherUnclassified = 0;
+  let bridgeReimbursement = 0;
 
   for (const t of txs) {
     if (t.removed) {
@@ -416,16 +419,21 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
           bridgeOtherUnclassified += t.cashFlowAmount;
         }
         break;
+      case 'reimbursement':
+        reimbursementCount++;
+        reimbursementAmount += Math.abs(t.cashFlowAmount);
+        bridgeReimbursement += t.cashFlowAmount;
+        break;
     }
   }
 
   const grossPurchases = categories.reduce((sum, c) => sum + c.grossPurchases, 0);
   const refunds = categories.reduce((sum, c) => sum + c.refunds, 0);
   const merchantCredits = categories.reduce((sum, c) => sum + c.merchantCredits, 0);
-  
-  const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard + 
+
+  const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard +
                     bridgeInternalTransfer + bridgeInvestmentTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming +
-                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified;
+                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified + bridgeReimbursement;
 
   return {
     summary,
@@ -460,6 +468,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       unknownTransferCount,
       unknownTransferAmount,
       otherCount,
+      reimbursementCount,
+      reimbursementAmount,
       grossPurchases,
       refunds,
       merchantCredits,

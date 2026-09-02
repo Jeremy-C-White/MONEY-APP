@@ -119,6 +119,7 @@ export function getClassificationLabel(classification: string | undefined): stri
     case 'interest_earned': return 'Interest earned';
     case 'interest_paid': return 'Interest paid';
     case 'bank_fee': return 'Bank fee';
+    case 'reimbursement': return 'Reimbursement';
     case 'income': return 'Income';
     case 'spending': return 'Spending';
     case 'pending': return 'Pending';

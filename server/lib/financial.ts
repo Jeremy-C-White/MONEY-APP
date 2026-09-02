@@ -4,21 +4,22 @@ export function parsePendingValue(value: string | boolean | undefined | null): b
   return str === 'true' || str === 'yes';
 }
 
-export type Classification = 
-  'spending' | 
-  'income' | 
-  'internal_transfer' | 
+export type Classification =
+  'spending' |
+  'income' |
+  'internal_transfer' |
   'investment_transfer' |
   'cash_withdrawal' |
   'person_to_person' |
-  'credit_card_payment' | 
-  'refund' | 
+  'credit_card_payment' |
+  'refund' |
   'merchant_credit' |
-  'interest_earned' | 
+  'interest_earned' |
   'interest_paid' |
   'bank_fee' |
-  'pending' | 
-  'removed' | 
+  'reimbursement' |
+  'pending' |
+  'removed' |
   'other';
 
 export type NormalizedTransaction = {
@@ -163,6 +164,14 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       combinedDescLower.includes('cashback') ||
       combinedDescLower.includes('cash back'));
 
+  // Mobile check deposits (TRANSFER_IN_DEPOSIT) are mostly reimbursements,
+  // not earnings, per the owner - deliberately not counted as income.
+  // Per-transaction correction is a follow-up; this only stops them from
+  // being silently swept into the generic 'other' bucket below.
+  const isReimbursement = cashFlowAmount > 0 &&
+    accountType === 'depository' &&
+    catDetailed === 'TRANSFER_IN_DEPOSIT';
+
   if (isRemoved) {
     classification = 'removed';
   } else if (isInterest) {
@@ -211,6 +220,12 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'investment_transfer';
   } else if (isConfirmedInternalTransfer) {
     classification = 'internal_transfer';
+  } else if (isReimbursement) {
+    classification = 'reimbursement';
+    countsTowardSpending = false;
+    countsTowardIncome = false;
+    spendingAdjustment = 0;
+    incomeAdjustment = 0;
   } else if (catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') {
     classification = 'other';
   } else if (cashFlowAmount < 0 && catDetailed.includes('INTEREST_CHARGE')) {

@@ -162,18 +162,27 @@ describe('Confirmed transfer reconciliation', () => {
     expect(tx.classification).toBe('other');
   });
 
-  it.each([
-    ['MOBILE DEPOSIT : REF NUMBER :410130858177', 'TRANSFER_IN_DEPOSIT'],
-    ['APPLE CASH BANK XFER Jeremy White Jeremy White', 'TRANSFER_IN_TRANSFER_IN_FROM_APPS']
-  ])('keeps ambiguous incoming transfer %s in review', (name, catDetailed) => {
+  it('keeps a genuinely ambiguous incoming transfer in review as other', () => {
     const tx = classifyTransaction(buildRow({
-      name,
+      name: 'APPLE CASH BANK XFER Jeremy White Jeremy White',
       cashFlowAmount: '100',
       catPrimary: 'TRANSFER_IN',
-      catDetailed
+      catDetailed: 'TRANSFER_IN_TRANSFER_IN_FROM_APPS'
     }));
 
     expect(tx.classification).toBe('other');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('classifies a mobile check deposit as reimbursement, not other', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
+      cashFlowAmount: '100',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT'
+    }));
+
+    expect(tx.classification).toBe('reimbursement');
     expect(tx.countsTowardIncome).toBe(false);
   });
 });
@@ -724,6 +733,43 @@ describe('Classification corrections', () => {
     }));
     expect(tx.classification).toBe('other');
     expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('classifies a mobile check deposit as reimbursement: not income, not spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
+      cashFlowAmount: '1197.69',
+      accountType: 'depository',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+    }));
+    expect(tx.classification).toBe('reimbursement');
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.incomeAdjustment).toBe(0);
+    expect(tx.spendingAdjustment).toBe(0);
+  });
+
+  it('negative case: TRANSFER_IN_DEPOSIT on a non-depository account is not reimbursement', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
+      cashFlowAmount: '1197.69',
+      accountType: 'credit',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+    }));
+    expect(tx.classification).not.toBe('reimbursement');
+  });
+
+  it('negative case: a negative TRANSFER_IN_DEPOSIT cash flow is not reimbursement', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MOBILE DEPOSIT REVERSAL',
+      cashFlowAmount: '-50',
+      accountType: 'depository',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+    }));
+    expect(tx.classification).not.toBe('reimbursement');
   });
 });
 

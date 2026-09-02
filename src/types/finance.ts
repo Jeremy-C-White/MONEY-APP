@@ -11,6 +11,7 @@ export type TransactionClassification =
   | 'interest_earned'
   | 'interest_paid'
   | 'bank_fee'
+  | 'reimbursement'
   | 'pending'
   | 'removed'
   | 'other';
@@ -135,6 +136,8 @@ export interface DashboardVerificationReconciliation {
   unknownTransferCount: number;
   unknownTransferAmount: number;
   otherCount: number;
+  reimbursementCount: number;
+  reimbursementAmount: number;
   grossPurchases: number;
   refunds: number;
   merchantCredits: number;
