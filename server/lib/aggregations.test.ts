@@ -169,6 +169,116 @@ describe('Trend Ranges and Boundaries', () => {
     expect(trends[trends.length - 1].month).toBe('2026-07');
   });
 });
+describe('Month-to-date pacing', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('mid-month: paced comparison uses only the matching previous-month days', () => {
+    vi.setSystemTime(new Date('2026-07-10T16:00:00Z')); // July 10, noon ET (day 10 of a 31-day month)
+    const txs: NormalizedTransaction[] = [];
+    for (let day = 1; day <= 10; day++) {
+      txs.push(mockTx({ normalizedDate: `2026-07-${String(day).padStart(2, '0')}`, classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }));
+    }
+    for (let day = 1; day <= 30; day++) {
+      txs.push(mockTx({ normalizedDate: `2026-06-${String(day).padStart(2, '0')}`, classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }));
+    }
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.previousMonth.spending).toBe(300); // full previous month, unpaced, unchanged
+    expect(res.pacing.dayOfMonth).toBe(10);
+    expect(res.pacing.previousMonthToDateSpending).toBe(100); // only June 1-10
+    expect(res.pacing.spendingDifference).toBe(0);
+    expect(res.pacing.spendingPercentageChange).toBe(0);
+  });
+
+  it('day 1: paced comparison uses only previous-month day 1', () => {
+    vi.setSystemTime(new Date('2026-08-01T16:00:00Z')); // Aug 1, noon ET
+    const txs = [
+      mockTx({ normalizedDate: '2026-07-01', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 20 }),
+      mockTx({ normalizedDate: '2026-07-02', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 999 }),
+      mockTx({ normalizedDate: '2026-08-01', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 15 }),
+    ];
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.pacing.dayOfMonth).toBe(1);
+    expect(res.pacing.previousMonthToDateSpending).toBe(20);
+    expect(res.pacing.spendingDifference).toBe(-5);
+    expect(res.pacing.spendingPercentageChange).toBe(-25);
+  });
+
+  it('previous month shorter than current: does not throw or produce NaN', () => {
+    vi.setSystemTime(new Date('2026-07-31T16:00:00Z')); // July 31 (31-day month), noon ET
+    const txs = [
+      mockTx({ normalizedDate: '2026-06-15', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 30 }),
+      mockTx({ normalizedDate: '2026-06-30', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 50 }), // June has no day 31
+      mockTx({ normalizedDate: '2026-07-31', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 40 }),
+    ];
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.pacing.dayOfMonth).toBe(31);
+    expect(res.pacing.daysInMonth).toBe(31);
+    expect(res.pacing.previousMonthToDateSpending).toBe(80); // all of June counts: 30 <= 31
+    expect(res.pacing.spendingDifference).toBe(-40);
+    expect(res.pacing.spendingPercentageChange).toBe(-50);
+    expect(Number.isNaN(res.pacing.spendingPercentageChange as number)).toBe(false);
+    expect(Number.isFinite(res.pacing.projectedMonthEndSpending)).toBe(true);
+  });
+
+  it('previous-month-to-date is zero: percentage change is null, not 0 or Infinity', () => {
+    vi.setSystemTime(new Date('2026-08-05T16:00:00Z')); // Aug 5, noon ET
+    const txs = [
+      mockTx({ normalizedDate: '2026-08-05', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 25 }),
+    ];
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.pacing.previousMonthToDateSpending).toBe(0);
+    expect(res.pacing.spendingPercentageChange).toBeNull();
+    expect(res.pacing.spendingDifference).toBe(25);
+  });
+
+  it('projection: 10 days elapsed, $1,000 spent, 30-day month -> projected 3000', () => {
+    vi.setSystemTime(new Date('2026-09-10T16:00:00Z')); // Sept 10 (30-day month), noon ET
+    const txs = [
+      mockTx({ normalizedDate: '2026-09-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 1000 }),
+    ];
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.pacing.dayOfMonth).toBe(10);
+    expect(res.pacing.daysInMonth).toBe(30);
+    expect(res.pacing.projectedMonthEndSpending).toBe(3000);
+  });
+
+  it('leaves currentMonth, previousMonth, and allTime fields unchanged', () => {
+    vi.setSystemTime(new Date('2026-08-15T16:00:00Z')); // Aug 15, noon ET
+    const txs = [
+      mockTx({ normalizedDate: '2026-08-05', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 200 }),
+      mockTx({ normalizedDate: '2026-07-05', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 150 }),
+      mockTx({ normalizedDate: '2026-07-25', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 50 }), // after day 15: in previousMonth, excluded from pacing
+    ];
+
+    const res = aggregateSummary(txs, 'America/New_York');
+
+    expect(res.currentMonth.spending).toBe(200);
+    expect(res.previousMonth.spending).toBe(200); // full month: 150 + 50, unpaced
+    expect(res.allTime.spending).toBe(400);
+    expect(res.comparison.spendingDifference).toBe(0); // unpaced: 200 - 200
+    expect(res.comparison.spendingPercentageChange).toBe(0);
+
+    // pacing genuinely differs from the unpaced comparison above
+    expect(res.pacing.previousMonthToDateSpending).toBe(150); // only July 5 (<=15)
+    expect(res.pacing.spendingDifference).toBe(50); // 200 - 150
+  });
+});
+
 describe('Account Health Mapping', () => {
   it('maps account health securely by account id, isolating same-institution health drift', () => {
     const plaidItems = [

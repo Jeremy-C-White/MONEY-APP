@@ -42,6 +42,15 @@ export interface DashboardSummary {
     spendingDifference: number;
     spendingPercentageChange: number | null;
   };
+  pacing: {
+    dayOfMonth: number;
+    daysInMonth: number;
+    previousMonthToDateSpending: number;
+    previousMonthToDateIncome: number;
+    spendingDifference: number;
+    spendingPercentageChange: number | null;
+    projectedMonthEndSpending: number;
+  };
   activePostedCount: number;
 }
 

@@ -1,5 +1,5 @@
 import { NormalizedTransaction } from './financial';
-import { getMonthForDateInTimezone } from './time';
+import { getMonthForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth } from './time';
 
 export function getPreviousMonthString(currentMonthStr: string): string {
   const parts = currentMonthStr.split('-');
@@ -18,22 +18,27 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
   const now = new Date();
   const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
   const previousMonthPrefix = getPreviousMonthString(currentMonthPrefix);
+  const currentDayOfMonth = getDayOfMonthInTimezone(now, financeTimezone);
+  const daysInCurrentMonth = getDaysInMonth(currentMonthPrefix);
 
   let spending = 0;
   let income = 0;
-  
+
   let currentMonthSpending = 0;
   let currentMonthIncome = 0;
-  
+
   let previousMonthSpending = 0;
   let previousMonthIncome = 0;
-  
+
+  let previousMonthToDateSpending = 0;
+  let previousMonthToDateIncome = 0;
+
   let pendingSpending = 0;
   let activePostedCount = 0;
 
   for (const t of txs) {
     if (t.removed) continue;
-    
+
     if (t.pending) {
       if (t.countsTowardSpending) {
         pendingSpending += t.spendingAdjustment;
@@ -43,16 +48,25 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
 
     activePostedCount++;
 
+    const isPreviousMonth = t.normalizedDate.startsWith(previousMonthPrefix);
+    // Day-of-month by string slice, not by constructing a Date: normalizedDate
+    // is already a YYYY-MM-DD calendar date, and a previous month can be
+    // shorter than the current one (e.g. current day 31, previous month has
+    // 30 days) — a Date constructor would roll that over into the wrong month.
+    const isWithinPacingWindow = isPreviousMonth && parseInt(t.normalizedDate.slice(8, 10), 10) <= currentDayOfMonth;
+
     if (t.countsTowardSpending) {
       spending += t.spendingAdjustment;
       if (t.normalizedDate.startsWith(currentMonthPrefix)) currentMonthSpending += t.spendingAdjustment;
-      if (t.normalizedDate.startsWith(previousMonthPrefix)) previousMonthSpending += t.spendingAdjustment;
+      if (isPreviousMonth) previousMonthSpending += t.spendingAdjustment;
+      if (isWithinPacingWindow) previousMonthToDateSpending += t.spendingAdjustment;
     }
 
     if (t.countsTowardIncome) {
       income += t.incomeAdjustment;
       if (t.normalizedDate.startsWith(currentMonthPrefix)) currentMonthIncome += t.incomeAdjustment;
-      if (t.normalizedDate.startsWith(previousMonthPrefix)) previousMonthIncome += t.incomeAdjustment;
+      if (isPreviousMonth) previousMonthIncome += t.incomeAdjustment;
+      if (isWithinPacingWindow) previousMonthToDateIncome += t.incomeAdjustment;
     }
   }
 
@@ -66,9 +80,16 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
   const previousMonthSavingsRate = previousMonthIncome > 0 ? (previousMonthNetCashFlow / previousMonthIncome) : null;
 
   const spendingDifference = currentMonthSpending - previousMonthSpending;
-  const spendingPercentageChange = previousMonthSpending > 0 
-    ? (spendingDifference / previousMonthSpending) * 100 
+  const spendingPercentageChange = previousMonthSpending > 0
+    ? (spendingDifference / previousMonthSpending) * 100
     : null;
+
+  const pacedSpendingDifference = currentMonthSpending - previousMonthToDateSpending;
+  const pacedSpendingPercentageChange = previousMonthToDateSpending > 0
+    ? (pacedSpendingDifference / previousMonthToDateSpending) * 100
+    : null;
+  const dailyRate = currentDayOfMonth > 0 ? currentMonthSpending / currentDayOfMonth : 0;
+  const projectedMonthEndSpending = dailyRate * daysInCurrentMonth;
 
   return {
     allTime: {
@@ -96,6 +117,15 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
     comparison: {
       spendingDifference,
       spendingPercentageChange
+    },
+    pacing: {
+      dayOfMonth: currentDayOfMonth,
+      daysInMonth: daysInCurrentMonth,
+      previousMonthToDateSpending,
+      previousMonthToDateIncome,
+      spendingDifference: pacedSpendingDifference,
+      spendingPercentageChange: pacedSpendingPercentageChange,
+      projectedMonthEndSpending,
     },
     activePostedCount
   };

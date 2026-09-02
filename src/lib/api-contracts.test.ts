@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  extractSummaryResponse,
   extractCategoriesResponse,
   extractMerchantsResponse,
   extractTrendsResponse,
@@ -41,6 +42,15 @@ const summaryPayload = {
   comparison: {
     spendingDifference: 100,
     spendingPercentageChange: 25,
+  },
+  pacing: {
+    dayOfMonth: 15,
+    daysInMonth: 30,
+    previousMonthToDateSpending: 200,
+    previousMonthToDateIncome: 450,
+    spendingDifference: 300,
+    spendingPercentageChange: 150,
+    projectedMonthEndSpending: 1000,
   },
   activePostedCount: 15,
 };
@@ -182,6 +192,20 @@ describe('API response contracts', () => {
     const result = extractTrendsResponse({ monthly: [trend] });
     expect(result).toHaveLength(1);
     expect(result[0].month).toBe('2026-09');
+  });
+
+  it('reads the paced comparison from summary.pacing', () => {
+    const result = extractSummaryResponse(summaryPayload);
+    expect(result.pacing.dayOfMonth).toBe(15);
+    expect(result.pacing.previousMonthToDateSpending).toBe(200);
+    expect(result.pacing.spendingPercentageChange).toBe(150);
+  });
+
+  it('rejects a summary response missing the pacing object', () => {
+    const { pacing, ...withoutPacing } = summaryPayload;
+    expect(() => extractSummaryResponse(withoutPacing)).toThrow(
+      'Invalid dashboard summary response.'
+    );
   });
 
   it('reads review data from verification.reconciliation', () => {
