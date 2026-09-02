@@ -23,6 +23,7 @@ import {
   TransactionOverrideRequestError,
   type TransactionOverrideServiceDependencies,
 } from "./server/lib/transaction-overrides";
+import { detectLikelyRecurringObligations } from "./server/lib/recurring-obligations";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1990,6 +1991,16 @@ app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: 
     res.json({ monthly: trends });
   } catch (error: any) {
     console.error("Dashboard Trends Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/recurring-obligations", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    res.json(detectLikelyRecurringObligations(txs));
+  } catch (error: any) {
+    console.error("Recurring Obligations Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

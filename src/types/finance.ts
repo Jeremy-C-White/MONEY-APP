@@ -90,6 +90,26 @@ export interface DashboardTrendsResponse {
   monthly: TrendPoint[];
 }
 
+export type RecurringCadence = 'weekly' | 'biweekly' | 'monthly';
+export type RecurringConfidence = 'high' | 'medium';
+
+export interface LikelyRecurringObligation {
+  merchant: string;
+  category: string;
+  cadence: RecurringCadence;
+  confidence: RecurringConfidence;
+  typicalCharge: number;
+  estimatedMonthlyAmount: number;
+  occurrenceCount: number;
+  lastChargeDate: string;
+}
+
+export interface RecurringObligationsResponse {
+  obligations: LikelyRecurringObligation[];
+  estimatedMonthlyTotal: number;
+  analyzedThrough: string | null;
+}
+
 export interface DashboardVerificationBridge {
   activePostedRawCashFlowTotal: number;
   recognizedSpending: number;

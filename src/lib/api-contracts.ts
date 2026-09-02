@@ -9,6 +9,7 @@ import type {
   AccountSummary,
   ConnectedAccount,
   TransactionOverrideRecord,
+  RecurringObligationsResponse,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -77,6 +78,20 @@ export function extractTrendsResponse(data: unknown): TrendPoint[] {
     'monthly',
     'dashboard trends'
   );
+}
+
+export function extractRecurringObligationsResponse(
+  data: unknown
+): RecurringObligationsResponse {
+  const record = requireRecord(data, 'recurring obligations');
+  if (
+    !Array.isArray(record.obligations) ||
+    typeof record.estimatedMonthlyTotal !== 'number' ||
+    !(typeof record.analyzedThrough === 'string' || record.analyzedThrough === null)
+  ) {
+    throw new Error('Invalid recurring obligations response.');
+  }
+  return record as unknown as RecurringObligationsResponse;
 }
 
 export function extractVerificationResponse(
@@ -156,6 +171,7 @@ export interface OverviewPayloads {
   categories: unknown;
   merchants: unknown;
   trends: unknown;
+  recurringObligations: unknown;
   verification: unknown;
   postedTransactions: unknown;
   pendingTransactions: unknown;
@@ -166,6 +182,7 @@ export interface NormalizedOverviewData {
   categories: DashboardCategory[];
   merchants: DashboardMerchant[];
   trends: TrendPoint[];
+  recurringObligations: RecurringObligationsResponse;
   verification: DashboardVerificationResponse;
   postedTransactions: Transaction[];
   pendingTransactions: Transaction[];
@@ -182,6 +199,7 @@ export function normalizeOverviewPayloads(
     categories: extractCategoriesResponse(payloads.categories),
     merchants: extractMerchantsResponse(payloads.merchants),
     trends: extractTrendsResponse(payloads.trends),
+    recurringObligations: extractRecurringObligationsResponse(payloads.recurringObligations),
     verification: extractVerificationResponse(payloads.verification),
     postedTransactions: posted.transactions,
     pendingTransactions: pending.transactions,

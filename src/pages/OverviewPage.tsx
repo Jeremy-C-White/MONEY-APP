@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
 import { TrendChart } from '../components/TrendChart';
+import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import {
   formatCurrency,
   formatPercentage,
@@ -20,6 +21,7 @@ import type {
   TrendPoint,
   DashboardVerificationResponse,
   Transaction,
+  RecurringObligationsResponse,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -35,6 +37,8 @@ export function OverviewPage({
   const [categories, setCategories] = useState<DashboardCategory[]>([]);
   const [merchants, setMerchants] = useState<DashboardMerchant[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
+  const [recurringObligations, setRecurringObligations] =
+    useState<RecurringObligationsResponse | null>(null);
   const [verification, setVerification] =
     useState<DashboardVerificationResponse | null>(null);
   const [postedTxs, setPostedTxs] = useState<Transaction[]>([]);
@@ -54,6 +58,7 @@ export function OverviewPage({
         categoriesRes,
         merchantsRes,
         trendsRes,
+        recurringObligationsRes,
         verificationRes,
         postedRes,
         pendingRes,
@@ -62,6 +67,7 @@ export function OverviewPage({
         apiFetch('/api/dashboard/categories'),
         apiFetch('/api/dashboard/merchants'),
         apiFetch(`/api/dashboard/trends?range=${trendRange}`),
+        apiFetch('/api/dashboard/recurring-obligations'),
         apiFetch('/api/dashboard/verification'),
         apiFetch('/api/transactions?status=posted&limit=6'),
         apiFetch('/api/transactions?status=pending&limit=4'),
@@ -72,6 +78,7 @@ export function OverviewPage({
         categoriesRes,
         merchantsRes,
         trendsRes,
+        recurringObligationsRes,
         verificationRes,
         postedRes,
         pendingRes,
@@ -86,6 +93,7 @@ export function OverviewPage({
         categories: await categoriesRes.json(),
         merchants: await merchantsRes.json(),
         trends: await trendsRes.json(),
+        recurringObligations: await recurringObligationsRes.json(),
         verification: await verificationRes.json(),
         postedTransactions: await postedRes.json(),
         pendingTransactions: await pendingRes.json(),
@@ -95,6 +103,7 @@ export function OverviewPage({
       setCategories(normalized.categories);
       setMerchants(normalized.merchants);
       setTrends(normalized.trends);
+      setRecurringObligations(normalized.recurringObligations);
       setVerification(normalized.verification);
       setPostedTxs(normalized.postedTransactions);
       setPendingTxs(normalized.pendingTransactions);
@@ -277,6 +286,10 @@ export function OverviewPage({
               <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
               Spending
             </div>
+            <div className="flex items-center text-sm text-slate-500">
+              <div className="w-4 h-0.5 bg-slate-900 mr-2" />
+              Net cash flow
+            </div>
           </div>
         </div>
 
@@ -322,6 +335,13 @@ export function OverviewPage({
             </div>
           )}
         </div>
+      </div>
+
+      <div className="mb-8">
+        <RecurringObligationsCard
+          report={recurringObligations}
+          loading={loading && !recurringObligations}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

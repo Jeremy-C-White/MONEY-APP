@@ -10,6 +10,7 @@ import {
   extractAccountsResponse,
   extractConnectedAccountsResponse,
   extractTransactionOverridesResponse,
+  extractRecurringObligationsResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -84,6 +85,21 @@ const trend = {
   income: 1000,
   spending: 500,
   netCashFlow: 500,
+};
+
+const recurringObligationsPayload = {
+  obligations: [{
+    merchant: 'Verizon',
+    category: 'RENT_AND_UTILITIES',
+    cadence: 'monthly' as const,
+    confidence: 'high' as const,
+    typicalCharge: 120,
+    estimatedMonthlyAmount: 120,
+    occurrenceCount: 5,
+    lastChargeDate: '2026-08-15',
+  }],
+  estimatedMonthlyTotal: 120,
+  analyzedThrough: '2026-09-01',
 };
 
 const transaction = {
@@ -208,6 +224,15 @@ describe('API response contracts', () => {
     expect(result[0].month).toBe('2026-09');
   });
 
+  it('validates the recurring-obligations response', () => {
+    const result = extractRecurringObligationsResponse(recurringObligationsPayload);
+    expect(result.estimatedMonthlyTotal).toBe(120);
+    expect(result.obligations[0].merchant).toBe('Verizon');
+    expect(() => extractRecurringObligationsResponse({ obligations: [] })).toThrow(
+      'Invalid recurring obligations response.'
+    );
+  });
+
   it('reads the paced comparison from summary.pacing', () => {
     const result = extractSummaryResponse(summaryPayload);
     expect(result.pacing.dayOfMonth).toBe(15);
@@ -244,6 +269,7 @@ describe('API response contracts', () => {
       categories: { categories: [category] },
       merchants: { merchants: [merchant] },
       trends: { monthly: [trend] },
+      recurringObligations: recurringObligationsPayload,
       verification: verificationPayload,
       postedTransactions: transactionsPayload,
       pendingTransactions: {
@@ -256,6 +282,7 @@ describe('API response contracts', () => {
     expect(result.categories[0].category).toBe('FOOD_AND_DRINK');
     expect(result.merchants[0].merchant).toBe('Starbucks');
     expect(result.trends[0].netCashFlow).toBe(500);
+    expect(result.recurringObligations.obligations[0].merchant).toBe('Verizon');
     expect(result.verification.reconciliation.unknownTransferCount).toBe(1);
     expect(result.postedTransactions[0].normalizedMerchant).toBe('Starbucks');
     expect(result.pendingTransactions[0].pending).toBe(true);
