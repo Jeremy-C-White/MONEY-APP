@@ -143,11 +143,25 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       /card payment/.test(combinedDescLower) || 
       /credit card payment/.test(combinedDescLower)));
 
-  const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' && 
+  const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' &&
     (
-      catPrimary === 'INCOME' || 
+      catPrimary === 'INCOME' ||
       /\b(payroll|direct deposit|direct dep|salary|wages|paycheck|pay check|gusto|adp|paychex|trinet|intuit payroll)\b/.test(combinedDescLower)
     );
+
+  // IRS/state tax refunds are income, not a reduction of gross spending: they
+  // don't attach to any spending category, so treating them as 'refund' left
+  // every category's Refunds column at $0 while the bridge silently
+  // subtracted the total. Must be checked before hasRefundEvidence below,
+  // since catDetailed here also contains the substring "REFUND".
+  const isIncomeTaxRefund = cashFlowAmount > 0 && catDetailed === 'INCOME_TAX_REFUND';
+
+  // Credit card cash-back rewards read as plain unclassified inflows
+  // (OTHER_OTHER) with no other signal tying them to income.
+  const isCashBackReward = cashFlowAmount > 0 &&
+    (combinedDescLower.includes('cash reward') ||
+      combinedDescLower.includes('cashback') ||
+      combinedDescLower.includes('cash back'));
 
   if (isRemoved) {
     classification = 'removed';
@@ -165,6 +179,11 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       countsTowardIncome = false;
       countsTowardSpending = false;
     }
+  } else if (isIncomeTaxRefund) {
+    classification = 'income';
+    countsTowardIncome = true;
+    incomeAdjustment = cashFlowAmount;
+    normalizedCategory = 'INCOME';
   } else if (cashFlowAmount > 0 && hasRefundEvidence) {
     classification = 'refund';
     countsTowardSpending = true;
@@ -179,6 +198,11 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     countsTowardSpending = false;
     countsTowardIncome = false;
   } else if (isEarnedIncome) {
+    classification = 'income';
+    countsTowardIncome = true;
+    incomeAdjustment = cashFlowAmount;
+    normalizedCategory = 'INCOME';
+  } else if (isCashBackReward) {
     classification = 'income';
     countsTowardIncome = true;
     incomeAdjustment = cashFlowAmount;

@@ -642,6 +642,91 @@ describe('Semantic Credit Card Payment Detection', () => {
 });
 
 
+describe('Classification corrections', () => {
+  it('classifies an IRS tax refund as income, not refund (must precede refund check)', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'IRS TREAS 310 TAX REF',
+      cashFlowAmount: '3251.33',
+      catPrimary: 'INCOME',
+      catDetailed: 'INCOME_TAX_REFUND',
+    }));
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.incomeAdjustment).toBe(3251.33);
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
+  });
+
+  it('classifies a state tax refund as income the same way', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'SC STATE TREASURY',
+      cashFlowAmount: '150',
+      catPrimary: 'INCOME',
+      catDetailed: 'INCOME_TAX_REFUND',
+    }));
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+  });
+
+  it('classifies credit card cash-back rewards as income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'CITICARDS CASH REWARD',
+      cashFlowAmount: '25.50',
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+    }));
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.incomeAdjustment).toBe(25.50);
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it.each([
+    ['cashback bonus deposit'],
+    ['cash back rewards redemption'],
+  ])('matches cash-back wording case-insensitively: %s', (name) => {
+    const tx = classifyTransaction(buildRow({
+      name,
+      cashFlowAmount: '10',
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+    }));
+    expect(tx.classification).toBe('income');
+  });
+
+  it('negative case: cash-back wording does not override an already-refund classification (guard)', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'TARGET CASH BACK REFUND',
+      cashFlowAmount: '15',
+      catDetailed: 'GENERAL_MERCHANDISE_REFUND',
+    }));
+    expect(tx.classification).toBe('refund');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-15);
+  });
+
+  it('negative case: cash-back wording does not override an already-P2P classification (guard)', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Venmo cash back from Jane',
+      cashFlowAmount: '15',
+      catPrimary: 'TRANSFER_IN',
+    }));
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it('negative case: an unrelated positive OTHER_OTHER inflow is not swept into cash-back income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'RANDOM MERCHANT CREDIT ADJUSTMENT',
+      cashFlowAmount: '10',
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+    }));
+    expect(tx.classification).toBe('other');
+    expect(tx.countsTowardIncome).toBe(false);
+  });
+});
+
 describe('parsePendingValue', () => {
   it('parses boolean correctly', () => {
     expect(parsePendingValue(true)).toBe(true);

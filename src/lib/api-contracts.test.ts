@@ -16,6 +16,8 @@ import {
   formatMonthShortWithYear,
   formatPercentage,
   formatPercentagePoints,
+  getCategoryLabel,
+  getCategoryDisplayLabel,
 } from './formatters';
 
 const summaryPayload = {
@@ -287,6 +289,25 @@ describe('presentation formatters', () => {
     expect(formatMonthShortWithYear('not-a-month')).toBe('not-a-month');
     expect(formatMonthShortWithYear(null)).toBe('—');
     expect(formatMonthShortWithYear(undefined)).toBe('—');
+  });
+
+  it('title-cases unmapped Plaid categories word by word', () => {
+    expect(getCategoryLabel('GENERAL_SERVICES')).toBe('General Services');
+    expect(getCategoryLabel('OTHER_OTHER')).toBe('Other Other');
+  });
+
+  it('keeps the hand-tuned category labels for categories with a special case', () => {
+    expect(getCategoryLabel('TRANSFER_OUT')).toBe('Transfers out');
+  });
+
+  it('shows a friendly label for person-to-person transfers regardless of the raw category', () => {
+    expect(getCategoryDisplayLabel('TRANSFER_OUT', 'person_to_person')).toBe('Payments to people');
+    expect(getCategoryDisplayLabel('GENERAL_MERCHANDISE', 'person_to_person')).toBe('Payments to people');
+  });
+
+  it('falls back to the category label when the classification is not person-to-person', () => {
+    expect(getCategoryDisplayLabel('TRANSFER_OUT', 'spending')).toBe('Transfers out');
+    expect(getCategoryDisplayLabel('GENERAL_SERVICES', 'income')).toBe('General Services');
   });
 });
 

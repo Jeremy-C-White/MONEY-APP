@@ -138,8 +138,25 @@ export function getCategoryLabel(category: string | undefined): string {
     case 'GENERAL_MERCHANDISE': return 'General merchandise';
     case 'TRANSPORTATION': return 'Transportation';
     default: {
-      const cleaned = category.replace(/_/g, ' ').toLowerCase();
-      return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+      // Plaid's SCREAMING_SNAKE categories, title-cased word by word
+      // (e.g. GENERAL_SERVICES -> "General Services").
+      return category
+        .toLowerCase()
+        .split('_')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
     }
   }
+}
+
+// Category display depends on classification, not just the raw Plaid
+// category: e.g. person_to_person rows carry a TRANSFER_OUT category from
+// Plaid, but showing "Transfers out" reads as an unclassified transfer
+// rather than the correctly-classified P2P payment it is.
+export function getCategoryDisplayLabel(
+  category: string | undefined,
+  classification: string | undefined
+): string {
+  if (classification === 'person_to_person') return 'Payments to people';
+  return getCategoryLabel(category);
 }
