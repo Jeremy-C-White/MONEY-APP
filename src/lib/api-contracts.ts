@@ -45,7 +45,8 @@ export function extractSummaryResponse(data: unknown): DashboardSummary {
     !isRecord(record.allTime) ||
     !isRecord(record.currentMonth) ||
     !isRecord(record.previousMonth) ||
-    !isRecord(record.comparison)
+    !isRecord(record.comparison) ||
+    !isRecord(record.pacing)
   ) {
     throw new Error('Invalid dashboard summary response.');
   }

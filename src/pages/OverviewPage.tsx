@@ -134,30 +134,43 @@ export function OverviewPage({
     );
   }
 
-  const spendingDiff = summary?.comparison.spendingDifference;
-  const spendingPct = summary?.comparison.spendingPercentageChange;
+  const pacing = summary?.pacing;
+  const pacedDiff = pacing?.spendingDifference;
+  const pacedPct = pacing?.spendingPercentageChange;
 
   const spendingSubtitle = (
-    <div className="flex flex-wrap items-center gap-x-1">
-      {spendingDiff != null && spendingPct != null ? (
-        <>
-          <span
-            className={
-              spendingDiff > 0
-                ? 'text-rose-500 font-medium'
-                : 'text-emerald-500 font-medium'
-            }
-          >
-            {spendingDiff > 0 ? '+' : ''}
-            {formatCurrency(spendingDiff)}
-          </span>
-          <span className="text-slate-400">
-            ({spendingPct > 0 ? '+' : ''}
-            {formatPercentagePoints(spendingPct)}) vs last month
-          </span>
-        </>
-      ) : (
-        <span className="text-slate-400">No previous data</span>
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-x-1">
+        {pacedDiff != null ? (
+          <>
+            <span
+              className={
+                pacedDiff > 0
+                  ? 'text-rose-500 font-medium'
+                  : 'text-emerald-500 font-medium'
+              }
+            >
+              {pacedDiff > 0 ? '+' : ''}
+              {formatCurrency(pacedDiff)}
+            </span>
+            {pacedPct != null && (
+              <span className="text-slate-400">
+                ({pacedPct > 0 ? '+' : ''}
+                {formatPercentagePoints(pacedPct)})
+              </span>
+            )}
+            <span className="text-slate-400">
+              vs {formatCurrency(pacing?.previousMonthToDateSpending)} at this point last month
+            </span>
+          </>
+        ) : (
+          <span className="text-slate-400">No previous data</span>
+        )}
+      </div>
+      {pacing && (
+        <div className="text-slate-400">
+          On track for about {formatCurrency(pacing.projectedMonthEndSpending)}
+        </div>
       )}
     </div>
   );
