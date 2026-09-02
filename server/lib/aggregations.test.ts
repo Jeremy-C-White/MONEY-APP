@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap, filterTransactions } from './aggregations';
+import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap, filterTransactions, buildTransactionsPage } from './aggregations';
 import { NormalizedTransaction } from './financial';
 
 function mockTx(overrides: Partial<NormalizedTransaction>): NormalizedTransaction {
@@ -11,6 +11,7 @@ function mockTx(overrides: Partial<NormalizedTransaction>): NormalizedTransactio
     pending: false, pendingTransactionId: '', status: 'posted', removed: false,
     classification: 'other', countsTowardSpending: false, countsTowardIncome: false,
     spendingAdjustment: 0, incomeAdjustment: 0,
+    isOverridden: false, overrideNote: null, overrideOffsetCategory: null,
     ...overrides
   };
 }
@@ -365,6 +366,50 @@ describe('filterTransactions', () => {
 
     expect(result.map(tx => tx.transactionId)).toEqual(['deposit']);
   });
+
+  it('finds manually reviewed transactions across classifications', () => {
+    const reviewedIncome = mockTx({
+      transactionId: 'income',
+      classification: 'income',
+      isOverridden: true,
+    });
+    const reviewedTransfer = mockTx({
+      transactionId: 'transfer',
+      classification: 'internal_transfer',
+      isOverridden: true,
+    });
+    const automaticIncome = mockTx({
+      transactionId: 'automatic',
+      classification: 'income',
+      isOverridden: false,
+    });
+
+    expect(filterTransactions(
+      [reviewedIncome, reviewedTransfer, automaticIncome],
+      { overridden: 'true' }
+    )).toEqual([reviewedIncome, reviewedTransfer]);
+  });
+
+  it('paginates the combined Needs Review set without including ordinary posted rows', () => {
+    const txs = [
+      mockTx({ transactionId: 'review_3', classification: 'other', normalizedDate: '2026-08-03' }),
+      mockTx({ transactionId: 'review_2', classification: 'unclassified_deposit', normalizedDate: '2026-08-02' }),
+      mockTx({ transactionId: 'review_1', classification: 'other', normalizedDate: '2026-08-01' }),
+      mockTx({ transactionId: 'ordinary', classification: 'spending', normalizedDate: '2026-08-04' }),
+    ];
+    const filters = {
+      status: 'posted',
+      classification: 'other,unclassified_deposit',
+      limit: '2',
+    };
+
+    const firstPage = buildTransactionsPage(txs, { ...filters, page: '1' });
+    const secondPage = buildTransactionsPage(txs, { ...filters, page: '2' });
+
+    expect(firstPage).toMatchObject({ total: 3, page: 1, limit: 2, totalPages: 2 });
+    expect(firstPage.transactions.map(tx => tx.transactionId)).toEqual(['review_3', 'review_2']);
+    expect(secondPage.transactions.map(tx => tx.transactionId)).toEqual(['review_1']);
+  });
 });
 
 describe('Unclassified deposit bucket', () => {
@@ -389,5 +434,54 @@ describe('Unclassified deposit bucket', () => {
     expect(res.reconciliation.bridge.unclassifiedDeposits).toBe(2047.69);
     expect(res.summary.allTime.spending).toBe(0);
     expect(res.summary.allTime.income).toBe(0);
+  });
+});
+
+describe('Override category offsets', () => {
+  it('attributes an overridden refund to its offset category and preserves reconciliation', () => {
+    const report = buildVerificationReport([
+      mockTx({
+        transactionId: 'groceries',
+        classification: 'spending',
+        normalizedCategory: 'FOOD_AND_DRINK',
+        cashFlowAmount: -200,
+        countsTowardSpending: true,
+        spendingAdjustment: 200,
+      }),
+      mockTx({
+        transactionId: 'reimbursement',
+        classification: 'refund',
+        normalizedCategory: 'TRANSFER_IN',
+        cashFlowAmount: 200,
+        countsTowardSpending: true,
+        spendingAdjustment: -200,
+        isOverridden: true,
+        overrideOffsetCategory: 'FOOD_AND_DRINK',
+      }),
+    ], 'America/New_York');
+
+    const food = report.categories.find(category => category.category === 'FOOD_AND_DRINK');
+    const transfer = report.categories.find(category => category.category === 'TRANSFER_IN');
+
+    expect(food).toMatchObject({
+      netSpending: 0,
+      grossPurchases: 200,
+      refunds: 200,
+    });
+    expect(transfer).toBeUndefined();
+    expect(report.reconciliation.categoryMathReconciles).toBe(true);
+    expect(report.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+  });
+
+  it('filters an overridden refund by its effective offset category', () => {
+    const refund = mockTx({
+      classification: 'refund',
+      normalizedCategory: 'TRANSFER_IN',
+      overrideOffsetCategory: 'FOOD_AND_DRINK',
+      isOverridden: true,
+    });
+
+    expect(filterTransactions([refund], { category: 'FOOD_AND_DRINK' })).toEqual([refund]);
+    expect(filterTransactions([refund], { category: 'TRANSFER_IN' })).toEqual([]);
   });
 });

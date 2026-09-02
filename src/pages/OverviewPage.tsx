@@ -9,6 +9,7 @@ import {
   formatMonthLabel,
   getCategoryLabel,
   getClassificationLabel,
+  getTransactionClassificationLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
 import { normalizeOverviewPayloads } from '../lib/api-contracts';
@@ -423,7 +424,11 @@ export function OverviewPage({
 function TransactionRow({ tx }: { tx: Transaction }) {
   const isPositive = tx.cashFlowAmount > 0;
 
-  let label = getClassificationLabel(tx.classification);
+  let label = getTransactionClassificationLabel(
+    tx.classification,
+    tx.isOverridden,
+    tx.overrideOffsetCategory
+  );
   if (
     tx.classification === 'other' &&
     tx.normalizedCategory.includes('TRANSFER')
@@ -450,7 +455,19 @@ function TransactionRow({ tx }: { tx: Transaction }) {
           <span className="whitespace-nowrap">{formatFriendlyDate(tx.normalizedDate)}</span>
           <span className="w-1 h-1 rounded-full bg-slate-300 flex-shrink-0" />
           <span className="truncate">{label}</span>
+          {tx.isOverridden && (
+            <span
+              className="rounded-full bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-700"
+              title={tx.overrideNote || 'Manually reviewed'}
+            >
+              Reviewed
+            </span>
+          )}
         </div>
+
+        {tx.isOverridden && tx.overrideNote && (
+          <p className="text-[11px] text-slate-400 mt-0.5 truncate">{tx.overrideNote}</p>
+        )}
 
         {accountContext && (
           <p className="text-[11px] text-slate-400 mt-0.5 truncate">{accountContext}</p>

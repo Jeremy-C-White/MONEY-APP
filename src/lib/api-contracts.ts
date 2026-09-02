@@ -8,6 +8,7 @@ import type {
   TrendPoint,
   AccountSummary,
   ConnectedAccount,
+  TransactionOverrideRecord,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -109,6 +110,14 @@ export function extractTransactionsResponse(
   }
 
   return record as unknown as TransactionsResponse;
+}
+
+export function extractTransactionOverridesResponse(data: unknown): TransactionOverrideRecord[] {
+  return requireArrayField<TransactionOverrideRecord>(
+    data,
+    'overrides',
+    'transaction overrides'
+  );
 }
 
 export function extractAccountsResponse(data: unknown): AccountSummary[] {

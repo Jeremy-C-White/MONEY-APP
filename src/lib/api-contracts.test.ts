@@ -9,6 +9,7 @@ import {
   normalizeOverviewPayloads,
   extractAccountsResponse,
   extractConnectedAccountsResponse,
+  extractTransactionOverridesResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -20,6 +21,7 @@ import {
   getCategoryDisplayLabel,
   getClassificationLabel,
   isNeedsReviewClassification,
+  getTransactionClassificationLabel,
 } from './formatters';
 
 const summaryPayload = {
@@ -110,6 +112,9 @@ const transaction = {
   countsTowardIncome: false,
   spendingAdjustment: 5.5,
   incomeAdjustment: 0,
+  isOverridden: false,
+  overrideNote: null,
+  overrideOffsetCategory: null,
 };
 
 const verificationPayload = {
@@ -317,11 +322,32 @@ describe('presentation formatters', () => {
     expect(getCategoryDisplayLabel('GENERAL_SERVICES', 'income')).toBe('General Services');
   });
 
+  it('unwraps the transaction override audit list', () => {
+    const overrides = extractTransactionOverridesResponse({
+      overrides: [{
+        transactionId: 'tx_123',
+        classification: 'income',
+        offsetCategory: null,
+        note: 'Confirmed payroll',
+        reviewedAt: '2026-09-01T12:00:00Z',
+        reviewedBy: 'user_1',
+      }],
+    });
+
+    expect(overrides).toHaveLength(1);
+    expect(overrides[0].transactionId).toBe('tx_123');
+  });
+
   it('labels unclassified deposits neutrally and keeps them in review', () => {
     expect(getClassificationLabel('unclassified_deposit')).toBe('Deposit — needs review');
     expect(isNeedsReviewClassification('unclassified_deposit')).toBe(true);
     expect(isNeedsReviewClassification('other')).toBe(true);
     expect(isNeedsReviewClassification('income')).toBe(false);
+  });
+
+  it('labels a reviewed refund with an offset category as reimbursement', () => {
+    expect(getTransactionClassificationLabel('refund', true, 'FOOD_AND_DRINK')).toBe('Reimbursement');
+    expect(getTransactionClassificationLabel('refund', false, null)).toBe('Refund');
   });
 });
 

@@ -133,6 +133,17 @@ export function isNeedsReviewClassification(classification: string | undefined):
   return classification === 'other' || classification === 'unclassified_deposit';
 }
 
+export function getTransactionClassificationLabel(
+  classification: string | undefined,
+  isOverridden: boolean,
+  offsetCategory: string | null | undefined
+): string {
+  if (classification === 'refund' && isOverridden && offsetCategory) {
+    return 'Reimbursement';
+  }
+  return getClassificationLabel(classification);
+}
+
 export function getCategoryLabel(category: string | undefined): string {
   if (!category) return 'Uncategorized';
 

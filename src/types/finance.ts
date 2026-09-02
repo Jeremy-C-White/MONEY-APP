@@ -183,6 +183,22 @@ export interface Transaction {
   countsTowardIncome: boolean;
   spendingAdjustment: number;
   incomeAdjustment: number;
+  isOverridden: boolean;
+  overrideNote: string | null;
+  overrideOffsetCategory: string | null;
+}
+
+export interface TransactionOverrideRecord {
+  transactionId: string;
+  classification: TransactionClassification;
+  offsetCategory: string | null;
+  note: string | null;
+  reviewedAt: unknown;
+  reviewedBy: string;
+}
+
+export interface TransactionOverridesResponse {
+  overrides: TransactionOverrideRecord[];
 }
 
 export interface TransactionsResponse {
