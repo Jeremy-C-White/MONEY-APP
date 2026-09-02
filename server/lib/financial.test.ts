@@ -174,7 +174,7 @@ describe('Confirmed transfer reconciliation', () => {
     expect(tx.countsTowardIncome).toBe(false);
   });
 
-  it('classifies a mobile check deposit as reimbursement, not other', () => {
+  it('groups a mobile check deposit for review without inferring its purpose', () => {
     const tx = classifyTransaction(buildRow({
       name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
       cashFlowAmount: '100',
@@ -182,7 +182,7 @@ describe('Confirmed transfer reconciliation', () => {
       catDetailed: 'TRANSFER_IN_DEPOSIT'
     }));
 
-    expect(tx.classification).toBe('reimbursement');
+    expect(tx.classification).toBe('unclassified_deposit');
     expect(tx.countsTowardIncome).toBe(false);
   });
 });
@@ -735,7 +735,7 @@ describe('Classification corrections', () => {
     expect(tx.countsTowardIncome).toBe(false);
   });
 
-  it('classifies a mobile check deposit as reimbursement: not income, not spending', () => {
+  it('classifies a mobile check deposit as unclassified: not income, not spending', () => {
     const tx = classifyTransaction(buildRow({
       name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
       cashFlowAmount: '1197.69',
@@ -743,14 +743,14 @@ describe('Classification corrections', () => {
       catPrimary: 'TRANSFER_IN',
       catDetailed: 'TRANSFER_IN_DEPOSIT',
     }));
-    expect(tx.classification).toBe('reimbursement');
+    expect(tx.classification).toBe('unclassified_deposit');
     expect(tx.countsTowardIncome).toBe(false);
     expect(tx.countsTowardSpending).toBe(false);
     expect(tx.incomeAdjustment).toBe(0);
     expect(tx.spendingAdjustment).toBe(0);
   });
 
-  it('negative case: TRANSFER_IN_DEPOSIT on a non-depository account is not reimbursement', () => {
+  it('negative case: TRANSFER_IN_DEPOSIT on a non-depository account is not an unclassified deposit', () => {
     const tx = classifyTransaction(buildRow({
       name: 'MOBILE DEPOSIT : REF NUMBER :410130858177',
       cashFlowAmount: '1197.69',
@@ -758,10 +758,10 @@ describe('Classification corrections', () => {
       catPrimary: 'TRANSFER_IN',
       catDetailed: 'TRANSFER_IN_DEPOSIT',
     }));
-    expect(tx.classification).not.toBe('reimbursement');
+    expect(tx.classification).not.toBe('unclassified_deposit');
   });
 
-  it('negative case: a negative TRANSFER_IN_DEPOSIT cash flow is not reimbursement', () => {
+  it('negative case: a negative TRANSFER_IN_DEPOSIT cash flow is not an unclassified deposit', () => {
     const tx = classifyTransaction(buildRow({
       name: 'MOBILE DEPOSIT REVERSAL',
       cashFlowAmount: '-50',
@@ -769,7 +769,7 @@ describe('Classification corrections', () => {
       catPrimary: 'TRANSFER_IN',
       catDetailed: 'TRANSFER_IN_DEPOSIT',
     }));
-    expect(tx.classification).not.toBe('reimbursement');
+    expect(tx.classification).not.toBe('unclassified_deposit');
   });
 });
 

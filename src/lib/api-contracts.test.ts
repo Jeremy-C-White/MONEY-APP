@@ -18,6 +18,8 @@ import {
   formatPercentagePoints,
   getCategoryLabel,
   getCategoryDisplayLabel,
+  getClassificationLabel,
+  isNeedsReviewClassification,
 } from './formatters';
 
 const summaryPayload = {
@@ -143,6 +145,8 @@ const verificationPayload = {
     unknownTransferCount: 1,
     unknownTransferAmount: 496,
     otherCount: 1,
+    unclassifiedDepositCount: 1,
+    unclassifiedDepositAmount: 1197.69,
     grossPurchases: 50,
     refunds: 0,
     merchantCredits: 0,
@@ -165,6 +169,7 @@ const verificationPayload = {
       bankFeeInterestPaid: 0,
       unknownTransfers: 0,
       otherUnclassified: 0,
+      unclassifiedDeposits: 1197.69,
       accountingBridgeReconciles: true,
     },
   },
@@ -216,6 +221,8 @@ describe('API response contracts', () => {
     const result = extractVerificationResponse(verificationPayload);
     expect(result.reconciliation.unknownTransferCount).toBe(1);
     expect(result.reconciliation.unknownTransferAmount).toBe(496);
+    expect(result.reconciliation.unclassifiedDepositCount).toBe(1);
+    expect(result.reconciliation.bridge.unclassifiedDeposits).toBe(1197.69);
   });
 
   it('retains normalized transaction fields from the server response', () => {
@@ -308,6 +315,13 @@ describe('presentation formatters', () => {
   it('falls back to the category label when the classification is not person-to-person', () => {
     expect(getCategoryDisplayLabel('TRANSFER_OUT', 'spending')).toBe('Transfers out');
     expect(getCategoryDisplayLabel('GENERAL_SERVICES', 'income')).toBe('General Services');
+  });
+
+  it('labels unclassified deposits neutrally and keeps them in review', () => {
+    expect(getClassificationLabel('unclassified_deposit')).toBe('Deposit — needs review');
+    expect(isNeedsReviewClassification('unclassified_deposit')).toBe(true);
+    expect(isNeedsReviewClassification('other')).toBe(true);
+    expect(isNeedsReviewClassification('income')).toBe(false);
   });
 });
 

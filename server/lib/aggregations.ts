@@ -257,7 +257,15 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
   if (filters.institution) result = result.filter(t => t.institutionName === filters.institution);
   if (filters.account) result = result.filter(t => t.accountId === filters.account);
   if (filters.category) result = result.filter(t => t.normalizedCategory === filters.category);
-  if (filters.classification) result = result.filter(t => t.classification === filters.classification);
+  if (filters.classification) {
+    const classifications = String(filters.classification)
+      .split(',')
+      .map(classification => classification.trim())
+      .filter(Boolean);
+    if (classifications.length > 0) {
+      result = result.filter(t => classifications.includes(t.classification));
+    }
+  }
   if (filters.status) {
     if (filters.status === 'pending') result = result.filter(t => t.pending && !t.removed);
     if (filters.status === 'posted') result = result.filter(t => !t.pending && !t.removed);
@@ -314,8 +322,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let unknownTransferCount = 0;
   let unknownTransferAmount = 0;
   let otherCount = 0;
-  let reimbursementCount = 0;
-  let reimbursementAmount = 0;
+  let unclassifiedDepositCount = 0;
+  let unclassifiedDepositAmount = 0;
 
   // Accounting bridge
   let activePostedRawCashFlowTotal = 0;
@@ -332,7 +340,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let bridgeBankFeeInterestPaid = 0;
   let bridgeUnknownTransfer = 0;
   let bridgeOtherUnclassified = 0;
-  let bridgeReimbursement = 0;
+  let bridgeUnclassifiedDeposits = 0;
 
   for (const t of txs) {
     if (t.removed) {
@@ -419,10 +427,10 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
           bridgeOtherUnclassified += t.cashFlowAmount;
         }
         break;
-      case 'reimbursement':
-        reimbursementCount++;
-        reimbursementAmount += Math.abs(t.cashFlowAmount);
-        bridgeReimbursement += t.cashFlowAmount;
+      case 'unclassified_deposit':
+        unclassifiedDepositCount++;
+        unclassifiedDepositAmount += Math.abs(t.cashFlowAmount);
+        bridgeUnclassifiedDeposits += t.cashFlowAmount;
         break;
     }
   }
@@ -433,7 +441,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
 
   const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard +
                     bridgeInternalTransfer + bridgeInvestmentTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming +
-                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified + bridgeReimbursement;
+                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified + bridgeUnclassifiedDeposits;
 
   return {
     summary,
@@ -468,8 +476,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       unknownTransferCount,
       unknownTransferAmount,
       otherCount,
-      reimbursementCount,
-      reimbursementAmount,
+      unclassifiedDepositCount,
+      unclassifiedDepositAmount,
       grossPurchases,
       refunds,
       merchantCredits,
@@ -492,6 +500,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         bankFeeInterestPaid: bridgeBankFeeInterestPaid,
         unknownTransfers: bridgeUnknownTransfer,
         otherUnclassified: bridgeOtherUnclassified,
+        unclassifiedDeposits: bridgeUnclassifiedDeposits,
         accountingBridgeReconciles: Math.abs(activePostedRawCashFlowTotal - bridgeSum) < 0.01
       }
     }

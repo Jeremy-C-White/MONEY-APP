@@ -11,7 +11,7 @@ export type TransactionClassification =
   | 'interest_earned'
   | 'interest_paid'
   | 'bank_fee'
-  | 'reimbursement'
+  | 'unclassified_deposit'
   | 'pending'
   | 'removed'
   | 'other';
@@ -105,6 +105,7 @@ export interface DashboardVerificationBridge {
   bankFeeInterestPaid: number;
   unknownTransfers: number;
   otherUnclassified: number;
+  unclassifiedDeposits: number;
   accountingBridgeReconciles: boolean;
 }
 
@@ -136,8 +137,8 @@ export interface DashboardVerificationReconciliation {
   unknownTransferCount: number;
   unknownTransferAmount: number;
   otherCount: number;
-  reimbursementCount: number;
-  reimbursementAmount: number;
+  unclassifiedDepositCount: number;
+  unclassifiedDepositAmount: number;
   grossPurchases: number;
   refunds: number;
   merchantCredits: number;

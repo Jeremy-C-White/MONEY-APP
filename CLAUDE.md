@@ -82,6 +82,8 @@ src/lib/formatters.ts      Currency, percent, category/classification labels
 
 **Amounts keep Plaid's precision.** `Transactions_Raw` stores exactly what Plaid returned, including sub-cent values. Round at display only.
 
+**Classification names describe evidence, not inferred purpose.** Plaid category codes describe a transaction channel or merchant type; they do not establish the economic meaning of the money. Use a neutral review label until stronger evidence or an owner override establishes that meaning.
+
 **Cursor commits last.** The Plaid transactions cursor is persisted only after the full pagination completes *and* the Sheets write succeeds. This makes a failed sync replay rather than silently skip. Do not move it earlier.
 
 **Verify before reporting.** Don't say a test passed, a value matched, or a page rendered unless you ran it. Reported-but-unobserved results have been a recurring problem here.

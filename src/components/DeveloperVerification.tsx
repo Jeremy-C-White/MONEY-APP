@@ -1,4 +1,14 @@
 import React, { useState } from 'react';
+import { formatCurrency } from '../lib/formatters';
+
+function BridgeRow({ label, amount }: { label: string; amount: number }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-1 font-mono text-xs">
+      <span className="text-slate-600">{label}</span>
+      <span className="text-slate-800">{formatCurrency(amount)}</span>
+    </div>
+  );
+}
 
 export function DeveloperVerification({ user }: { user: any }) {
   const [loading, setLoading] = useState(false);
@@ -92,21 +102,48 @@ export function DeveloperVerification({ user }: { user: any }) {
                 <li>P2P Incoming: {data.reconciliation.p2pIncomingCount} (${data.reconciliation.p2pIncomingAmount.toFixed(2)})</li>
                 <li>Unknown Transfer Rows: {data.reconciliation.unknownTransferCount} (${data.reconciliation.unknownTransferAmount.toFixed(2)})</li>
                 <li>Unclassified Positive Rows: {data.reconciliation.unclassifiedPositiveCount} (${data.reconciliation.unclassifiedPositiveAmount.toFixed(2)})</li>
+                <li>Deposits Needing Review: {data.reconciliation.unclassifiedDepositCount} (${data.reconciliation.unclassifiedDepositAmount.toFixed(2)})</li>
                 <li>Other Rows: {data.reconciliation.otherCount}</li>
                 <li className="pt-2 font-bold text-indigo-600">
                   Category Math Reconciles: {data.reconciliation.categoryMathReconciles ? 'YES' : 'NO'}
                 </li>
                 <li className="text-xs text-slate-500">(Gross {data.reconciliation.grossPurchases.toFixed(0)} - Refunds {data.reconciliation.refunds.toFixed(0)} - Merchant Credits {data.reconciliation.merchantCredits?.toFixed(0) || '0'} = Net {data.reconciliation.netSpending.toFixed(0)})</li>
-                {data.reconciliation.bridge && (
-                  <li className="pt-2 font-bold text-indigo-600">
-                    Accounting Bridge Reconciles: {data.reconciliation.bridge.accountingBridgeReconciles ? 'YES' : 'NO'}
-                    <div className="text-xs text-slate-500 font-normal mt-1">
-                      Raw Total: ${data.reconciliation.bridge.activePostedRawCashFlowTotal.toFixed(2)}
-                    </div>
-                  </li>
-                )}
               </ul>
             </div>
+            {data.reconciliation.bridge && (
+              <div className="mt-4 bg-slate-50 border border-slate-100 rounded-lg p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+                  <h4 className="font-bold text-slate-800">Accounting Bridge Breakdown</h4>
+                  <span className={`font-bold ${data.reconciliation.bridge.accountingBridgeReconciles ? 'text-indigo-600' : 'text-rose-600'}`}>
+                    Reconciles: {data.reconciliation.bridge.accountingBridgeReconciles ? 'YES' : 'NO'}
+                  </span>
+                </div>
+                <div className="grid md:grid-cols-2 gap-x-8">
+                  <div>
+                    <BridgeRow label="Recognized spending" amount={data.reconciliation.bridge.recognizedSpending} />
+                    <BridgeRow label="Recognized income" amount={data.reconciliation.bridge.recognizedIncome} />
+                    <BridgeRow label="Refunds and merchant credits" amount={data.reconciliation.bridge.refundsAndCredits} />
+                    <BridgeRow label="Credit card payments" amount={data.reconciliation.bridge.creditCardPayments} />
+                    <BridgeRow label="Internal transfers" amount={data.reconciliation.bridge.internalTransfers} />
+                    <BridgeRow label="Investment transfers" amount={data.reconciliation.bridge.investmentTransfers} />
+                    <BridgeRow label="Cash withdrawals" amount={data.reconciliation.bridge.cashWithdrawals} />
+                  </div>
+                  <div>
+                    <BridgeRow label="P2P outgoing" amount={data.reconciliation.bridge.p2pOutgoing} />
+                    <BridgeRow label="P2P incoming" amount={data.reconciliation.bridge.p2pIncoming} />
+                    <BridgeRow label="Interest earned" amount={data.reconciliation.bridge.interestEarned} />
+                    <BridgeRow label="Bank fees and interest paid" amount={data.reconciliation.bridge.bankFeeInterestPaid} />
+                    <BridgeRow label="Unknown transfers" amount={data.reconciliation.bridge.unknownTransfers} />
+                    <BridgeRow label="Other unclassified" amount={data.reconciliation.bridge.otherUnclassified} />
+                    <BridgeRow label="Deposits needing review" amount={data.reconciliation.bridge.unclassifiedDeposits} />
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between gap-4 font-mono text-sm font-bold">
+                  <span className="text-slate-700">Active posted raw total</span>
+                  <span className="text-slate-900">{formatCurrency(data.reconciliation.bridge.activePostedRawCashFlowTotal)}</span>
+                </div>
+              </div>
+            )}
           </section>
 
           <div className="grid md:grid-cols-2 gap-8">

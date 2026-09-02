@@ -337,26 +337,56 @@ describe('filterTransactions', () => {
     expect(result.length).toBe(1);
     expect(result[0].transactionId).toBe('t1');
   });
+
+  it('returns both review classifications and excludes ordinary, pending, and removed rows', () => {
+    const txs = [
+      mockTx({ transactionId: 'other', classification: 'other' }),
+      mockTx({ transactionId: 'deposit', classification: 'unclassified_deposit', cashFlowAmount: 100 }),
+      mockTx({ transactionId: 'spending', classification: 'spending' }),
+      mockTx({ transactionId: 'pending', classification: 'unclassified_deposit', pending: true }),
+      mockTx({ transactionId: 'removed', classification: 'other', removed: true }),
+    ];
+
+    const result = filterTransactions(txs, {
+      status: 'posted',
+      classification: 'other,unclassified_deposit',
+    });
+
+    expect(result.map(tx => tx.transactionId)).toEqual(['other', 'deposit']);
+  });
+
+  it('preserves exact filtering for one classification', () => {
+    const txs = [
+      mockTx({ transactionId: 'other', classification: 'other' }),
+      mockTx({ transactionId: 'deposit', classification: 'unclassified_deposit' }),
+    ];
+
+    const result = filterTransactions(txs, { classification: 'unclassified_deposit' });
+
+    expect(result.map(tx => tx.transactionId)).toEqual(['deposit']);
+  });
 });
 
-describe('Reimbursement bucket', () => {
-  it('accountingBridgeReconciles stays true with a reimbursement transaction present', () => {
+describe('Unclassified deposit bucket', () => {
+  it('accountingBridgeReconciles stays true with an unclassified deposit present', () => {
     const res = buildVerificationReport([
-      mockTx({ transactionId: 't1', classification: 'reimbursement', cashFlowAmount: 1197.69 }),
+      mockTx({ transactionId: 't1', classification: 'unclassified_deposit', cashFlowAmount: 1197.69 }),
       mockTx({ transactionId: 't2', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 50, cashFlowAmount: -50 }),
     ], 'America/New_York');
 
     expect(res.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+    expect(res.reconciliation.bridge.unclassifiedDeposits).toBe(1197.69);
   });
 
-  it('reimbursementAmount matches the cash flow total of reimbursement rows', () => {
+  it('reports the count and amount without treating deposits as income or spending', () => {
     const res = buildVerificationReport([
-      mockTx({ transactionId: 't1', classification: 'reimbursement', cashFlowAmount: 1197.69 }),
-      mockTx({ transactionId: 't2', classification: 'reimbursement', cashFlowAmount: 850 }),
+      mockTx({ transactionId: 't1', classification: 'unclassified_deposit', cashFlowAmount: 1197.69 }),
+      mockTx({ transactionId: 't2', classification: 'unclassified_deposit', cashFlowAmount: 850 }),
     ], 'America/New_York');
 
-    expect(res.reconciliation.reimbursementCount).toBe(2);
-    expect(res.reconciliation.reimbursementAmount).toBe(2047.69);
+    expect(res.reconciliation.unclassifiedDepositCount).toBe(2);
+    expect(res.reconciliation.unclassifiedDepositAmount).toBe(2047.69);
+    expect(res.reconciliation.bridge.unclassifiedDeposits).toBe(2047.69);
     expect(res.summary.allTime.spending).toBe(0);
     expect(res.summary.allTime.income).toBe(0);
   });

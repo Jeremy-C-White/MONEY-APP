@@ -5,6 +5,7 @@ import {
   getClassificationLabel,
   getCategoryLabel,
   getCategoryDisplayLabel,
+  isNeedsReviewClassification,
   formatFriendlyDate
 } from '../lib/formatters';
 import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
@@ -13,7 +14,7 @@ import type { Transaction, AccountSummary } from '../types/finance';
 const CLASSIFICATIONS = [
   'spending', 'income', 'internal_transfer', 'investment_transfer', 'cash_withdrawal',
   'person_to_person', 'credit_card_payment', 'refund', 'merchant_credit',
-  'interest_earned', 'interest_paid', 'bank_fee', 'other'
+  'interest_earned', 'interest_paid', 'bank_fee', 'unclassified_deposit', 'other'
 ];
 
 export function TransactionsPage({
@@ -117,7 +118,7 @@ export function TransactionsPage({
         params.set('status', 'pending');
       } else if (viewMode === 'needs_review') {
         params.set('status', 'posted');
-        params.set('classification', 'other');
+        params.set('classification', 'other,unclassified_deposit');
       } else {
         params.set('status', 'posted');
       }
@@ -330,8 +331,8 @@ export function TransactionsPage({
                   
                   <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
                     {tx.pending && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Pending</span>}
-                    {tx.classification === 'other' && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Needs Review</span>}
-                    {tx.classification !== 'other' && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getClassificationLabel(tx.classification)}</span>}
+                    {isNeedsReviewClassification(tx.classification) && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">{getClassificationLabel(tx.classification)}</span>}
+                    {!isNeedsReviewClassification(tx.classification) && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getClassificationLabel(tx.classification)}</span>}
                     <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryDisplayLabel(tx.normalizedCategory, tx.classification)}</span>
                   </div>
                   
@@ -364,8 +365,8 @@ export function TransactionsPage({
                         <p className="font-bold text-slate-900">{tx.normalizedMerchant || tx.name}</p>
                         <div className="flex gap-2 mt-1.5">
                           {tx.pending && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Pending</span>}
-                          {tx.classification === 'other' && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Needs Review</span>}
-                          {tx.classification !== 'other' && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getClassificationLabel(tx.classification)}</span>}
+                          {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getClassificationLabel(tx.classification)}</span>}
+                          {!isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getClassificationLabel(tx.classification)}</span>}
                         </div>
                       </td>
                       <td className="px-6 py-4">

@@ -119,7 +119,7 @@ export function getClassificationLabel(classification: string | undefined): stri
     case 'interest_earned': return 'Interest earned';
     case 'interest_paid': return 'Interest paid';
     case 'bank_fee': return 'Bank fee';
-    case 'reimbursement': return 'Reimbursement';
+    case 'unclassified_deposit': return 'Deposit — needs review';
     case 'income': return 'Income';
     case 'spending': return 'Spending';
     case 'pending': return 'Pending';
@@ -127,6 +127,10 @@ export function getClassificationLabel(classification: string | undefined): stri
     case 'other': return 'Needs review';
     default: return classification.replace(/_/g, ' ');
   }
+}
+
+export function isNeedsReviewClassification(classification: string | undefined): boolean {
+  return classification === 'other' || classification === 'unclassified_deposit';
 }
 
 export function getCategoryLabel(category: string | undefined): string {

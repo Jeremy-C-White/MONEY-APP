@@ -17,7 +17,7 @@ export type Classification =
   'interest_earned' |
   'interest_paid' |
   'bank_fee' |
-  'reimbursement' |
+  'unclassified_deposit' |
   'pending' |
   'removed' |
   'other';
@@ -164,11 +164,10 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       combinedDescLower.includes('cashback') ||
       combinedDescLower.includes('cash back'));
 
-  // Mobile check deposits (TRANSFER_IN_DEPOSIT) are mostly reimbursements,
-  // not earnings, per the owner - deliberately not counted as income.
-  // Per-transaction correction is a follow-up; this only stops them from
-  // being silently swept into the generic 'other' bucket below.
-  const isReimbursement = cashFlowAmount > 0 &&
+  // TRANSFER_IN_DEPOSIT establishes how money entered the account, not its
+  // economic purpose. Keep these deposits grouped for review without
+  // assuming they are income, reimbursements, gifts, or internal transfers.
+  const isUnclassifiedDeposit = cashFlowAmount > 0 &&
     accountType === 'depository' &&
     catDetailed === 'TRANSFER_IN_DEPOSIT';
 
@@ -220,8 +219,8 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'investment_transfer';
   } else if (isConfirmedInternalTransfer) {
     classification = 'internal_transfer';
-  } else if (isReimbursement) {
-    classification = 'reimbursement';
+  } else if (isUnclassifiedDeposit) {
+    classification = 'unclassified_deposit';
     countsTowardSpending = false;
     countsTowardIncome = false;
     spendingAdjustment = 0;
