@@ -12,6 +12,8 @@ import {
 } from './api-contracts';
 import {
   formatMonthLabel,
+  formatMonthShort,
+  formatMonthShortWithYear,
   formatPercentage,
   formatPercentagePoints,
 } from './formatters';
@@ -265,6 +267,26 @@ describe('presentation formatters', () => {
 
   it('formats the server reporting month for display', () => {
     expect(formatMonthLabel('2026-09')).toBe('September 2026');
+  });
+
+  it('formats a short month label for narrow chart axes', () => {
+    expect(formatMonthShort('2026-09')).toBe('Sep');
+  });
+
+  it('formats a short month label with a two-digit year for year boundaries', () => {
+    expect(formatMonthShortWithYear('2026-09')).toBe("Sep '26");
+  });
+
+  it('falls back to the raw input for invalid month strings', () => {
+    expect(formatMonthShort('2026-13')).toBe('2026-13');
+    expect(formatMonthShort('not-a-month')).toBe('not-a-month');
+    expect(formatMonthShort(null)).toBe('—');
+    expect(formatMonthShort(undefined)).toBe('—');
+
+    expect(formatMonthShortWithYear('2026-13')).toBe('2026-13');
+    expect(formatMonthShortWithYear('not-a-month')).toBe('not-a-month');
+    expect(formatMonthShortWithYear(null)).toBe('—');
+    expect(formatMonthShortWithYear(undefined)).toBe('—');
   });
 });
 

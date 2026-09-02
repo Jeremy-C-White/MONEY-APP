@@ -1,5 +1,6 @@
 import React from 'react';
 import { TrendPoint } from '../types/finance';
+import { formatMonthLabel, formatMonthShort, formatMonthShortWithYear } from '../lib/formatters';
 
 export function TrendChart({ data, loading }: { data: TrendPoint[], loading?: boolean }) {
   if (loading) {
@@ -19,23 +20,29 @@ export function TrendChart({ data, loading }: { data: TrendPoint[], loading?: bo
         
         // Only show every other label on mobile if there are many data points
         const showLabelOnMobile = data.length <= 6 || i % 2 === 0;
-        
+
+        // Year is implied by sequence; only call it out where the sequence
+        // actually crosses into a new year (e.g. "Dec Jan '26 Feb").
+        const crossedIntoNewYear = i > 0 && d.month.slice(0, 4) !== data[i - 1].month.slice(0, 4);
+        const monthLabel = crossedIntoNewYear ? formatMonthShortWithYear(d.month) : formatMonthShort(d.month);
+        const fullMonthLabel = formatMonthLabel(d.month);
+
         return (
           <div key={d.month} className="flex flex-col items-center flex-1 h-full justify-end relative group">
             <div className="w-full flex justify-center items-end h-full gap-[1px] sm:gap-1 px-[1px] sm:px-1">
-              <div 
-                className="w-full max-w-[20px] bg-emerald-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100" 
+              <div
+                className="w-full max-w-[20px] bg-emerald-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100"
                 style={{ height: `${incomePct}%`, minHeight: incomePct > 0 ? '2px' : '0' }}
-                title={`Income: ${d.income}`}
+                title={`${fullMonthLabel} — Income: ${d.income}`}
               ></div>
-              <div 
-                className="w-full max-w-[20px] bg-indigo-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100" 
+              <div
+                className="w-full max-w-[20px] bg-indigo-400 rounded-t-md opacity-90 transition-all group-hover:opacity-100"
                 style={{ height: `${spendPct}%`, minHeight: spendPct > 0 ? '2px' : '0' }}
-                title={`Spending: ${d.spending}`}
+                title={`${fullMonthLabel} — Spending: ${d.spending}`}
               ></div>
             </div>
             <div className={`absolute -bottom-6 text-[10px] sm:text-xs font-medium text-slate-400 whitespace-nowrap ${showLabelOnMobile ? 'block' : 'hidden sm:block'}`}>
-              {d.month.split(' ')[0]}
+              {monthLabel}
             </div>
           </div>
         )

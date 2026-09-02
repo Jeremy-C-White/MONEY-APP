@@ -43,6 +43,43 @@ export function formatMonthLabel(month: string | null | undefined): string {
   });
 }
 
+export function formatMonthShort(month: string | null | undefined): string {
+  if (!month) return '—';
+
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return month;
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+
+  if (monthNumber < 1 || monthNumber > 12) return month;
+
+  const date = new Date(Date.UTC(year, monthNumber - 1, 1));
+  return date.toLocaleDateString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+}
+
+export function formatMonthShortWithYear(month: string | null | undefined): string {
+  if (!month) return '—';
+
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return month;
+
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+
+  if (monthNumber < 1 || monthNumber > 12) return month;
+
+  const date = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const shortMonth = date.toLocaleDateString('en-US', {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+  return `${shortMonth} '${String(year).slice(-2)}`;
+}
+
 export function formatFriendlyDate(dateStr: string | null | undefined): string {
   if (!dateStr) return '—';
 
