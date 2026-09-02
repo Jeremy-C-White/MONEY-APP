@@ -13,7 +13,10 @@ import {
   getTransactionClassificationLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
-import { normalizeOverviewPayloads } from '../lib/api-contracts';
+import {
+  extractRecurringObligationsResponse,
+  normalizeOverviewPayloads,
+} from '../lib/api-contracts';
 import type {
   DashboardSummary,
   DashboardCategory,
@@ -122,6 +125,14 @@ export function OverviewPage({
   useEffect(() => {
     void fetchData();
   }, [trendRange, refreshKey]);
+
+  const refreshRecurringObligations = async () => {
+    const response = await apiFetch('/api/dashboard/recurring-obligations');
+    if (!response.ok) throw new Error('Unable to refresh recurring services.');
+    setRecurringObligations(
+      extractRecurringObligationsResponse(await response.json())
+    );
+  };
 
   if (error && !summary) {
     return (
@@ -341,6 +352,8 @@ export function OverviewPage({
         <RecurringObligationsCard
           report={recurringObligations}
           loading={loading && !recurringObligations}
+          apiFetch={apiFetch}
+          onChanged={refreshRecurringObligations}
         />
       </div>
 

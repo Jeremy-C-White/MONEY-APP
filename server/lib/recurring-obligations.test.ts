@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { NormalizedTransaction } from './financial';
-import { detectLikelyRecurringObligations } from './recurring-obligations';
+import {
+  buildRecurringObligationId,
+  detectLikelyRecurringObligations,
+} from './recurring-obligations';
 
 function spendingTransaction(
   transactionId: string,
@@ -43,6 +46,16 @@ function spendingTransaction(
 }
 
 describe('detectLikelyRecurringObligations', () => {
+  it('builds a stable merchant-level decision ID', () => {
+    expect(buildRecurringObligationId('  Verizon  ')).toBe(
+      buildRecurringObligationId('verizon')
+    );
+    expect(buildRecurringObligationId('Verizon')).not.toBe(
+      buildRecurringObligationId('Spectrum')
+    );
+    expect(buildRecurringObligationId('Verizon')).toMatch(/^[a-f0-9]{24}$/);
+  });
+
   it('detects a stable monthly bill and estimates one typical charge per month', () => {
     const transactions = [
       spendingTransaction('v1', 'Verizon', '2026-04-15', 120),

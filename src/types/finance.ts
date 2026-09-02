@@ -94,6 +94,7 @@ export type RecurringCadence = 'weekly' | 'biweekly' | 'monthly';
 export type RecurringConfidence = 'high' | 'medium';
 
 export interface LikelyRecurringObligation {
+  obligationId: string;
   merchant: string;
   category: string;
   cadence: RecurringCadence;
@@ -102,12 +103,27 @@ export interface LikelyRecurringObligation {
   estimatedMonthlyAmount: number;
   occurrenceCount: number;
   lastChargeDate: string;
+  status: 'suggested' | 'confirmed' | 'seasonal' | 'dismissed';
+  expectedMonthlyAmount: number;
+  seasonStartMonth: number | null;
+  seasonEndMonth: number | null;
+  note: string | null;
+  detected: boolean;
+}
+
+export interface RecurringForecastPoint {
+  month: string;
+  confirmedAmount: number;
+  obligationCount: number;
 }
 
 export interface RecurringObligationsResponse {
   obligations: LikelyRecurringObligation[];
   estimatedMonthlyTotal: number;
+  confirmedMonthlyTotal: number;
+  suggestionCount: number;
   analyzedThrough: string | null;
+  forecast: RecurringForecastPoint[];
 }
 
 export interface DashboardVerificationBridge {

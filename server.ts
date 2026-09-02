@@ -24,6 +24,16 @@ import {
   type TransactionOverrideServiceDependencies,
 } from "./server/lib/transaction-overrides";
 import { detectLikelyRecurringObligations } from "./server/lib/recurring-obligations";
+import {
+  buildRecurringPlanningReport,
+  parseStoredRecurringDecision,
+  removeRecurringDecision,
+  saveRecurringDecision,
+  RecurringObligationRequestError,
+  type RecurringDecisionServiceDependencies,
+  type StoredRecurringObligationDecision,
+} from "./server/lib/recurring-obligation-decisions";
+import { getMonthForDateInTimezone } from "./server/lib/time";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1835,6 +1845,23 @@ const transactionOverrideDependencies: TransactionOverrideServiceDependencies = 
   reviewedAt: () => Timestamp.now(),
 };
 
+const recurringDecisionDependencies: RecurringDecisionServiceDependencies = {
+  loadDetected: async uid => (
+    detectLikelyRecurringObligations(await fetchNormalizedTransactions(uid))
+  ),
+  setDecision: async (uid, obligationId, decision) => {
+    await db.collection('users').doc(uid)
+      .collection('recurring_obligations').doc(obligationId)
+      .set(decision);
+  },
+  deleteDecision: async (uid, obligationId) => {
+    await db.collection('users').doc(uid)
+      .collection('recurring_obligations').doc(obligationId)
+      .delete();
+  },
+  updatedAt: () => Timestamp.now(),
+};
+
 
 
 async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
@@ -1997,10 +2024,60 @@ app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: 
 
 app.get("/api/dashboard/recurring-obligations", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    res.json(detectLikelyRecurringObligations(txs));
+    const uid = (req as any).user.uid;
+    const [txs, snapshot] = await Promise.all([
+      fetchNormalizedTransactions(uid),
+      db.collection('users').doc(uid).collection('recurring_obligations').get(),
+    ]);
+    const decisions = new Map<string, StoredRecurringObligationDecision>();
+    for (const document of snapshot.docs) {
+      const decision = parseStoredRecurringDecision(document.data());
+      if (decision) decisions.set(document.id, decision);
+    }
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const currentMonth = getMonthForDateInTimezone(new Date(), financeTz);
+    res.json(buildRecurringPlanningReport(
+      detectLikelyRecurringObligations(txs),
+      decisions,
+      currentMonth
+    ));
   } catch (error: any) {
     console.error("Recurring Obligations Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/recurring-obligations/:obligationId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const obligationId = req.params.obligationId;
+    const decision = await saveRecurringDecision(
+      recurringDecisionDependencies,
+      uid,
+      obligationId,
+      req.body
+    );
+    res.json({ obligationId, decision });
+  } catch (error: any) {
+    if (error instanceof RecurringObligationRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Recurring Obligation Write Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/recurring-obligations/:obligationId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const obligationId = req.params.obligationId;
+    await removeRecurringDecision(recurringDecisionDependencies, uid, obligationId);
+    res.json({ success: true, obligationId });
+  } catch (error: any) {
+    if (error instanceof RecurringObligationRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Recurring Obligation Delete Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

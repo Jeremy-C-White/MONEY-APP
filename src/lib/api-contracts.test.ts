@@ -89,6 +89,7 @@ const trend = {
 
 const recurringObligationsPayload = {
   obligations: [{
+    obligationId: '111111111111111111111111',
     merchant: 'Verizon',
     category: 'RENT_AND_UTILITIES',
     cadence: 'monthly' as const,
@@ -97,9 +98,18 @@ const recurringObligationsPayload = {
     estimatedMonthlyAmount: 120,
     occurrenceCount: 5,
     lastChargeDate: '2026-08-15',
+    status: 'confirmed' as const,
+    expectedMonthlyAmount: 120,
+    seasonStartMonth: null,
+    seasonEndMonth: null,
+    note: null,
+    detected: true,
   }],
   estimatedMonthlyTotal: 120,
+  confirmedMonthlyTotal: 120,
+  suggestionCount: 0,
   analyzedThrough: '2026-09-01',
+  forecast: [{ month: '2026-09', confirmedAmount: 120, obligationCount: 1 }],
 };
 
 const transaction = {

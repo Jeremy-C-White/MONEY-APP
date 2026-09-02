@@ -1,9 +1,11 @@
 import type { NormalizedTransaction } from './financial';
+import { createHash } from 'node:crypto';
 
 export type RecurringCadence = 'weekly' | 'biweekly' | 'monthly';
 export type RecurringConfidence = 'high' | 'medium';
 
 export type LikelyRecurringObligation = {
+  obligationId: string;
   merchant: string;
   category: string;
   cadence: RecurringCadence;
@@ -13,6 +15,11 @@ export type LikelyRecurringObligation = {
   occurrenceCount: number;
   lastChargeDate: string;
 };
+
+export function buildRecurringObligationId(merchant: string): string {
+  const normalized = merchant.trim().toLocaleLowerCase('en-US').replace(/\s+/g, ' ');
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 24);
+}
 
 export type RecurringObligationsReport = {
   obligations: LikelyRecurringObligation[];
@@ -166,6 +173,7 @@ function buildCandidate(
   ) ? 'high' : 'medium';
 
   return {
+    obligationId: buildRecurringObligationId(candidate.merchant),
     merchant: candidate.merchant,
     category: mostCommonCategory(transactions),
     cadence: cadence.definition.cadence,

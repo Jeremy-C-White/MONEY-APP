@@ -87,6 +87,9 @@ export function extractRecurringObligationsResponse(
   if (
     !Array.isArray(record.obligations) ||
     typeof record.estimatedMonthlyTotal !== 'number' ||
+    typeof record.confirmedMonthlyTotal !== 'number' ||
+    typeof record.suggestionCount !== 'number' ||
+    !Array.isArray(record.forecast) ||
     !(typeof record.analyzedThrough === 'string' || record.analyzedThrough === null)
   ) {
     throw new Error('Invalid recurring obligations response.');
