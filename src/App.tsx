@@ -9,6 +9,11 @@ import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
+import { extractStatusResponse } from './lib/api-contracts';
+import {
+  STATUS_REFRESH_INTERVAL_MS,
+  shouldRefreshStatus,
+} from './lib/status-refresh';
 
 export default function App() {
   const [user, setUser] = useState<any>(null);
@@ -18,12 +23,15 @@ export default function App() {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const repairingItemIdRef = useRef<string | null>(null);
+  const lastStatusAttemptAtRef = useRef<number | null>(null);
   
   const [plaidItems, setPlaidItems] = useState<any[]>([]);
   const [trialItemsConfirmed, setTrialItemsConfirmed] = useState(0);
   const [trialItemsUnresolved, setTrialItemsUnresolved] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   
   const [message, setMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -53,6 +61,9 @@ export default function App() {
       } else {
         setPlaidItems([]);
         setGoogleConnected(false);
+        setHasLoadedStatus(false);
+        setStatusUnavailable(false);
+        lastStatusAttemptAtRef.current = null;
       }
     });
     return () => unsubscribe();
@@ -111,29 +122,58 @@ export default function App() {
   const [serverConfigError, setServerConfigError] = useState<string | null>(null);
 
   const fetchStatus = async () => {
+    lastStatusAttemptAtRef.current = Date.now();
     try {
       const res = await apiFetch(`/api/status`);
-      const data = await res.json();
-      if (res.status === 500 && data.error === "Server Configuration Error") {
-        setServerConfigError(data.details || "Required environment variables are missing on the backend.");
+      const body: unknown = await res.json();
+      const errorData = body as { error?: unknown; details?: unknown };
+      if (res.status === 500 && errorData.error === "Server Configuration Error") {
+        setServerConfigError(
+          typeof errorData.details === 'string'
+            ? errorData.details
+            : "Required environment variables are missing on the backend."
+        );
+        setStatusUnavailable(true);
         return;
       }
+      if (!res.ok) {
+        throw new Error(
+          typeof errorData.error === 'string'
+            ? errorData.error
+            : 'Connection status is temporarily unavailable.'
+        );
+      }
+      const data = extractStatusResponse(body);
       setServerConfigError(null);
-      if (data.items) setPlaidItems(data.items);
-      setTrialItemsConfirmed(data.trialItemsConfirmed || 0);
-      setTrialItemsUnresolved(data.trialItemsUnresolved || 0);
-      setGoogleConnected(!!data.googleConnected);
+      setPlaidItems(data.items);
+      setTrialItemsConfirmed(data.trialItemsConfirmed);
+      setTrialItemsUnresolved(data.trialItemsUnresolved);
+      setGoogleConnected(data.googleConnected);
+      setHasLoadedStatus(true);
+      setStatusUnavailable(false);
     } catch (error) {
       console.error(error);
+      setStatusUnavailable(true);
     }
   };
 
   useEffect(() => {
     if (!user) return;
-    const intervalId = window.setInterval(() => {
-      void fetchStatus();
-    }, 60000);
-    return () => window.clearInterval(intervalId);
+    const refreshIfDue = () => {
+      if (shouldRefreshStatus(
+        lastStatusAttemptAtRef.current,
+        Date.now(),
+        document.visibilityState === 'visible'
+      )) {
+        void fetchStatus();
+      }
+    };
+    const intervalId = window.setInterval(refreshIfDue, STATUS_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', refreshIfDue);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshIfDue);
+    };
   }, [user]);
 
   const generateLinkToken = async (internalItemId?: string) => {
@@ -459,6 +499,26 @@ export default function App() {
             </button>
           </div>
 
+          {statusUnavailable && (
+            <div className="mb-8 flex flex-col gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  {hasLoadedStatus
+                    ? 'Connection status could not be refreshed. Showing the last known connection information; no connection changes were made.'
+                    : 'Connection status is temporarily unavailable. Your existing bank and Google Sheets connections have not been changed.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void fetchStatus()}
+                className="self-start whitespace-nowrap font-semibold underline underline-offset-2 sm:self-auto"
+              >
+                Retry status
+              </button>
+            </div>
+          )}
+
           {/* Data Sync Card */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm flex flex-col justify-between mb-8">
             <div>
@@ -472,7 +532,11 @@ export default function App() {
             </div>
             
             <div className="flex flex-col gap-4 mt-6">
-              {!googleConnected ? (
+              {!hasLoadedStatus && statusUnavailable ? (
+                <p className="text-sm font-medium text-amber-700">
+                  Connection status unavailable. Please try again shortly.
+                </p>
+              ) : !googleConnected ? (
                 <button
                   onClick={connectGoogleSheets}
                   disabled={loading}
@@ -484,7 +548,7 @@ export default function App() {
                 <div className="flex gap-3">
                    <button
                       onClick={triggerServerSync}
-                      disabled={syncing || plaidItems.length === 0}
+                      disabled={syncing || plaidItems.length === 0 || statusUnavailable}
                       className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-3 rounded-xl font-bold text-sm transition-colors disabled:opacity-50 shadow-lg shadow-indigo-100"
                     >
                       {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
@@ -519,9 +583,17 @@ export default function App() {
               <div className="mt-6 p-4 bg-white/10 rounded-xl">
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-xs opacity-70 italic font-medium">Conservative Trial Usage</span>
-                  <span className="text-xs font-mono font-bold">{trialItemsConfirmed + trialItemsUnresolved} / 10</span>
+                  <span className="text-xs font-mono font-bold">
+                    {hasLoadedStatus
+                      ? `${trialItemsConfirmed + trialItemsUnresolved} / 10`
+                      : statusUnavailable ? 'Unavailable' : 'Loading...'}
+                  </span>
                 </div>
-                {trialItemsUnresolved > 0 ? (
+                {!hasLoadedStatus ? (
+                  <p className="mb-2 border-t border-white/10 pt-2 text-[11px] opacity-70">
+                    Waiting for verified connection status.
+                  </p>
+                ) : trialItemsUnresolved > 0 ? (
                   <div className="space-y-1 mb-2 pt-1 border-t border-white/10">
                     <div className="flex justify-between items-center text-[11px]">
                       <span className="opacity-70">Confirmed Items:</span>
@@ -556,8 +628,12 @@ export default function App() {
             
             <button
               onClick={() => generateLinkToken()} 
-              disabled={loading || trialItemsUnresolved > 0}
-              title={trialItemsUnresolved > 0 ? "Blocked while an unresolved Production exchange exists" : undefined}
+              disabled={loading || trialItemsUnresolved > 0 || statusUnavailable || !hasLoadedStatus}
+              title={statusUnavailable || !hasLoadedStatus
+                ? "Connection status must be verified before linking another Production bank"
+                : trialItemsUnresolved > 0
+                  ? "Blocked while an unresolved Production exchange exists"
+                  : undefined}
               className="w-full md:w-auto self-start flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white px-6 py-3 rounded-xl font-bold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed mt-6"
             >
               {loading && !linkToken && !repairingItemIdRef.current ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCcw className="h-4 w-4" />}

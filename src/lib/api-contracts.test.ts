@@ -11,6 +11,7 @@ import {
   extractConnectedAccountsResponse,
   extractTransactionOverridesResponse,
   extractRecurringObligationsResponse,
+  extractStatusResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -215,6 +216,22 @@ const transactionsPayload = {
 };
 
 describe('API response contracts', () => {
+  it('validates the application status response', () => {
+    const status = extractStatusResponse({
+      items: [],
+      trialItemsConfirmed: 4,
+      trialItemsUnresolved: 0,
+      googleConnected: true,
+      migrationRan: false,
+    });
+
+    expect(status.trialItemsConfirmed).toBe(4);
+    expect(status.googleConnected).toBe(true);
+    expect(() => extractStatusResponse({ error: 'Status check failed' })).toThrow(
+      'Invalid status response.'
+    );
+  });
+
   it('unwraps the categories wrapper', () => {
     const result = extractCategoriesResponse({ categories: [category] });
     expect(result).toHaveLength(1);

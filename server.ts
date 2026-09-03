@@ -421,13 +421,14 @@ async function startServer() {
         migrationRan = true;
       }
 
-      const [itemsSnap, sessionsSnap] = await Promise.all([
+      const productionSessions = db.collection('plaid_sessions')
+        .where('userId', '==', uid)
+        .where('mode', '==', 'new_item')
+        .where('environment', '==', 'production');
+      const [itemsSnap, confirmedSessionsCount, unresolvedSessionsCount] = await Promise.all([
         db.collection('plaid_items').where('userId', '==', uid).get(),
-        db.collection('plaid_sessions')
-          .where('userId', '==', uid)
-          .where('mode', '==', 'new_item')
-          .where('environment', '==', 'production')
-          .get()
+        productionSessions.where('quota_state', '==', 'exchanged').count().get(),
+        productionSessions.where('quota_state', '==', 'exchange_in_progress').count().get()
       ]);
       
       const items = itemsSnap.docs
@@ -444,17 +445,9 @@ async function startServer() {
         }))
         .filter((d: any) => d.health !== 'disconnected');
           
-      // Quota logic from sessions
-      let confirmedTrialItems = 0;
-      let unresolvedTrialItems = 0;
-      sessionsSnap.docs.forEach(doc => {
-        const data = doc.data();
-        if (data.quota_state === 'exchanged') {
-          confirmedTrialItems++;
-        } else if (data.quota_state === 'exchange_in_progress') {
-          unresolvedTrialItems++;
-        }
-      });
+      // Exact quota totals without downloading every historical session document.
+      const confirmedTrialItems = confirmedSessionsCount.data().count;
+      const unresolvedTrialItems = unresolvedSessionsCount.data().count;
 
       res.json({
         items,
@@ -1791,42 +1784,38 @@ async function fetchNormalizedTransactions(
   uid: string,
   options: { allowCredentialCleanup?: boolean } = {}
 ): Promise<NormalizedTransaction[]> {
-  const cached = dashboardCache.get(uid);
-  if (cached) return cached;
+  return dashboardCache.getOrLoad(uid, async () => {
+    const userRef = db.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    const userData = userDoc.data();
+    if (!userData?.google_refresh_token || !userData?.spreadsheetId) {
+      throw new Error('Google Sheets not connected');
+    }
 
-  const userRef = db.collection('users').doc(uid);
-  const userDoc = await userRef.get();
-  const userData = userDoc.data();
-  if (!userData?.google_refresh_token || !userData?.spreadsheetId) {
-    throw new Error('Google Sheets not connected');
-  }
+    const oauth2Client = getOauth2Client();
+    oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
+    const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
 
-  const oauth2Client = getOauth2Client();
-  oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
-  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-  
-  const fetchRows = () => sheets.spreadsheets.values.get({
-    spreadsheetId: userData.spreadsheetId, 
-    range: 'Transactions_Raw!A:Y',
-    valueRenderOption: 'UNFORMATTED_VALUE'
+    const fetchRows = () => sheets.spreadsheets.values.get({
+      spreadsheetId: userData.spreadsheetId,
+      range: 'Transactions_Raw!A:Y',
+      valueRenderOption: 'UNFORMATTED_VALUE'
+    });
+    const rowsPromise = options.allowCredentialCleanup === false
+      ? fetchRows()
+      : withGoogleAuth(uid, fetchRows);
+    const overridesPromise = userRef.collection('transaction_overrides').get();
+    const [getRes, overridesSnapshot] = await Promise.all([rowsPromise, overridesPromise]);
+
+    const overrides = new Map<string, TransactionOverride>();
+    for (const document of overridesSnapshot.docs) {
+      const override = parseStoredTransactionOverride(document.data());
+      if (override) overrides.set(document.id, override);
+    }
+
+    const rows = getRes.data.values || [];
+    return deduplicateAndNormalizeTransactions(rows, overrides);
   });
-  const rowsPromise = options.allowCredentialCleanup === false
-    ? fetchRows()
-    : withGoogleAuth(uid, fetchRows);
-  const overridesPromise = userRef.collection('transaction_overrides').get();
-  const [getRes, overridesSnapshot] = await Promise.all([rowsPromise, overridesPromise]);
-
-  const overrides = new Map<string, TransactionOverride>();
-  for (const document of overridesSnapshot.docs) {
-    const override = parseStoredTransactionOverride(document.data());
-    if (override) overrides.set(document.id, override);
-  }
-
-  const rows = getRes.data.values || [];
-  const normalized = deduplicateAndNormalizeTransactions(rows, overrides);
-  
-  dashboardCache.set(uid, normalized);
-  return normalized;
 }
 
 const transactionOverrideDependencies: TransactionOverrideServiceDependencies = {

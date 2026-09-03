@@ -16,6 +16,25 @@ export type TransactionClassification =
   | 'removed'
   | 'other';
 
+export interface PlaidItemStatus {
+  internal_id: string;
+  institution_id?: string;
+  institution_name?: string;
+  health: string;
+  has_updates: boolean;
+  auto_sync_status: string | null;
+  auto_sync_error: string | null;
+  accounts: unknown[];
+}
+
+export interface AppStatusResponse {
+  items: PlaidItemStatus[];
+  trialItemsConfirmed: number;
+  trialItemsUnresolved: number;
+  googleConnected: boolean;
+  migrationRan: boolean;
+}
+
 export interface DashboardSummary {
   allTime: {
     spending: number;

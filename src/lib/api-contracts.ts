@@ -10,6 +10,7 @@ import type {
   ConnectedAccount,
   TransactionOverrideRecord,
   RecurringObligationsResponse,
+  AppStatusResponse,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -167,6 +168,21 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
   }
 
   return data as ConnectedAccount[];
+}
+
+export function extractStatusResponse(data: unknown): AppStatusResponse {
+  const record = requireRecord(data, 'status');
+  if (
+    !Array.isArray(record.items) ||
+    typeof record.trialItemsConfirmed !== 'number' ||
+    typeof record.trialItemsUnresolved !== 'number' ||
+    typeof record.googleConnected !== 'boolean' ||
+    typeof record.migrationRan !== 'boolean'
+  ) {
+    throw new Error('Invalid status response.');
+  }
+
+  return record as unknown as AppStatusResponse;
 }
 
 export interface OverviewPayloads {
