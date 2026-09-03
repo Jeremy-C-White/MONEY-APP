@@ -19,14 +19,18 @@ const CLASSIFICATIONS = [
   'interest_earned', 'interest_paid', 'bank_fee', 'unclassified_deposit', 'other'
 ];
 
+export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
+
 export function TransactionsPage({
   apiFetch,
-  refreshKey
+  refreshKey,
+  initialViewMode = 'posted',
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
+  initialViewMode?: TransactionsViewMode;
 }) {
-  const [viewMode, setViewMode] = useState<'posted' | 'pending' | 'needs_review' | 'overridden'>('posted');
+  const [viewMode, setViewMode] = useState<TransactionsViewMode>(initialViewMode);
   
   const [page, setPage] = useState(1);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -298,8 +302,15 @@ export function TransactionsPage({
         )}
 
         {viewMode === 'needs_review' && !loading && !error && (
-          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
-            {total} {total === 1 ? 'transaction remains' : 'transactions remain'} to review.
+          <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">
+              {total} {total === 1 ? 'transaction remains' : 'transactions remain'} to review.
+            </p>
+            <p className="mt-1 text-amber-800">
+              Select <strong>Review</strong> on a transaction, then identify it as income,
+              spending, a reimbursement, or a transfer between your accounts. If you are
+              unsure, leave it here for later.
+            </p>
           </div>
         )}
 

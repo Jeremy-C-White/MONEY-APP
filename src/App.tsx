@@ -6,7 +6,7 @@ import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off
 import { DeveloperVerification } from './components/DeveloperVerification';
 import { AppShell } from './components/AppShell';
 import { OverviewPage } from './pages/OverviewPage';
-import { TransactionsPage } from './pages/TransactionsPage';
+import { TransactionsPage, type TransactionsViewMode } from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 import { extractStatusResponse } from './lib/api-contracts';
@@ -35,7 +35,19 @@ export default function App() {
   
   const [message, setMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [transactionsInitialView, setTransactionsInitialView] =
+    useState<TransactionsViewMode>('posted');
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const navigateToTab = (tab: string) => {
+    if (tab === 'transactions') setTransactionsInitialView('posted');
+    setActiveTab(tab);
+  };
+
+  const openNeedsReview = () => {
+    setTransactionsInitialView('needs_review');
+    setActiveTab('transactions');
+  };
   
   const showMessage = (text: string, type: 'info' | 'error' | 'success' = 'info') => {
     setMessage({ text, type });
@@ -458,10 +470,10 @@ export default function App() {
 
   return (
     <AppShell 
-      syncing={syncing} 
-      onSync={triggerServerSync} 
-      activeTab={activeTab} 
-      setActiveTab={setActiveTab}
+      syncing={syncing}
+      onSync={triggerServerSync}
+      activeTab={activeTab}
+      setActiveTab={navigateToTab}
     >
       {message && (
         <div className={`mb-6 p-4 rounded-xl flex items-center justify-between shadow-sm ${
@@ -475,15 +487,23 @@ export default function App() {
       )}
 
       {activeTab === 'overview' && (
-        <OverviewPage apiFetch={apiFetch} refreshKey={refreshKey} setActiveTab={setActiveTab} />
+        <OverviewPage
+          apiFetch={apiFetch}
+          refreshKey={refreshKey}
+          onReviewTransactions={openNeedsReview}
+        />
       )}
       
       {activeTab === 'transactions' && (
-        <TransactionsPage apiFetch={apiFetch} refreshKey={refreshKey} />
+        <TransactionsPage
+          apiFetch={apiFetch}
+          refreshKey={refreshKey}
+          initialViewMode={transactionsInitialView}
+        />
       )}
 
       {activeTab === 'accounts' && (
-        <AccountsPage apiFetch={apiFetch} refreshKey={refreshKey} setActiveTab={setActiveTab} />
+        <AccountsPage apiFetch={apiFetch} refreshKey={refreshKey} setActiveTab={navigateToTab} />
       )}
       
       {activeTab === 'settings' && (

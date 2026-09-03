@@ -30,11 +30,11 @@ import type {
 export function OverviewPage({
   apiFetch,
   refreshKey,
-  setActiveTab,
+  onReviewTransactions,
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
-  setActiveTab: (tab: string) => void;
+  onReviewTransactions: () => void;
 }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [categories, setCategories] = useState<DashboardCategory[]>([]);
@@ -235,10 +235,10 @@ export function OverviewPage({
             </div>
           </div>
           <button
-            onClick={() => setActiveTab('settings')}
+            onClick={onReviewTransactions}
             className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 text-amber-800 text-sm font-medium rounded-lg shadow-sm whitespace-nowrap transition-colors"
           >
-            See Verification in Settings
+            Review transactions
           </button>
         </div>
       ) : null}

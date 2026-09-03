@@ -130,6 +130,33 @@ describe('TransactionsPage', () => {
     expect(container.textContent).toContain('1 transaction remains to review.');
   });
 
+  it('opens directly in the actionable review queue when requested', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => mockRes };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(
+        <TransactionsPage
+          apiFetch={apiFetch}
+          refreshKey={0}
+          initialViewMode="needs_review"
+        />
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        expect.stringContaining('classification=other%2Cunclassified_deposit')
+      );
+    });
+    expect(container.textContent).toContain('Select Review on a transaction');
+    expect(container.textContent).toContain('If you are unsure, leave it here for later.');
+  });
+
   it('saves a reimbursement review with its offset category and note', async () => {
     let saved = false;
     const reviewResponse = {
