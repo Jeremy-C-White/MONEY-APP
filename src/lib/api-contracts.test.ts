@@ -12,6 +12,7 @@ import {
   extractTransactionOverridesResponse,
   extractRecurringObligationsResponse,
   extractStatusResponse,
+  extractHouseholdPlanningResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -111,6 +112,45 @@ const recurringObligationsPayload = {
   suggestionCount: 0,
   analyzedThrough: '2026-09-01',
   forecast: [{ month: '2026-09', confirmedAmount: 120, obligationCount: 1 }],
+};
+
+const householdInsightsPayload = {
+  asOfDate: '2026-09-15',
+  weekly: {
+    current: { startDate: '2026-09-14', endDate: '2026-09-15', spending: 50, income: 100, netCashFlow: 50 },
+    previousComparable: { startDate: '2026-09-07', endDate: '2026-09-08', spending: 40, income: 100, netCashFlow: 60 },
+    previousFull: { startDate: '2026-09-07', endDate: '2026-09-13', spending: 140, income: 100, netCashFlow: -40 },
+    pendingSpending: 10,
+    spendingDifference: 10,
+    spendingPercentageChange: 25,
+  },
+  monthly: {
+    current: { startDate: '2026-09-01', endDate: '2026-09-15', spending: 500, income: 1000, netCashFlow: 500 },
+    previousComparable: { startDate: '2026-08-01', endDate: '2026-08-15', spending: 400, income: 900, netCashFlow: 500 },
+    previousFull: { startDate: '2026-08-01', endDate: '2026-08-31', spending: 800, income: 1800, netCashFlow: 1000 },
+    spendingDifference: 100,
+    spendingPercentageChange: 25,
+    categoryChanges: [{
+      category: 'FOOD_AND_DRINK',
+      currentSpending: 200,
+      previousSpending: 100,
+      difference: 100,
+      percentageChange: 100,
+    }],
+  },
+  forecast: {
+    month: '2026-09',
+    daysElapsed: 15,
+    daysRemaining: 15,
+    maturity: 'established',
+    postedSpending: 500,
+    pendingSpending: 10,
+    confirmedRecurringMonthly: 120,
+    confirmedRecurringRemaining: 20,
+    variableSpendingToDate: 400,
+    projectedVariableRemaining: 400,
+    projectedMonthEndSpending: 930,
+  },
 };
 
 const transaction = {
@@ -260,6 +300,20 @@ describe('API response contracts', () => {
     );
   });
 
+  it('validates household planning without changing recurring response semantics', () => {
+    const result = extractHouseholdPlanningResponse({
+      recurringObligations: recurringObligationsPayload,
+      insights: householdInsightsPayload,
+    });
+    expect(result.insights.weekly.current.spending).toBe(50);
+    expect(result.insights.monthly.categoryChanges[0].difference).toBe(100);
+    expect(result.recurringObligations.confirmedMonthlyTotal).toBe(120);
+    expect(() => extractHouseholdPlanningResponse({
+      recurringObligations: recurringObligationsPayload,
+      insights: { weekly: {} },
+    })).toThrow('Invalid household insights response.');
+  });
+
   it('reads the paced comparison from summary.pacing', () => {
     const result = extractSummaryResponse(summaryPayload);
     expect(result.pacing.dayOfMonth).toBe(15);
@@ -296,7 +350,10 @@ describe('API response contracts', () => {
       categories: { categories: [category] },
       merchants: { merchants: [merchant] },
       trends: { monthly: [trend] },
-      recurringObligations: recurringObligationsPayload,
+      householdPlanning: {
+        recurringObligations: recurringObligationsPayload,
+        insights: householdInsightsPayload,
+      },
       verification: verificationPayload,
       postedTransactions: transactionsPayload,
       pendingTransactions: {
@@ -310,6 +367,7 @@ describe('API response contracts', () => {
     expect(result.merchants[0].merchant).toBe('Starbucks');
     expect(result.trends[0].netCashFlow).toBe(500);
     expect(result.recurringObligations.obligations[0].merchant).toBe('Verizon');
+    expect(result.householdInsights.forecast.projectedMonthEndSpending).toBe(930);
     expect(result.verification.reconciliation.unknownTransferCount).toBe(1);
     expect(result.postedTransactions[0].normalizedMerchant).toBe('Starbucks');
     expect(result.pendingTransactions[0].pending).toBe(true);

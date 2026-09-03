@@ -33,7 +33,8 @@ import {
   type RecurringDecisionServiceDependencies,
   type StoredRecurringObligationDecision,
 } from "./server/lib/recurring-obligation-decisions";
-import { getMonthForDateInTimezone } from "./server/lib/time";
+import { buildHouseholdInsights } from "./server/lib/household-insights";
+import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -2011,25 +2012,50 @@ app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: 
   }
 });
 
+async function loadRecurringPlanning(uid: string) {
+  const [txs, snapshot] = await Promise.all([
+    fetchNormalizedTransactions(uid),
+    db.collection('users').doc(uid).collection('recurring_obligations').get(),
+  ]);
+  const decisions = new Map<string, StoredRecurringObligationDecision>();
+  for (const document of snapshot.docs) {
+    const decision = parseStoredRecurringDecision(document.data());
+    if (decision) decisions.set(document.id, decision);
+  }
+  const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+  const now = new Date();
+  const currentMonth = getMonthForDateInTimezone(now, financeTz);
+  const recurringObligations = buildRecurringPlanningReport(
+    detectLikelyRecurringObligations(txs),
+    decisions,
+    currentMonth
+  );
+  return { txs, recurringObligations, financeTz, now };
+}
+
+app.get("/api/dashboard/household-insights", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const { txs, recurringObligations, financeTz, now } = await loadRecurringPlanning(uid);
+    res.json({
+      recurringObligations,
+      insights: buildHouseholdInsights(
+        txs,
+        recurringObligations.obligations,
+        getDateForDateInTimezone(now, financeTz)
+      ),
+    });
+  } catch (error: any) {
+    console.error("Household Insights Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/dashboard/recurring-obligations", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;
-    const [txs, snapshot] = await Promise.all([
-      fetchNormalizedTransactions(uid),
-      db.collection('users').doc(uid).collection('recurring_obligations').get(),
-    ]);
-    const decisions = new Map<string, StoredRecurringObligationDecision>();
-    for (const document of snapshot.docs) {
-      const decision = parseStoredRecurringDecision(document.data());
-      if (decision) decisions.set(document.id, decision);
-    }
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const currentMonth = getMonthForDateInTimezone(new Date(), financeTz);
-    res.json(buildRecurringPlanningReport(
-      detectLikelyRecurringObligations(txs),
-      decisions,
-      currentMonth
-    ));
+    const { recurringObligations } = await loadRecurringPlanning(uid);
+    res.json(recurringObligations);
   } catch (error: any) {
     console.error("Recurring Obligations Error:", error);
     res.status(500).json({ error: error.message });

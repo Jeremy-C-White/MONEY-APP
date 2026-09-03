@@ -1,4 +1,8 @@
 export function getMonthForDateInTimezone(date: Date, tz = process.env.FINANCE_TIME_ZONE || 'America/New_York'): string {
+  return getDateForDateInTimezone(date, tz).slice(0, 7);
+}
+
+export function getDateForDateInTimezone(date: Date, tz = process.env.FINANCE_TIME_ZONE || 'America/New_York'): string {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     year: 'numeric',
@@ -8,7 +12,8 @@ export function getMonthForDateInTimezone(date: Date, tz = process.env.FINANCE_T
   const parts = formatter.formatToParts(date);
   const year = parts.find(p => p.type === 'year')?.value;
   const month = parts.find(p => p.type === 'month')?.value;
-  return `${year}-${month}`;
+  const day = parts.find(p => p.type === 'day')?.value;
+  return `${year}-${month}-${day}`;
 }
 
 export function getDayOfMonthInTimezone(date: Date, tz = process.env.FINANCE_TIME_ZONE || 'America/New_York'): number {

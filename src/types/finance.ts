@@ -145,6 +145,60 @@ export interface RecurringObligationsResponse {
   forecast: RecurringForecastPoint[];
 }
 
+export interface HouseholdInsightPeriod {
+  startDate: string;
+  endDate: string;
+  spending: number;
+  income: number;
+  netCashFlow: number;
+}
+
+export interface CategorySpendingChange {
+  category: string;
+  currentSpending: number;
+  previousSpending: number;
+  difference: number;
+  percentageChange: number | null;
+}
+
+export interface HouseholdInsights {
+  asOfDate: string;
+  weekly: {
+    current: HouseholdInsightPeriod;
+    previousComparable: HouseholdInsightPeriod;
+    previousFull: HouseholdInsightPeriod;
+    pendingSpending: number;
+    spendingDifference: number;
+    spendingPercentageChange: number | null;
+  };
+  monthly: {
+    current: HouseholdInsightPeriod;
+    previousComparable: HouseholdInsightPeriod;
+    previousFull: HouseholdInsightPeriod;
+    spendingDifference: number;
+    spendingPercentageChange: number | null;
+    categoryChanges: CategorySpendingChange[];
+  };
+  forecast: {
+    month: string;
+    daysElapsed: number;
+    daysRemaining: number;
+    maturity: 'early' | 'developing' | 'established';
+    postedSpending: number;
+    pendingSpending: number;
+    confirmedRecurringMonthly: number;
+    confirmedRecurringRemaining: number;
+    variableSpendingToDate: number;
+    projectedVariableRemaining: number;
+    projectedMonthEndSpending: number;
+  };
+}
+
+export interface HouseholdPlanningResponse {
+  recurringObligations: RecurringObligationsResponse;
+  insights: HouseholdInsights;
+}
+
 export interface DashboardVerificationBridge {
   activePostedRawCashFlowTotal: number;
   recognizedSpending: number;

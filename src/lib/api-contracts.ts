@@ -11,6 +11,9 @@ import type {
   TransactionOverrideRecord,
   RecurringObligationsResponse,
   AppStatusResponse,
+  HouseholdInsights,
+  HouseholdInsightPeriod,
+  HouseholdPlanningResponse,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -185,12 +188,85 @@ export function extractStatusResponse(data: unknown): AppStatusResponse {
   return record as unknown as AppStatusResponse;
 }
 
+function isHouseholdInsightPeriod(value: unknown): value is HouseholdInsightPeriod {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.startDate === 'string' &&
+    typeof value.endDate === 'string' &&
+    typeof value.spending === 'number' &&
+    typeof value.income === 'number' &&
+    typeof value.netCashFlow === 'number'
+  );
+}
+
+function isNullableNumber(value: unknown): boolean {
+  return typeof value === 'number' || value === null;
+}
+
+function isCategorySpendingChange(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.category === 'string' &&
+    typeof value.currentSpending === 'number' &&
+    typeof value.previousSpending === 'number' &&
+    typeof value.difference === 'number' &&
+    isNullableNumber(value.percentageChange)
+  );
+}
+
+function extractHouseholdInsights(data: unknown): HouseholdInsights {
+  const record = requireRecord(data, 'household insights');
+  if (
+    typeof record.asOfDate !== 'string' ||
+    !isRecord(record.weekly) ||
+    !isRecord(record.monthly) ||
+    !isRecord(record.forecast) ||
+    !isHouseholdInsightPeriod(record.weekly.current) ||
+    !isHouseholdInsightPeriod(record.weekly.previousComparable) ||
+    !isHouseholdInsightPeriod(record.weekly.previousFull) ||
+    typeof record.weekly.pendingSpending !== 'number' ||
+    typeof record.weekly.spendingDifference !== 'number' ||
+    !isNullableNumber(record.weekly.spendingPercentageChange) ||
+    !isHouseholdInsightPeriod(record.monthly.current) ||
+    !isHouseholdInsightPeriod(record.monthly.previousComparable) ||
+    !isHouseholdInsightPeriod(record.monthly.previousFull) ||
+    typeof record.monthly.spendingDifference !== 'number' ||
+    !isNullableNumber(record.monthly.spendingPercentageChange) ||
+    !Array.isArray(record.monthly.categoryChanges) ||
+    record.monthly.categoryChanges.some(change => !isCategorySpendingChange(change)) ||
+    typeof record.forecast.month !== 'string' ||
+    typeof record.forecast.daysElapsed !== 'number' ||
+    typeof record.forecast.daysRemaining !== 'number' ||
+    !['early', 'developing', 'established'].includes(String(record.forecast.maturity)) ||
+    typeof record.forecast.postedSpending !== 'number' ||
+    typeof record.forecast.pendingSpending !== 'number' ||
+    typeof record.forecast.confirmedRecurringMonthly !== 'number' ||
+    typeof record.forecast.confirmedRecurringRemaining !== 'number' ||
+    typeof record.forecast.variableSpendingToDate !== 'number' ||
+    typeof record.forecast.projectedVariableRemaining !== 'number' ||
+    typeof record.forecast.projectedMonthEndSpending !== 'number'
+  ) {
+    throw new Error('Invalid household insights response.');
+  }
+  return record as unknown as HouseholdInsights;
+}
+
+export function extractHouseholdPlanningResponse(
+  data: unknown
+): HouseholdPlanningResponse {
+  const record = requireRecord(data, 'household planning');
+  return {
+    recurringObligations: extractRecurringObligationsResponse(record.recurringObligations),
+    insights: extractHouseholdInsights(record.insights),
+  };
+}
+
 export interface OverviewPayloads {
   summary: unknown;
   categories: unknown;
   merchants: unknown;
   trends: unknown;
-  recurringObligations: unknown;
+  householdPlanning: unknown;
   verification: unknown;
   postedTransactions: unknown;
   pendingTransactions: unknown;
@@ -202,6 +278,7 @@ export interface NormalizedOverviewData {
   merchants: DashboardMerchant[];
   trends: TrendPoint[];
   recurringObligations: RecurringObligationsResponse;
+  householdInsights: HouseholdInsights;
   verification: DashboardVerificationResponse;
   postedTransactions: Transaction[];
   pendingTransactions: Transaction[];
@@ -212,13 +289,15 @@ export function normalizeOverviewPayloads(
 ): NormalizedOverviewData {
   const posted = extractTransactionsResponse(payloads.postedTransactions);
   const pending = extractTransactionsResponse(payloads.pendingTransactions);
+  const planning = extractHouseholdPlanningResponse(payloads.householdPlanning);
 
   return {
     summary: extractSummaryResponse(payloads.summary),
     categories: extractCategoriesResponse(payloads.categories),
     merchants: extractMerchantsResponse(payloads.merchants),
     trends: extractTrendsResponse(payloads.trends),
-    recurringObligations: extractRecurringObligationsResponse(payloads.recurringObligations),
+    recurringObligations: planning.recurringObligations,
+    householdInsights: planning.insights,
     verification: extractVerificationResponse(payloads.verification),
     postedTransactions: posted.transactions,
     pendingTransactions: pending.transactions,

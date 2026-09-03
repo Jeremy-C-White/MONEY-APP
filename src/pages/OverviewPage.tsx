@@ -3,6 +3,7 @@ import { AlertCircle, RefreshCcw } from 'lucide-react';
 import { MetricCard } from '../components/MetricCard';
 import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
+import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
 import {
   formatCurrency,
   formatPercentage,
@@ -13,10 +14,7 @@ import {
   getTransactionClassificationLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
-import {
-  extractRecurringObligationsResponse,
-  normalizeOverviewPayloads,
-} from '../lib/api-contracts';
+import { extractHouseholdPlanningResponse, normalizeOverviewPayloads } from '../lib/api-contracts';
 import type {
   DashboardSummary,
   DashboardCategory,
@@ -25,6 +23,7 @@ import type {
   DashboardVerificationResponse,
   Transaction,
   RecurringObligationsResponse,
+  HouseholdInsights,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -42,6 +41,8 @@ export function OverviewPage({
   const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [recurringObligations, setRecurringObligations] =
     useState<RecurringObligationsResponse | null>(null);
+  const [householdInsights, setHouseholdInsights] =
+    useState<HouseholdInsights | null>(null);
   const [verification, setVerification] =
     useState<DashboardVerificationResponse | null>(null);
   const [postedTxs, setPostedTxs] = useState<Transaction[]>([]);
@@ -61,7 +62,7 @@ export function OverviewPage({
         categoriesRes,
         merchantsRes,
         trendsRes,
-        recurringObligationsRes,
+        householdPlanningRes,
         verificationRes,
         postedRes,
         pendingRes,
@@ -70,7 +71,7 @@ export function OverviewPage({
         apiFetch('/api/dashboard/categories'),
         apiFetch('/api/dashboard/merchants'),
         apiFetch(`/api/dashboard/trends?range=${trendRange}`),
-        apiFetch('/api/dashboard/recurring-obligations'),
+        apiFetch('/api/dashboard/household-insights'),
         apiFetch('/api/dashboard/verification'),
         apiFetch('/api/transactions?status=posted&limit=6'),
         apiFetch('/api/transactions?status=pending&limit=4'),
@@ -81,7 +82,7 @@ export function OverviewPage({
         categoriesRes,
         merchantsRes,
         trendsRes,
-        recurringObligationsRes,
+        householdPlanningRes,
         verificationRes,
         postedRes,
         pendingRes,
@@ -96,7 +97,7 @@ export function OverviewPage({
         categories: await categoriesRes.json(),
         merchants: await merchantsRes.json(),
         trends: await trendsRes.json(),
-        recurringObligations: await recurringObligationsRes.json(),
+        householdPlanning: await householdPlanningRes.json(),
         verification: await verificationRes.json(),
         postedTransactions: await postedRes.json(),
         pendingTransactions: await pendingRes.json(),
@@ -107,6 +108,7 @@ export function OverviewPage({
       setMerchants(normalized.merchants);
       setTrends(normalized.trends);
       setRecurringObligations(normalized.recurringObligations);
+      setHouseholdInsights(normalized.householdInsights);
       setVerification(normalized.verification);
       setPostedTxs(normalized.postedTransactions);
       setPendingTxs(normalized.pendingTransactions);
@@ -127,11 +129,11 @@ export function OverviewPage({
   }, [trendRange, refreshKey]);
 
   const refreshRecurringObligations = async () => {
-    const response = await apiFetch('/api/dashboard/recurring-obligations');
+    const response = await apiFetch('/api/dashboard/household-insights');
     if (!response.ok) throw new Error('Unable to refresh recurring services.');
-    setRecurringObligations(
-      extractRecurringObligationsResponse(await response.json())
-    );
+    const planning = extractHouseholdPlanningResponse(await response.json());
+    setRecurringObligations(planning.recurringObligations);
+    setHouseholdInsights(planning.insights);
   };
 
   if (error && !summary) {
@@ -266,6 +268,11 @@ export function OverviewPage({
           loading={loading && !summary}
         />
       </div>
+
+      <HouseholdInsightsCard
+        insights={householdInsights}
+        loading={loading && !householdInsights}
+      />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden">
