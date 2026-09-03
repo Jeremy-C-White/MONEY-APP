@@ -215,6 +215,17 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
       /card payment/.test(combinedDescLower) || 
       /credit card payment/.test(combinedDescLower)));
 
+  // A PayPal balance load is money moving between the owner's connected
+  // accounts. The PayPal brand alone normally suggests a P2P channel, but the
+  // explicit ADD TO BALANCE wording and transfer category are stronger evidence
+  // that this is not consumption.
+  const isPayPalBalanceLoad = cashFlowAmount < 0 &&
+    accountType === 'depository' &&
+    catPrimary === 'TRANSFER_OUT' &&
+    catDetailed === 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS' &&
+    combinedDescLower.includes('paypal') &&
+    combinedDescLower.includes('add to balance');
+
   const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' &&
     (
       catPrimary === 'INCOME' ||
@@ -246,6 +257,12 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'removed';
   } else if (isInterest) {
     classification = 'interest_earned';
+  } else if (isCCPayment) {
+    // Plaid's explicit credit-card-payment category is stronger evidence than
+    // provider keywords such as "PayPal" in an account or transaction name.
+    classification = 'credit_card_payment';
+  } else if (isPayPalBalanceLoad) {
+    classification = 'internal_transfer';
   } else if (isP2P) {
     classification = 'person_to_person';
   } else if (isIncomeTaxRefund) {
@@ -256,8 +273,6 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   } else if (catDetailed === 'TRANSFER_OUT_WITHDRAWAL') {
     // Policy: Cash withdrawals do not count toward spending immediately because withdrawal does not prove final cash consumption
     classification = 'cash_withdrawal';
-  } else if (isCCPayment) {
-    classification = 'credit_card_payment';
   } else if (isEarnedIncome) {
     classification = 'income';
     normalizedCategory = 'INCOME';

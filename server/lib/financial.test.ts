@@ -6,6 +6,7 @@ function buildRow(overrides: Record<string, string>): any[] {
   const row = new Array(24).fill('');
   row[0] = overrides.txId || 'test_tx';
   row[1] = 'acc_1';
+  row[4] = overrides.accountName || '';
   row[6] = overrides.accountType || 'depository';
   row[7] = overrides.accountSubtype || 'checking';
   row[8] = '45000'; // Date
@@ -20,6 +21,119 @@ function buildRow(overrides: Record<string, string>): any[] {
   row[22] = overrides.status || 'posted';
   return row;
 }
+
+describe('PayPal account-role classification', () => {
+  it('uses Plaid credit-card-payment evidence before the PayPal brand keyword', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PayPal Cashback Mastercard',
+      cashFlowAmount: '-143.89',
+      catPrimary: 'LOAN_PAYMENTS',
+      catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      accountName: 'PayPal Cashback Mastercard',
+      accountType: 'credit',
+      accountSubtype: 'paypal',
+    }));
+
+    expect(tx.classification).toBe('credit_card_payment');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
+  });
+
+  it('treats the Wells Fargo PPCR repayment side as a credit-card payment', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PAYPAL INST XFER 260828 PPCR CC REPAYME JEREMY WHITE',
+      cashFlowAmount: '-143.89',
+      catPrimary: 'LOAN_PAYMENTS',
+      catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      accountType: 'depository',
+      accountSubtype: 'checking',
+    }));
+
+    expect(tx.classification).toBe('credit_card_payment');
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it('treats an explicit PayPal ADD TO BALANCE load as an internal transfer', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PAYPAL TRANSFER 251107 ADD TO BALANCE JEREMY WHITE',
+      cashFlowAmount: '-40',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS',
+      accountType: 'depository',
+      accountSubtype: 'checking',
+    }));
+
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it('keeps a purchase made from the PayPal deposit account as spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment to Walmart',
+      merchantName: 'Walmart',
+      cashFlowAmount: '-84.25',
+      catPrimary: 'GENERAL_MERCHANDISE',
+      catDetailed: 'GENERAL_MERCHANDISE_SUPERSTORES',
+      accountName: 'PayPal',
+      accountType: 'depository',
+      accountSubtype: 'paypal',
+    }));
+
+    expect(tx.classification).toBe('spending');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(84.25);
+  });
+
+  it('keeps a genuine PayPal transfer to another person as P2P spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PayPal transfer to Jane',
+      cashFlowAmount: '-50',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS',
+      accountType: 'depository',
+      accountSubtype: 'checking',
+    }));
+
+    expect(tx.classification).toBe('person_to_person');
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(50);
+  });
+
+  it('does not count either side of a card payment as household spending', () => {
+    const transactions = deduplicateAndNormalizeTransactions([
+      buildRow({
+        txId: 'wells-payment',
+        name: 'PAYPAL INST XFER 260828 PPCR CC REPAYME JEREMY WHITE',
+        cashFlowAmount: '-143.89',
+        catPrimary: 'LOAN_PAYMENTS',
+        catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+      }),
+      buildRow({
+        txId: 'paypal-payment',
+        name: 'PayPal Cashback Mastercard',
+        cashFlowAmount: '-143.89',
+        catPrimary: 'LOAN_PAYMENTS',
+        catDetailed: 'LOAN_PAYMENTS_CREDIT_CARD_PAYMENT',
+        accountName: 'PayPal Cashback Mastercard',
+        accountType: 'credit',
+        accountSubtype: 'paypal',
+      }),
+      buildRow({
+        txId: 'purchase',
+        name: 'Walmart',
+        cashFlowAmount: '-84.25',
+        catPrimary: 'GENERAL_MERCHANDISE',
+        catDetailed: 'GENERAL_MERCHANDISE_SUPERSTORES',
+      }),
+    ]);
+    const report = buildVerificationReport(transactions, 'America/New_York');
+
+    expect(report.summary.allTime.spending).toBe(84.25);
+    expect(report.reconciliation.p2pOutgoingCount).toBe(0);
+    expect(report.reconciliation.creditCardCount).toBe(2);
+    expect(report.reconciliation.creditCardAmount).toBe(287.78);
+  });
+});
 
 describe('Financial Rules Pass 1B', () => {
   it('classifies $50 purchase', () => {

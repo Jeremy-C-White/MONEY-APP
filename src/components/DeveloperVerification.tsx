@@ -89,7 +89,7 @@ export function DeveloperVerification({ user }: { user: any }) {
                 <li>Removed Rows: {data.reconciliation.removedCount}</li>
                 <li className="pt-2">Spending Rows: {data.reconciliation.spendingCount}</li>
                 <li>Income Rows: {data.reconciliation.incomeCount}</li>
-                <li>Credit Card Payment Rows: {data.reconciliation.creditCardCount} (${data.reconciliation.creditCardAmount?.toFixed(2) || '0.00'})</li>
+                <li>Credit Card Payment Activity: {data.reconciliation.creditCardCount} rows (${data.reconciliation.creditCardAmount?.toFixed(2) || '0.00'} gross absolute movement)</li>
                 <li>Refund Rows: {data.reconciliation.refundCount}</li>
                 <li>Merchant Credit Rows: {data.reconciliation.merchantCreditCount} (${data.reconciliation.merchantCreditAmount?.toFixed(2) || '0.00'})</li>
                 <li>Interest Earned Rows: {data.reconciliation.interestEarnedCount} (${data.reconciliation.interestEarnedAmount?.toFixed(2) || '0.00'})</li>
@@ -120,10 +120,10 @@ export function DeveloperVerification({ user }: { user: any }) {
                 </div>
                 <div className="grid md:grid-cols-2 gap-x-8">
                   <div>
-                    <BridgeRow label="Recognized spending" amount={data.reconciliation.bridge.recognizedSpending} />
+                    <BridgeRow label="Direct purchases (signed cash flow)" amount={data.reconciliation.bridge.recognizedSpending} />
                     <BridgeRow label="Recognized income" amount={data.reconciliation.bridge.recognizedIncome} />
                     <BridgeRow label="Refunds and merchant credits" amount={data.reconciliation.bridge.refundsAndCredits} />
-                    <BridgeRow label="Credit card payments" amount={data.reconciliation.bridge.creditCardPayments} />
+                    <BridgeRow label="Credit card payments (signed cash flow)" amount={data.reconciliation.bridge.creditCardPayments} />
                     <BridgeRow label="Internal transfers" amount={data.reconciliation.bridge.internalTransfers} />
                     <BridgeRow label="Investment transfers" amount={data.reconciliation.bridge.investmentTransfers} />
                     <BridgeRow label="Cash withdrawals" amount={data.reconciliation.bridge.cashWithdrawals} />
@@ -142,6 +142,12 @@ export function DeveloperVerification({ user }: { user: any }) {
                   <span className="text-slate-700">Active posted raw total</span>
                   <span className="text-slate-900">{formatCurrency(data.reconciliation.bridge.activePostedRawCashFlowTotal)}</span>
                 </div>
+                <p className="mt-3 text-xs leading-relaxed text-slate-500">
+                  Bridge rows retain each ledger row's signed cash flow so they add back to the raw total.
+                  Gross activity above uses absolute values and can include both sides when connected accounts
+                  report the same payment. Posted Spending is the net of only the classifications configured to
+                  count toward household spending, so it is not the same as the Direct purchases bridge row.
+                </p>
               </div>
             )}
           </section>
