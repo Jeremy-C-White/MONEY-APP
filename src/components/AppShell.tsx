@@ -6,6 +6,7 @@ import {
   Settings,
   RefreshCcw,
   Loader2,
+  Landmark,
 } from 'lucide-react';
 
 interface AppShellProps {
@@ -35,7 +36,9 @@ export function AppShell({
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 fixed h-full z-20">
         <div className="p-6">
           <div className="text-xl font-bold text-slate-900 tracking-tight flex items-center">
-            <div className="w-8 h-8 bg-indigo-600 rounded-lg mr-3" />
+            <div className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
+              <Landmark aria-hidden="true" className="h-4 w-4 text-white" />
+            </div>
             FinSync
           </div>
         </div>
@@ -62,7 +65,9 @@ export function AppShell({
         <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
           <div className="px-4 h-16 flex items-center justify-between">
             <div className="text-lg font-bold text-slate-900 flex items-center">
-              <div className="w-6 h-6 bg-indigo-600 rounded-md mr-2" />
+              <div className="mr-2 flex h-6 w-6 items-center justify-center rounded-md bg-indigo-600">
+                <Landmark aria-hidden="true" className="h-3.5 w-3.5 text-white" />
+              </div>
               FinSync
             </div>
 
