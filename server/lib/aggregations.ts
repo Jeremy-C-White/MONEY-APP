@@ -361,6 +361,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let otherCount = 0;
   let unclassifiedDepositCount = 0;
   let unclassifiedDepositAmount = 0;
+  let zeroAmountCount = 0;
+  let zeroAmountAmount = 0;
 
   // Accounting bridge
   let activePostedRawCashFlowTotal = 0;
@@ -378,6 +380,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
   let bridgeUnknownTransfer = 0;
   let bridgeOtherUnclassified = 0;
   let bridgeUnclassifiedDeposits = 0;
+  let bridgeZeroAmount = 0;
 
   for (const t of txs) {
     if (t.removed) {
@@ -469,6 +472,11 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         unclassifiedDepositAmount += Math.abs(t.cashFlowAmount);
         bridgeUnclassifiedDeposits += t.cashFlowAmount;
         break;
+      case 'zero_amount':
+        zeroAmountCount++;
+        zeroAmountAmount += Math.abs(t.cashFlowAmount);
+        bridgeZeroAmount += t.cashFlowAmount;
+        break;
     }
   }
 
@@ -478,7 +486,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
 
   const bridgeSum = bridgeSpending + bridgeIncome + bridgeRefundsAndCredits + bridgeCreditCard +
                     bridgeInternalTransfer + bridgeInvestmentTransfer + bridgeCashWithdrawal + bridgeP2POutgoing + bridgeP2PIncoming +
-                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified + bridgeUnclassifiedDeposits;
+                    bridgeInterestEarned + bridgeBankFeeInterestPaid + bridgeUnknownTransfer + bridgeOtherUnclassified + bridgeUnclassifiedDeposits + bridgeZeroAmount;
 
   return {
     summary,
@@ -515,6 +523,8 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
       otherCount,
       unclassifiedDepositCount,
       unclassifiedDepositAmount,
+      zeroAmountCount,
+      zeroAmountAmount,
       grossPurchases,
       refunds,
       merchantCredits,
@@ -538,6 +548,7 @@ export function buildVerificationReport(txs: NormalizedTransaction[], financeTim
         unknownTransfers: bridgeUnknownTransfer,
         otherUnclassified: bridgeOtherUnclassified,
         unclassifiedDeposits: bridgeUnclassifiedDeposits,
+        zeroAmount: bridgeZeroAmount,
         accountingBridgeReconciles: Math.abs(activePostedRawCashFlowTotal - bridgeSum) < 0.01
       }
     }

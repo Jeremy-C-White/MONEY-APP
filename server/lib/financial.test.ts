@@ -13,7 +13,9 @@ function buildRow(overrides: Record<string, string>): any[] {
   row[10] = overrides.name || 'Test Merchant';
   row[11] = overrides.merchantName || overrides.name || 'Test Merchant';
   row[13] = overrides.plaidAmount || '0';
-  row[14] = overrides.cashFlowAmount || '-50';
+  row[14] = Object.prototype.hasOwnProperty.call(overrides, 'cashFlowAmount')
+    ? overrides.cashFlowAmount
+    : '-50';
   row[16] = overrides.catPrimary || 'FOOD_AND_DRINK';
   row[17] = overrides.catDetailed || 'FOOD_AND_DRINK_RESTAURANT';
   row[20] = overrides.pending || 'FALSE';
@@ -767,6 +769,26 @@ describe('Semantic Credit Card Payment Detection', () => {
 
 
 describe('Classification corrections', () => {
+  it.each([
+    ['0'],
+    [''],
+    ['not-a-number'],
+  ])('classifies a zero or unparseable cash flow as zero_amount: %s', (cashFlowAmount) => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MEMBERSHIP FEE JUN 26-MAY 27',
+      cashFlowAmount,
+      catPrimary: 'BANK_FEES',
+      catDetailed: 'BANK_FEES_OTHER_BANK_FEES',
+    }));
+
+    expect(tx.cashFlowAmount).toBe(0);
+    expect(tx.classification).toBe('zero_amount');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
+    expect(tx.incomeAdjustment).toBe(0);
+  });
+
   it('classifies an IRS tax refund as income, not refund (must precede refund check)', () => {
     const tx = classifyTransaction(buildRow({
       name: 'IRS TREAS 310 TAX REF',

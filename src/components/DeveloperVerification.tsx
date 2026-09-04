@@ -103,6 +103,7 @@ export function DeveloperVerification({ user }: { user: any }) {
                 <li>Unknown Transfer Rows: {data.reconciliation.unknownTransferCount} (${data.reconciliation.unknownTransferAmount.toFixed(2)})</li>
                 <li>Unclassified Positive Rows: {data.reconciliation.unclassifiedPositiveCount} (${data.reconciliation.unclassifiedPositiveAmount.toFixed(2)})</li>
                 <li>Deposits Needing Review: {data.reconciliation.unclassifiedDepositCount} (${data.reconciliation.unclassifiedDepositAmount.toFixed(2)})</li>
+                <li>Zero-Amount Rows: {data.reconciliation.zeroAmountCount} (${data.reconciliation.zeroAmountAmount.toFixed(2)})</li>
                 <li>Other Rows: {data.reconciliation.otherCount}</li>
                 <li className="pt-2 font-bold text-indigo-600">
                   Category Math Reconciles: {data.reconciliation.categoryMathReconciles ? 'YES' : 'NO'}
@@ -136,6 +137,7 @@ export function DeveloperVerification({ user }: { user: any }) {
                     <BridgeRow label="Unknown transfers" amount={data.reconciliation.bridge.unknownTransfers} />
                     <BridgeRow label="Other unclassified" amount={data.reconciliation.bridge.otherUnclassified} />
                     <BridgeRow label="Deposits needing review" amount={data.reconciliation.bridge.unclassifiedDeposits} />
+                    <BridgeRow label="Zero-amount rows" amount={data.reconciliation.bridge.zeroAmount} />
                   </div>
                 </div>
                 <div className="mt-3 pt-3 border-t border-slate-200 flex items-center justify-between gap-4 font-mono text-sm font-bold">

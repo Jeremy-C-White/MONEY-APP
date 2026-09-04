@@ -457,6 +457,11 @@ describe('presentation formatters', () => {
     expect(isNeedsReviewClassification('income')).toBe(false);
   });
 
+  it('labels zero-amount rows without putting them in review', () => {
+    expect(getClassificationLabel('zero_amount')).toBe('Zero amount');
+    expect(isNeedsReviewClassification('zero_amount')).toBe(false);
+  });
+
   it('labels a reviewed refund with an offset category as reimbursement', () => {
     expect(getTransactionClassificationLabel('refund', true, 'FOOD_AND_DRINK')).toBe('Reimbursement');
     expect(getTransactionClassificationLabel('refund', false, null)).toBe('Refund');

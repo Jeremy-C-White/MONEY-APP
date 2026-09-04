@@ -120,6 +120,7 @@ export function getClassificationLabel(classification: string | undefined): stri
     case 'interest_paid': return 'Interest paid';
     case 'bank_fee': return 'Bank fee';
     case 'unclassified_deposit': return 'Deposit — needs review';
+    case 'zero_amount': return 'Zero amount';
     case 'income': return 'Income';
     case 'spending': return 'Spending';
     case 'pending': return 'Pending';

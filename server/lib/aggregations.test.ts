@@ -437,6 +437,40 @@ describe('Unclassified deposit bucket', () => {
   });
 });
 
+describe('Zero-amount bucket', () => {
+  it('is visible in the report and preserves the accounting bridge', () => {
+    const res = buildVerificationReport([
+      mockTx({ transactionId: 'zero', classification: 'zero_amount', cashFlowAmount: 0 }),
+      mockTx({
+        transactionId: 'purchase',
+        classification: 'spending',
+        countsTowardSpending: true,
+        spendingAdjustment: 50,
+        cashFlowAmount: -50,
+      }),
+    ], 'America/New_York');
+
+    expect(res.reconciliation.zeroAmountCount).toBe(1);
+    expect(res.reconciliation.zeroAmountAmount).toBe(0);
+    expect(res.reconciliation.bridge.zeroAmount).toBe(0);
+    expect(res.reconciliation.bridge.activePostedRawCashFlowTotal).toBe(-50);
+    expect(res.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+    expect(res.summary.allTime.spending).toBe(50);
+    expect(res.summary.allTime.income).toBe(0);
+  });
+
+  it('stays in Posted but is excluded from the Needs Review filter', () => {
+    const zero = mockTx({ transactionId: 'zero', classification: 'zero_amount', cashFlowAmount: 0 });
+
+    expect(filterTransactions([zero], { status: 'posted' })).toEqual([zero]);
+    expect(filterTransactions([zero], {
+      status: 'posted',
+      classification: 'other,unclassified_deposit',
+    })).toEqual([]);
+    expect(filterTransactions([zero], { classification: 'zero_amount' })).toEqual([zero]);
+  });
+});
+
 describe('Override category offsets', () => {
   it('attributes an overridden refund to its offset category and preserves reconciliation', () => {
     const report = buildVerificationReport([

@@ -12,6 +12,7 @@ export type TransactionClassification =
   | 'interest_paid'
   | 'bank_fee'
   | 'unclassified_deposit'
+  | 'zero_amount'
   | 'pending'
   | 'removed'
   | 'other';
@@ -215,6 +216,7 @@ export interface DashboardVerificationBridge {
   unknownTransfers: number;
   otherUnclassified: number;
   unclassifiedDeposits: number;
+  zeroAmount: number;
   accountingBridgeReconciles: boolean;
 }
 
@@ -248,6 +250,8 @@ export interface DashboardVerificationReconciliation {
   otherCount: number;
   unclassifiedDepositCount: number;
   unclassifiedDepositAmount: number;
+  zeroAmountCount: number;
+  zeroAmountAmount: number;
   grossPurchases: number;
   refunds: number;
   merchantCredits: number;

@@ -18,6 +18,7 @@ export const CLASSIFICATIONS = [
   'interest_paid',
   'bank_fee',
   'unclassified_deposit',
+  'zero_amount',
   'pending',
   'removed',
   'other',
@@ -255,6 +256,10 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
 
   if (isRemoved) {
     classification = 'removed';
+  } else if (cashFlowAmount === 0) {
+    // A zero-dollar row has no economic effect. Keep it visible in Posted,
+    // but do not ask the household to make a meaningless review decision.
+    classification = 'zero_amount';
   } else if (isInterest) {
     classification = 'interest_earned';
   } else if (isCCPayment) {

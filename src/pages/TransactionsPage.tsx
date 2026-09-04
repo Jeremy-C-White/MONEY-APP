@@ -16,7 +16,7 @@ import { TransactionOverrideActions } from '../components/TransactionOverrideAct
 const CLASSIFICATIONS = [
   'spending', 'income', 'internal_transfer', 'investment_transfer', 'cash_withdrawal',
   'person_to_person', 'credit_card_payment', 'refund', 'merchant_credit',
-  'interest_earned', 'interest_paid', 'bank_fee', 'unclassified_deposit', 'other'
+  'interest_earned', 'interest_paid', 'bank_fee', 'unclassified_deposit', 'zero_amount', 'other'
 ];
 
 export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
