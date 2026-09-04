@@ -47,6 +47,18 @@ describe('buildMerchantKeyForTransaction', () => {
     })).toBe('target debit crd ach tran');
   });
 
+  it('derives a prefix when normalization has copied the raw description into the merchant field', () => {
+    const description = 'TARGET DEBIT CRD ACH TRAN 250601 000018701232302 3S5540 TARGET 1870 SIMPSONVILLE S';
+    expect(buildMerchantKeyForTransaction({
+      name: description,
+      normalizedMerchant: description,
+    })).toBe('target debit crd ach tran');
+  });
+
+  it('keeps a clean raw description when it is also the normalized merchant', () => {
+    expect(buildMerchantKeyForTransaction({ name: 'Walmart', normalizedMerchant: 'Walmart' })).toBe('walmart');
+  });
+
   it('returns null when neither a merchant name nor a stable derivation exists', () => {
     expect(buildMerchantKeyForTransaction({ name: 'SQ *A1 208402', normalizedMerchant: '' })).toBeNull();
   });

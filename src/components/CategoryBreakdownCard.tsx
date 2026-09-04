@@ -131,6 +131,7 @@ export function CategoryBreakdownCard({
     const load = async () => {
       setLoading(true);
       setError('');
+      setData(null);
       try {
         const response = await apiFetch(`/api/dashboard/category-breakdown?period=${period}`);
         const payload = await response.json().catch(() => null);

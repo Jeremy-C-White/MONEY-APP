@@ -113,4 +113,28 @@ describe('CategoryBreakdownCard', () => {
 
     await vi.waitFor(() => expect(container.textContent).toContain('Could not load spending breakdown.'));
   });
+
+  it('does not label stale data as the newly selected period when a reload fails', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url: string) => {
+      const period = new URL(url, 'http://localhost').searchParams.get('period') || 'this_month';
+      if (period === 'last_month') {
+        return { ok: false, json: async () => ({ error: 'Last month could not be loaded.' }) };
+      }
+      return { ok: true, json: async () => payloadFor(period) };
+    });
+
+    await act(async () => {
+      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Food & dining'));
+
+    const lastMonthButton = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent === 'Last month'
+    ) as HTMLButtonElement;
+    await act(async () => lastMonthButton.click());
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Last month could not be loaded.'));
+    expect(container.textContent).not.toContain('Food & dining');
+    expect(container.textContent).not.toContain('$85.00');
+  });
 });

@@ -40,8 +40,25 @@ export function buildMerchantKeyForTransaction(transaction: {
   name: string;
   normalizedMerchant: string;
 }): string | null {
-  if (transaction.normalizedMerchant) {
-    return normalizeMerchantKey(transaction.normalizedMerchant);
+  const merchantKey = normalizeMerchantKey(transaction.normalizedMerchant);
+  const rawNameKey = normalizeMerchantKey(transaction.name);
+
+  // Normalized transactions fall back to the raw description when Plaid did
+  // not supply a merchant name. In that case, try to remove the changing
+  // reference tokens instead of treating the full description as stable.
+  if (merchantKey && merchantKey !== rawNameKey) {
+    return merchantKey;
   }
-  return deriveMerchantPrefix(transaction.name);
+
+  const derivedPrefix = deriveMerchantPrefix(transaction.name);
+  if (derivedPrefix) return derivedPrefix;
+
+  // A clean raw description can legitimately be the merchant name. Reject it
+  // only when it contains reference-like noise and no stable prefix survived.
+  const hasNoise = String(transaction.name || '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .some(isNoiseToken);
+  return merchantKey && !hasNoise ? merchantKey : null;
 }
