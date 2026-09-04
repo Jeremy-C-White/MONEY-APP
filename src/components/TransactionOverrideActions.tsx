@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { Transaction } from '../types/finance';
 import { getCategoryLabel } from '../lib/formatters';
+import { buildMerchantKeyForTransaction } from '../../server/lib/merchant-prefix';
 
 type ReviewClassification = 'income' | 'spending' | 'refund' | 'internal_transfer';
 
@@ -191,6 +192,8 @@ export function TransactionOverrideActions({
     );
   }
 
+  const rememberMerchantKey = buildMerchantKeyForTransaction(transaction);
+
   return (
     <div className="mt-3 p-3 rounded-xl border border-indigo-100 bg-indigo-50/50 space-y-3">
       <label className="block text-xs font-semibold text-slate-700">
@@ -213,18 +216,24 @@ export function TransactionOverrideActions({
 
       {(transaction.classification === 'other' || transaction.classification === 'unclassified_deposit') &&
         !transaction.classificationSuggestion && (
-          <label className="flex items-start gap-2 text-xs text-slate-700">
-            <input
-              type="checkbox"
-              checked={rememberRule}
-              onChange={event => setRememberRule(event.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
-            />
-            <span>
-              Remember this for future <strong>{transaction.normalizedMerchant || transaction.name}</strong> transactions.
-              Suggestions still require confirmation.
-            </span>
-          </label>
+          rememberMerchantKey ? (
+            <label className="flex items-start gap-2 text-xs text-slate-700">
+              <input
+                type="checkbox"
+                checked={rememberRule}
+                onChange={event => setRememberRule(event.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+              />
+              <span>
+                Remember this for future <strong>{rememberMerchantKey}</strong> transactions.
+                Suggestions still require confirmation.
+              </span>
+            </label>
+          ) : (
+            <p className="text-xs text-slate-400">
+              This description doesn&apos;t have a stable merchant name, so it can&apos;t be remembered for future transactions.
+            </p>
+          )
         )}
 
       {classification === 'refund' && (

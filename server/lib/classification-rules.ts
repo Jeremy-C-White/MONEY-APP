@@ -5,6 +5,7 @@ import {
   type NormalizedTransaction,
   type TransactionOverride,
 } from './financial';
+import { buildMerchantKeyForTransaction, normalizeMerchantKey } from './merchant-prefix';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -43,10 +44,6 @@ function isSuggestedClassification(value: unknown): value is SuggestedClassifica
   );
 }
 
-export function normalizeMerchantKey(value: unknown): string {
-  return String(value || '').trim().replace(/\s+/g, ' ').toLowerCase();
-}
-
 export function getRuleDirection(cashFlowAmount: number): RuleDirection {
   return cashFlowAmount >= 0 ? 'inflow' : 'outflow';
 }
@@ -79,9 +76,12 @@ export function buildClassificationRule(
     throw new ClassificationRuleRequestError('This classification cannot be remembered.', 400);
   }
 
-  const merchantKey = normalizeMerchantKey(transaction.normalizedMerchant || transaction.name);
+  const merchantKey = buildMerchantKeyForTransaction(transaction);
   if (!merchantKey) {
-    throw new ClassificationRuleRequestError('A merchant is required to remember this decision.', 400);
+    throw new ClassificationRuleRequestError(
+      "This description doesn't have a stable merchant name to remember.",
+      400
+    );
   }
 
   const category = normalizeMerchantKey(transaction.normalizedCategory) || null;
@@ -147,7 +147,7 @@ export function applyClassificationSuggestions(
   return transactions.map(transaction => {
     if (!isSuggestionCandidate(transaction)) return transaction;
 
-    const merchantKey = normalizeMerchantKey(transaction.normalizedMerchant || transaction.name);
+    const merchantKey = buildMerchantKeyForTransaction(transaction);
     const category = normalizeMerchantKey(transaction.normalizedCategory) || null;
     const direction = getRuleDirection(transaction.cashFlowAmount);
     const rule = rules.find(candidate =>

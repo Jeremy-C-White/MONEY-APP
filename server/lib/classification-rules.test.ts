@@ -4,6 +4,7 @@ import type { NormalizedTransaction } from './financial';
 import {
   applyClassificationSuggestions,
   buildClassificationRule,
+  ClassificationRuleRequestError,
   parseStoredClassificationRule,
   removeClassificationRule,
 } from './classification-rules';
@@ -79,5 +80,32 @@ describe('classification suggestions', () => {
 
     expect(deleteRule).toHaveBeenCalledWith('user_1', 'rule_1');
     expect(invalidateCache).toHaveBeenCalledWith('user_1');
+  });
+
+  it('keys a rule on the derived prefix when Plaid supplies no merchant name, and matches a later transaction with a different reference number', () => {
+    const first = transaction({
+      transactionId: 'tx_1',
+      name: 'TARGET DEBIT CRD ACH TRAN 250601 000018701232302 3S5540 TARGET 1870 SIMPSONVILLE S',
+      normalizedMerchant: '',
+    });
+    const rule = buildClassificationRule(first, { classification: 'spending', offsetCategory: null, note: null }, 'now');
+    expect(rule.merchantKey).toBe('target debit crd ach tran');
+
+    const second = transaction({
+      transactionId: 'tx_2',
+      name: 'TARGET DEBIT CRD ACH TRAN 250815 000029813309213 7K1122 TARGET 1870 SIMPSONVILLE S',
+      normalizedMerchant: '',
+    });
+    expect(applyClassificationSuggestions([second], [rule])[0].classificationSuggestion).toEqual({
+      ruleId: rule.ruleId,
+      classification: 'spending',
+      offsetCategory: null,
+    });
+  });
+
+  it('refuses to remember a decision when no stable merchant prefix can be derived', () => {
+    const tx = transaction({ name: 'SQ *A1 208402', normalizedMerchant: '' });
+    expect(() => buildClassificationRule(tx, { classification: 'spending', offsetCategory: null, note: null }, 'now'))
+      .toThrow(ClassificationRuleRequestError);
   });
 });
