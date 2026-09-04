@@ -145,6 +145,39 @@ export function getTransactionClassificationLabel(
   return getClassificationLabel(classification);
 }
 
+export function getMerchantDisplayLabel({
+  merchant,
+  fallbackDescription,
+  classification,
+}: {
+  merchant?: string | null;
+  fallbackDescription?: string | null;
+  classification?: string;
+}): string {
+  const merchantText = String(merchant || '').trim().replace(/\s+/g, ' ');
+  const fallbackText = String(fallbackDescription || '').trim().replace(/\s+/g, ' ');
+  const source = merchantText || fallbackText || 'Unknown merchant';
+  const isFallback = !merchantText || (!!fallbackText && merchantText.toLowerCase() === fallbackText.toLowerCase());
+
+  if (isFallback && (!classification || classification === 'person_to_person')) {
+    if (/^zelle(?:\s|$)/i.test(source)) return 'Zelle payment';
+    if (/^venmo(?:\s|$)/i.test(source)) return 'Venmo payment';
+    if (/^cash\s*app(?:\s|$)/i.test(source)) return 'Cash App payment';
+    if (/^paypal(?:$|\s+(?:transfer|inst(?:ant)?\s+xfer|payment|send|money\s+transfer)\b)/i.test(source)) {
+      return 'PayPal payment';
+    }
+  }
+
+  if (!isFallback) return source;
+
+  const withoutReferenceTail = source.replace(
+    /\s+(?:on\s+\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\s+)?(?:ref(?:erence)?|conf(?:irmation)?)(?:\s*(?:#|no\.?|number))?\s*[:#-]?\s*[a-z0-9-]+.*$/i,
+    ''
+  ).trim();
+  const cleaned = withoutReferenceTail || source;
+  return cleaned.length <= 48 ? cleaned : `${cleaned.slice(0, 45).trimEnd()}...`;
+}
+
 export function getCategoryLabel(category: string | undefined): string {
   if (!category) return 'Uncategorized';
 

@@ -9,6 +9,7 @@ import {
   formatFriendlyDate,
   formatMonthShort,
   getCategoryLabel,
+  getMerchantDisplayLabel,
 } from '../lib/formatters';
 
 const cadenceLabels = {
@@ -247,7 +248,7 @@ export function RecurringObligationsCard({
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-slate-900">{obligation.merchant}</p>
+                    <p className="truncate font-medium text-slate-900">{getMerchantDisplayLabel({ fallbackDescription: obligation.merchant })}</p>
                     <p className="mt-0.5 truncate text-xs text-slate-500">
                       {getCategoryLabel(obligation.category)}
                     </p>

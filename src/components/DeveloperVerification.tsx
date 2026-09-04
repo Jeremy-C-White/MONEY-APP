@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { formatCurrency } from '../lib/formatters';
+import { formatCurrency, getMerchantDisplayLabel } from '../lib/formatters';
 
 function BridgeRow({ label, amount }: { label: string; amount: number }) {
   return (
@@ -193,7 +193,7 @@ export function DeveloperVerification({ user }: { user: any }) {
                   <tbody>
                     {data.merchants.slice(0, 10).map((m: any) => (
                       <tr key={m.merchant} className="border-b border-slate-100 last:border-0 hover:bg-white">
-                        <td className="py-2 px-2 truncate max-w-[150px]">{m.merchant}</td>
+                        <td className="py-2 px-2 truncate max-w-[150px]">{getMerchantDisplayLabel({ fallbackDescription: m.merchant })}</td>
                         <td className="px-2">${m.netSpending.toFixed(2)}</td>
                         <td className="px-2 text-slate-400">{m.transactionCount}</td>
                       </tr>

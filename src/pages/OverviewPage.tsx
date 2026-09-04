@@ -12,6 +12,7 @@ import {
   getCategoryLabel,
   getClassificationLabel,
   getTransactionClassificationLabel,
+  getMerchantDisplayLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
 import { extractHouseholdPlanningResponse, normalizeOverviewPayloads } from '../lib/api-contracts';
@@ -427,7 +428,7 @@ export function OverviewPage({
                   className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-xl transition-colors"
                 >
                   <div className="truncate pr-4">
-                    <p className="font-medium text-slate-900 truncate">{merchant.merchant}</p>
+                    <p className="font-medium text-slate-900 truncate">{getMerchantDisplayLabel({ fallbackDescription: merchant.merchant })}</p>
                     <p className="text-xs text-slate-500">
                       {merchant.transactionCount}{' '}
                       {merchant.transactionCount === 1 ? 'transaction' : 'transactions'}
@@ -488,7 +489,11 @@ function TransactionRow({ tx }: { tx: Transaction }) {
     <div className="flex justify-between items-start gap-3 p-2.5 sm:p-3 hover:bg-slate-50 rounded-xl transition-colors text-sm">
       <div className="flex-1 min-w-0">
         <p className="font-medium text-slate-900 truncate">
-          {tx.normalizedMerchant || tx.name}
+          {getMerchantDisplayLabel({
+            merchant: tx.normalizedMerchant,
+            fallbackDescription: tx.name,
+            classification: tx.classification,
+          })}
         </p>
 
         <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2 min-w-0">

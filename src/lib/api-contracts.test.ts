@@ -25,6 +25,7 @@ import {
   getClassificationLabel,
   isNeedsReviewClassification,
   getTransactionClassificationLabel,
+  getMerchantDisplayLabel,
 } from './formatters';
 
 const summaryPayload = {
@@ -460,6 +461,38 @@ describe('presentation formatters', () => {
   it('labels zero-amount rows without putting them in review', () => {
     expect(getClassificationLabel('zero_amount')).toBe('Zero amount');
     expect(isNeedsReviewClassification('zero_amount')).toBe(false);
+  });
+
+  it.each([
+    ['ZELLE TO CASE SOPHIE ON 01/01 REF # WFCT0ZNC7MMG 3500 OF 5000', 'Zelle payment'],
+    ['VENMO PAYMENT 123456', 'Venmo payment'],
+    ['CASH APP TRANSFER REF 12345', 'Cash App payment'],
+    ['PAYPAL INST XFER 260828 JEREMY WHITE', 'PayPal payment'],
+  ])('cleans a raw P2P fallback without exposing its memo: %s', (description, expected) => {
+    expect(getMerchantDisplayLabel({
+      merchant: description,
+      fallbackDescription: description,
+      classification: 'person_to_person',
+    })).toBe(expected);
+  });
+
+  it('does not rewrite a PayPal card product merchant', () => {
+    expect(getMerchantDisplayLabel({
+      merchant: 'PayPal Cashback Mastercard',
+      fallbackDescription: 'PAYMENT - THANK YOU',
+      classification: 'credit_card_payment',
+    })).toBe('PayPal Cashback Mastercard');
+  });
+
+  it('removes reference tails and limits generic fallback descriptions', () => {
+    expect(getMerchantDisplayLabel({
+      fallbackDescription: 'MOBILE DEPOSIT ON 08/31 REF # ABC123 LONG PRIVATE MEMO',
+    })).toBe('MOBILE DEPOSIT');
+    const truncated = getMerchantDisplayLabel({
+      fallbackDescription: 'A VERY LONG RAW BANK DESCRIPTION THAT SHOULD NOT BECOME A FULL MERCHANT IDENTITY',
+    });
+    expect(truncated.length).toBeLessThanOrEqual(48);
+    expect(truncated.endsWith('...')).toBe(true);
   });
 
   it('labels a reviewed refund with an offset category as reimbursement', () => {

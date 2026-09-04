@@ -7,6 +7,7 @@ import {
   getCategoryDisplayLabel,
   isNeedsReviewClassification,
   getTransactionClassificationLabel,
+  getMerchantDisplayLabel,
   formatFriendlyDate
 } from '../lib/formatters';
 import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
@@ -367,7 +368,7 @@ export function TransactionsPage({
                 <div key={tx.transactionId} className="bg-white rounded-xl p-4 shadow-sm border border-slate-200">
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex-1 min-w-0 pr-3">
-                      <p className="font-bold text-slate-900 truncate">{tx.normalizedMerchant || tx.name}</p>
+                      <p className="font-bold text-slate-900 truncate">{getMerchantDisplayLabel({ merchant: tx.normalizedMerchant, fallbackDescription: tx.name, classification: tx.classification })}</p>
                       <p className="text-xs text-slate-500 mt-0.5">{formatFriendlyDate(tx.normalizedDate)}</p>
                     </div>
                     <div className="whitespace-nowrap">
@@ -416,7 +417,7 @@ export function TransactionsPage({
                         {formatFriendlyDate(tx.normalizedDate)}
                       </td>
                       <td className="px-6 py-4">
-                        <p className="font-bold text-slate-900">{tx.normalizedMerchant || tx.name}</p>
+                        <p className="font-bold text-slate-900">{getMerchantDisplayLabel({ merchant: tx.normalizedMerchant, fallbackDescription: tx.name, classification: tx.classification })}</p>
                         <div className="flex gap-2 mt-1.5">
                           {tx.pending && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Pending</span>}
                           {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
