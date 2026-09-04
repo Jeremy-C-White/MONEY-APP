@@ -131,22 +131,41 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
   };
 }
 
+// A refund's category is the category it offsets, not Plaid's own category
+// for the refund transaction itself. Used everywhere "which category does
+// this transaction belong to" needs an answer, so the two readers (category
+// totals, category filtering) can't drift apart.
+export function getEffectiveCategory(t: NormalizedTransaction): string {
+  return t.classification === 'refund' && t.overrideOffsetCategory
+    ? t.overrideOffsetCategory
+    : t.normalizedCategory;
+}
+
+function withPercentages<T extends { netSpending: number }>(items: T[]): Array<T & { percentage: number }> {
+  let totalNetPositiveSpending = 0;
+  for (const item of items) {
+    if (item.netSpending > 0) totalNetPositiveSpending += item.netSpending;
+  }
+  return items.map(item => ({
+    ...item,
+    percentage: totalNetPositiveSpending > 0 && item.netSpending > 0 ? (item.netSpending / totalNetPositiveSpending) : 0,
+  }));
+}
+
 export function aggregateCategories(txs: NormalizedTransaction[]) {
   const categoryTotals: Record<string, { netSpending: number, transactionCount: number, grossPurchases: number, refunds: number, merchantCredits: number }> = {};
-  
+
   for (const t of txs) {
     if (t.removed || t.pending || !t.countsTowardSpending) continue;
-    
-    const cat = t.classification === 'refund' && t.overrideOffsetCategory
-      ? t.overrideOffsetCategory
-      : t.normalizedCategory;
+
+    const cat = getEffectiveCategory(t);
     if (!categoryTotals[cat]) {
       categoryTotals[cat] = { netSpending: 0, transactionCount: 0, grossPurchases: 0, refunds: 0, merchantCredits: 0 };
     }
-    
+
     categoryTotals[cat].transactionCount++;
     categoryTotals[cat].netSpending += t.spendingAdjustment;
-    
+
     if (t.classification === 'refund') {
       categoryTotals[cat].refunds += Math.abs(t.spendingAdjustment); // Keep refund tracked as a positive absolute value for display
     } else if (t.classification === 'merchant_credit') {
@@ -155,19 +174,9 @@ export function aggregateCategories(txs: NormalizedTransaction[]) {
       categoryTotals[cat].grossPurchases += t.spendingAdjustment;
     }
   }
-  
-  let totalNetPositiveSpending = 0;
-  for (const stats of Object.values(categoryTotals)) {
-    if (stats.netSpending > 0) {
-      totalNetPositiveSpending += stats.netSpending;
-    }
-  }
-  
-  return Object.entries(categoryTotals).map(([category, stats]) => ({
-    category,
-    ...stats,
-    percentage: totalNetPositiveSpending > 0 && stats.netSpending > 0 ? (stats.netSpending / totalNetPositiveSpending) : 0
-  })).sort((a, b) => b.netSpending - a.netSpending);
+
+  const entries = Object.entries(categoryTotals).map(([category, stats]) => ({ category, ...stats }));
+  return withPercentages(entries).sort((a, b) => b.netSpending - a.netSpending);
 }
 
 export function aggregateMerchants(txs: NormalizedTransaction[]) {
@@ -188,6 +197,207 @@ export function aggregateMerchants(txs: NormalizedTransaction[]) {
   return Object.entries(merchantTotals)
     .map(([merchant, stats]) => ({ merchant, ...stats }))
     .sort((a, b) => b.netSpending - a.netSpending);
+}
+
+export type CategoryPeriod = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all_time';
+
+export const CATEGORY_PERIODS: CategoryPeriod[] = ['this_month', 'last_month', 'last_3_months', 'this_year', 'all_time'];
+
+function monthsBeforePrefix(monthPrefix: string, count: number): string {
+  let month = monthPrefix;
+  for (let i = 0; i < count; i++) month = getPreviousMonthString(month);
+  return month;
+}
+
+// Every period is a closed [startMonth, endMonth] range of YYYY-MM prefixes,
+// compared as strings against normalizedDate.slice(0, 7) - never a Date
+// built from that string - so first/last-of-month rows land in the right
+// bucket regardless of server-local timezone.
+function resolveCategoryPeriodRange(
+  period: CategoryPeriod,
+  now: Date,
+  financeTimezone: string
+): { startMonth: string | null; endMonth: string | null } {
+  const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
+  const currentYear = currentMonthPrefix.slice(0, 4);
+
+  switch (period) {
+    case 'this_month':
+      return { startMonth: currentMonthPrefix, endMonth: currentMonthPrefix };
+    case 'last_month': {
+      const lastMonth = getPreviousMonthString(currentMonthPrefix);
+      return { startMonth: lastMonth, endMonth: lastMonth };
+    }
+    case 'last_3_months':
+      return { startMonth: monthsBeforePrefix(currentMonthPrefix, 2), endMonth: currentMonthPrefix };
+    case 'this_year':
+      return { startMonth: `${currentYear}-01`, endMonth: `${currentYear}-12` };
+    case 'all_time':
+      return { startMonth: null, endMonth: null };
+  }
+}
+
+function resolvePreviousCategoryPeriodRange(
+  period: CategoryPeriod,
+  now: Date,
+  financeTimezone: string
+): { startMonth: string; endMonth: string } | null {
+  if (period === 'all_time') return null;
+  const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
+  const currentYear = Number(currentMonthPrefix.slice(0, 4));
+
+  switch (period) {
+    case 'this_month': {
+      const month = getPreviousMonthString(currentMonthPrefix);
+      return { startMonth: month, endMonth: month };
+    }
+    case 'last_month': {
+      const month = monthsBeforePrefix(currentMonthPrefix, 2);
+      return { startMonth: month, endMonth: month };
+    }
+    case 'last_3_months':
+      return {
+        startMonth: monthsBeforePrefix(currentMonthPrefix, 5),
+        endMonth: monthsBeforePrefix(currentMonthPrefix, 3),
+      };
+    case 'this_year': {
+      const previousYear = currentYear - 1;
+      return { startMonth: `${previousYear}-01`, endMonth: `${previousYear}-12` };
+    }
+  }
+}
+
+function monthInRange(normalizedDate: string, startMonth: string | null, endMonth: string | null): boolean {
+  if (startMonth === null || endMonth === null) return true;
+  const month = normalizedDate.slice(0, 7);
+  return month >= startMonth && month <= endMonth;
+}
+
+export type CategoryBreakdownMerchant = {
+  merchant: string;
+  netSpending: number;
+  transactionCount: number;
+};
+
+export type CategoryBreakdownDetail = {
+  categoryDetailed: string;
+  netSpending: number;
+  transactionCount: number;
+  merchants: CategoryBreakdownMerchant[];
+};
+
+export type CategoryBreakdownCategory = {
+  category: string;
+  netSpending: number;
+  transactionCount: number;
+  percentage: number;
+  previousSpending: number | null;
+  change: number | null;
+  details: CategoryBreakdownDetail[];
+};
+
+export type CategoryBreakdownReport = {
+  period: CategoryPeriod;
+  startMonth: string | null;
+  endMonth: string | null;
+  categories: CategoryBreakdownCategory[];
+  merchants: CategoryBreakdownMerchant[];
+};
+
+// Top Categories and Top Merchants on the Overview share one period control,
+// so they share one aggregator: the category tree groups by categoryDetailed
+// under its primary (index 17 alongside index 16, both already parsed onto
+// NormalizedTransaction - see financial.ts) with merchants nested under each
+// detailed group, and the flat merchant list is the same per-transaction
+// totals grouped the other way, so the two views can't disagree.
+export function aggregatePeriodCategoryBreakdown(
+  txs: NormalizedTransaction[],
+  period: CategoryPeriod,
+  financeTimezone: string
+): CategoryBreakdownReport {
+  const now = new Date();
+  const { startMonth, endMonth } = resolveCategoryPeriodRange(period, now, financeTimezone);
+
+  type DetailBucket = { netSpending: number; transactionCount: number; merchants: Map<string, CategoryBreakdownMerchant> };
+  type CategoryBucket = { netSpending: number; transactionCount: number; details: Map<string, DetailBucket> };
+
+  const categoryBuckets = new Map<string, CategoryBucket>();
+  const merchantTotals = new Map<string, CategoryBreakdownMerchant>();
+
+  for (const t of txs) {
+    if (t.removed || t.pending || !t.countsTowardSpending) continue;
+    if (!monthInRange(t.normalizedDate, startMonth, endMonth)) continue;
+
+    const category = getEffectiveCategory(t);
+    const merchantName = t.normalizedMerchant || 'Unknown';
+
+    const categoryBucket = categoryBuckets.get(category) ||
+      { netSpending: 0, transactionCount: 0, details: new Map<string, DetailBucket>() };
+    categoryBucket.netSpending += t.spendingAdjustment;
+    categoryBucket.transactionCount++;
+
+    const detailBucket = categoryBucket.details.get(t.categoryDetailed) ||
+      { netSpending: 0, transactionCount: 0, merchants: new Map<string, CategoryBreakdownMerchant>() };
+    detailBucket.netSpending += t.spendingAdjustment;
+    detailBucket.transactionCount++;
+
+    const detailMerchant = detailBucket.merchants.get(merchantName) ||
+      { merchant: merchantName, netSpending: 0, transactionCount: 0 };
+    detailMerchant.netSpending += t.spendingAdjustment;
+    detailMerchant.transactionCount++;
+    detailBucket.merchants.set(merchantName, detailMerchant);
+
+    categoryBucket.details.set(t.categoryDetailed, detailBucket);
+    categoryBuckets.set(category, categoryBucket);
+
+    const merchantTotal = merchantTotals.get(merchantName) || { merchant: merchantName, netSpending: 0, transactionCount: 0 };
+    merchantTotal.netSpending += t.spendingAdjustment;
+    merchantTotal.transactionCount++;
+    merchantTotals.set(merchantName, merchantTotal);
+  }
+
+  // "No prior data" (null) means the prior period itself is outside the
+  // observed ledger - not that a given category happened to spend $0 in a
+  // prior period that does have other activity. Only the former is unknown.
+  const previousRange = resolvePreviousCategoryPeriodRange(period, now, financeTimezone);
+  const previousByCategory = new Map<string, number>();
+  let previousPeriodHasData = false;
+  if (previousRange) {
+    for (const t of txs) {
+      if (t.removed || t.pending) continue;
+      if (!monthInRange(t.normalizedDate, previousRange.startMonth, previousRange.endMonth)) continue;
+      previousPeriodHasData = true;
+      if (!t.countsTowardSpending) continue;
+      const category = getEffectiveCategory(t);
+      previousByCategory.set(category, (previousByCategory.get(category) || 0) + t.spendingAdjustment);
+    }
+  }
+
+  const categoryEntries = Array.from(categoryBuckets.entries()).map(([category, bucket]) => {
+    const previousSpending = previousPeriodHasData ? (previousByCategory.get(category) ?? 0) : null;
+    const details: CategoryBreakdownDetail[] = Array.from(bucket.details.entries())
+      .map(([categoryDetailed, detail]) => ({
+        categoryDetailed,
+        netSpending: detail.netSpending,
+        transactionCount: detail.transactionCount,
+        merchants: Array.from(detail.merchants.values()).sort((a, b) => b.netSpending - a.netSpending),
+      }))
+      .sort((a, b) => b.netSpending - a.netSpending);
+
+    return {
+      category,
+      netSpending: bucket.netSpending,
+      transactionCount: bucket.transactionCount,
+      previousSpending,
+      change: previousSpending === null ? null : bucket.netSpending - previousSpending,
+      details,
+    };
+  });
+
+  const categories = withPercentages(categoryEntries).sort((a, b) => b.netSpending - a.netSpending);
+  const merchants = Array.from(merchantTotals.values()).sort((a, b) => b.netSpending - a.netSpending);
+
+  return { period, startMonth, endMonth, categories, merchants };
 }
 
 export function aggregateTrends(txs: NormalizedTransaction[], range: string = '12m', financeTimezone: string = 'America/New_York') {
@@ -259,11 +469,7 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
   if (filters.institution) result = result.filter(t => t.institutionName === filters.institution);
   if (filters.account) result = result.filter(t => t.accountId === filters.account);
   if (filters.category) {
-    result = result.filter(t => (
-      t.classification === 'refund' && t.overrideOffsetCategory
-        ? t.overrideOffsetCategory
-        : t.normalizedCategory
-    ) === filters.category);
+    result = result.filter(t => getEffectiveCategory(t) === filters.category);
   }
   if (String(filters.overridden || '').toLowerCase() === 'true') {
     result = result.filter(t => t.isOverridden);

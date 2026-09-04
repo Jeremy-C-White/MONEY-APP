@@ -210,3 +210,16 @@ export function getCategoryDisplayLabel(
   if (classification === 'person_to_person') return 'Payments to people';
   return getCategoryLabel(category);
 }
+
+// Plaid's detailed category always repeats its primary category as a
+// prefix (FOOD_AND_DRINK_GROCERIES under FOOD_AND_DRINK) - already shown on
+// the parent row, so strip it before title-casing to avoid "Food And Drink
+// Groceries" nested directly under "Food & Dining".
+export function getDetailedCategoryLabel(categoryDetailed: string, categoryPrimary: string): string {
+  if (!categoryDetailed) return 'Uncategorized';
+  const prefix = `${categoryPrimary}_`;
+  const withoutPrefix = categoryPrimary && categoryDetailed.startsWith(prefix)
+    ? categoryDetailed.slice(prefix.length)
+    : categoryDetailed;
+  return getCategoryLabel(withoutPrefix || categoryDetailed);
+}

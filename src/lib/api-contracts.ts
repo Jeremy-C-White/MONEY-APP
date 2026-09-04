@@ -17,6 +17,10 @@ import type {
   HouseholdPlanningResponse,
   AccountBalanceSummary,
   DashboardOverviewResponse,
+  CategoryBreakdownResponse,
+  CategoryBreakdownCategory,
+  CategoryBreakdownDetail,
+  CategoryBreakdownMerchant,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -77,6 +81,60 @@ export function extractMerchantsResponse(data: unknown): DashboardMerchant[] {
     'merchants',
     'dashboard merchants'
   );
+}
+
+const CATEGORY_PERIODS = ['this_month', 'last_month', 'last_3_months', 'this_year', 'all_time'];
+
+function isCategoryBreakdownMerchant(value: unknown): value is CategoryBreakdownMerchant {
+  return (
+    isRecord(value) &&
+    typeof value.merchant === 'string' &&
+    typeof value.netSpending === 'number' &&
+    typeof value.transactionCount === 'number'
+  );
+}
+
+function isCategoryBreakdownDetail(value: unknown): value is CategoryBreakdownDetail {
+  return (
+    isRecord(value) &&
+    typeof value.categoryDetailed === 'string' &&
+    typeof value.netSpending === 'number' &&
+    typeof value.transactionCount === 'number' &&
+    Array.isArray(value.merchants) &&
+    value.merchants.every(isCategoryBreakdownMerchant)
+  );
+}
+
+function isCategoryBreakdownCategory(value: unknown): value is CategoryBreakdownCategory {
+  return (
+    isRecord(value) &&
+    typeof value.category === 'string' &&
+    typeof value.netSpending === 'number' &&
+    typeof value.transactionCount === 'number' &&
+    typeof value.percentage === 'number' &&
+    validNullableNumber(value.previousSpending) &&
+    validNullableNumber(value.change) &&
+    Array.isArray(value.details) &&
+    value.details.every(isCategoryBreakdownDetail)
+  );
+}
+
+export function extractCategoryBreakdownResponse(data: unknown): CategoryBreakdownResponse {
+  const record = requireRecord(data, 'category breakdown');
+
+  if (
+    !CATEGORY_PERIODS.includes(String(record.period)) ||
+    !validNullableString(record.startMonth) ||
+    !validNullableString(record.endMonth) ||
+    !Array.isArray(record.categories) ||
+    !record.categories.every(isCategoryBreakdownCategory) ||
+    !Array.isArray(record.merchants) ||
+    !record.merchants.every(isCategoryBreakdownMerchant)
+  ) {
+    throw new Error('Invalid category breakdown response.');
+  }
+
+  return record as unknown as CategoryBreakdownResponse;
 }
 
 export function extractTrendsResponse(data: unknown): TrendPoint[] {

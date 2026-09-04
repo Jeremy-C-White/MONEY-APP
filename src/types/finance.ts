@@ -395,6 +395,39 @@ export interface AccountBalanceSummary {
   accounts: AccountBalanceRecord[];
 }
 
+export type CategoryPeriod = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all_time';
+
+export interface CategoryBreakdownMerchant {
+  merchant: string;
+  netSpending: number;
+  transactionCount: number;
+}
+
+export interface CategoryBreakdownDetail {
+  categoryDetailed: string;
+  netSpending: number;
+  transactionCount: number;
+  merchants: CategoryBreakdownMerchant[];
+}
+
+export interface CategoryBreakdownCategory {
+  category: string;
+  netSpending: number;
+  transactionCount: number;
+  percentage: number;
+  previousSpending: number | null;
+  change: number | null;
+  details: CategoryBreakdownDetail[];
+}
+
+export interface CategoryBreakdownResponse {
+  period: CategoryPeriod;
+  startMonth: string | null;
+  endMonth: string | null;
+  categories: CategoryBreakdownCategory[];
+  merchants: CategoryBreakdownMerchant[];
+}
+
 export interface DashboardOverviewResponse {
   summary: DashboardSummary;
   categories: DashboardCategory[];

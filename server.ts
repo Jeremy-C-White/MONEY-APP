@@ -11,7 +11,7 @@ import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type TransactionOverride } from "./server/lib/financial";
-import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
+import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap, aggregatePeriodCategoryBreakdown, CATEGORY_PERIODS, type CategoryPeriod } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
@@ -2102,6 +2102,23 @@ app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, re
     res.json({ merchants: merchants.slice(0, 50) });
   } catch (error: any) {
     console.error("Dashboard Merchants Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/dashboard/category-breakdown", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const periodParam = (req.query.period as string) || 'this_month';
+    if (!CATEGORY_PERIODS.includes(periodParam as CategoryPeriod)) {
+      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${CATEGORY_PERIODS.join(', ')}` });
+    }
+
+    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const report = aggregatePeriodCategoryBreakdown(txs, periodParam as CategoryPeriod, financeTz);
+    res.json(report);
+  } catch (error: any) {
+    console.error("Dashboard Category Breakdown Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
