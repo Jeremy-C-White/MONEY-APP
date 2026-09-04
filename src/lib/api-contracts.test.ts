@@ -14,6 +14,8 @@ import {
   extractRecurringObligationsResponse,
   extractStatusResponse,
   extractHouseholdPlanningResponse,
+  extractAccountBalanceSummary,
+  extractOverviewResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -257,6 +259,43 @@ const transactionsPayload = {
   totalPages: 1,
 };
 
+const accountBalancesPayload = {
+  status: 'complete' as const,
+  currency: 'USD',
+  oldestFetchedAt: '2026-09-03T10:00:00.000Z',
+  newestFetchedAt: '2026-09-03T11:00:00.000Z',
+  connectedItemCount: 2,
+  reportingItemCount: 2,
+  freshItemCount: 2,
+  missingCurrentBalanceCount: 0,
+  currencyIssueCount: 0,
+  cashCurrent: 2500,
+  cashAvailable: 2400,
+  creditBalance: 500,
+  creditOwed: 500,
+  creditCredits: null,
+  loanBalance: null,
+  investmentValue: null,
+  connectedPosition: 2000,
+  issues: [],
+  accounts: [{
+    accountId: 'acc_1',
+    institutionName: 'Chase',
+    accountName: 'Checking',
+    accountMask: '1234',
+    accountType: 'depository',
+    accountSubtype: 'checking',
+    health: 'healthy',
+    current: 2500,
+    available: 2400,
+    limit: null,
+    isoCurrencyCode: 'USD',
+    unofficialCurrencyCode: null,
+    fetchedAt: '2026-09-03T10:00:00.000Z',
+    balanceStatus: 'fresh' as const,
+  }],
+};
+
 describe('API response contracts', () => {
   it('validates the application status response', () => {
     const status = extractStatusResponse({
@@ -316,6 +355,16 @@ describe('API response contracts', () => {
     })).toThrow('Invalid household insights response.');
   });
 
+  it('validates balance nullability, freshness, and account records', () => {
+    const result = extractAccountBalanceSummary(accountBalancesPayload);
+    expect(result.cashCurrent).toBe(2500);
+    expect(result.accounts[0].balanceStatus).toBe('fresh');
+    expect(() => extractAccountBalanceSummary({
+      ...accountBalancesPayload,
+      cashCurrent: '2500',
+    })).toThrow('Invalid account balances response.');
+  });
+
   it('reads the paced comparison from summary.pacing', () => {
     const result = extractSummaryResponse(summaryPayload);
     expect(result.pacing.dayOfMonth).toBe(15);
@@ -372,6 +421,25 @@ describe('API response contracts', () => {
     expect(result.householdInsights.forecast.projectedMonthEndSpending).toBe(930);
     expect(result.verification.reconciliation.unknownTransferCount).toBe(1);
     expect(result.postedTransactions[0].normalizedMerchant).toBe('Starbucks');
+    expect(result.pendingTransactions[0].pending).toBe(true);
+  });
+
+  it('extracts the consolidated Overview response including balances', () => {
+    const result = extractOverviewResponse({
+      summary: summaryPayload,
+      categories: [category],
+      merchants: [merchant],
+      trends: [trend],
+      recurringObligations: recurringObligationsPayload,
+      householdInsights: householdInsightsPayload,
+      verification: verificationPayload,
+      postedTransactions: [transaction],
+      pendingTransactions: [{ ...transaction, transactionId: 'pending_1', pending: true }],
+      accountBalances: accountBalancesPayload,
+    });
+
+    expect(result.accountBalances.connectedPosition).toBe(2000);
+    expect(result.trends[0].month).toBe('2026-09');
     expect(result.pendingTransactions[0].pending).toBe(true);
   });
 

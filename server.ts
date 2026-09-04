@@ -14,6 +14,7 @@ import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type Transa
 import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
+import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
 import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
 import {
@@ -1721,6 +1722,65 @@ async function startServer() {
               });
             });
 
+            // Balances are separate from the transaction ledger. Refresh the free,
+            // cached Plaid account data only after the transaction cursor is safe.
+            // A balance failure must never roll back or retry a successful ledger sync.
+            const balanceFetchedAt = new Date().toISOString();
+            try {
+              const accountsResponse = await client.accountsGet({
+                access_token: item.access_token,
+              });
+              const balanceSnapshot = buildStoredBalanceSnapshot({
+                institutionName: item.institution_name,
+                fetchedAt: balanceFetchedAt,
+                accounts: accountsResponse.data.accounts.map(account => ({
+                  account_id: account.account_id,
+                  name: account.name,
+                  mask: account.mask,
+                  type: account.type,
+                  subtype: account.subtype,
+                  balances: account.balances,
+                })),
+              });
+
+              if (balanceSnapshot) {
+                const accountInventory = balanceSnapshot.accounts.map(account => ({
+                  id: account.accountId,
+                  name: account.accountName,
+                  mask: account.accountMask,
+                  type: account.accountType,
+                  subtype: account.accountSubtype,
+                }));
+                const balanceDate = getDateForDateInTimezone(
+                  new Date(balanceFetchedAt),
+                  process.env.FINANCE_TIME_ZONE || "America/New_York"
+                );
+
+                await Promise.all([
+                  itemDoc.ref.set({
+                    accounts: accountInventory,
+                    balance_snapshot: balanceSnapshot,
+                    balance_last_attempted_at: balanceFetchedAt,
+                    balance_last_error: FieldValue.delete(),
+                  }, { merge: true }),
+                  userRef.collection('balance_snapshots').doc(balanceDate).set({
+                    date: balanceDate,
+                    updatedAt: balanceFetchedAt,
+                    source: 'plaid_accounts_get',
+                    items: {
+                      [itemDoc.id]: balanceSnapshot,
+                    },
+                  }, { merge: true }),
+                ]);
+              }
+            } catch (balanceError: any) {
+              console.warn(`Could not refresh cached balances for ${item.institution_name}`, balanceError);
+              await itemDoc.ref.set({
+                balance_last_attempted_at: balanceFetchedAt,
+                balance_last_error: 'Balance temporarily unavailable',
+              }, { merge: true }).catch(console.warn);
+            }
+
           } catch (itemErr: any) {
              console.error(`Failed syncing item ${item.institution_name}`, itemErr);
              await itemDoc.ref.update({
@@ -2084,6 +2144,57 @@ async function loadRecurringPlanning(uid: string) {
   );
   return { txs, recurringObligations, financeTz, now };
 }
+
+async function loadAccountBalanceSummary(uid: string, now = new Date()) {
+  const snapshot = await db.collection('plaid_items').where('userId', '==', uid).get();
+  return buildAccountBalanceSummary(snapshot.docs.map(document => {
+    const item = document.data();
+    return {
+      itemId: document.id,
+      institutionName: item.institution_name,
+      health: normalizeItemHealth(item),
+      accounts: item.accounts,
+      balanceSnapshot: item.balance_snapshot,
+    };
+  }), now.toISOString());
+}
+
+app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const validRanges = ['6m', '12m', 'ytd'];
+    const rangeParam = req.query.range as string || '12m';
+    if (!validRanges.includes(rangeParam)) {
+      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, ytd" });
+    }
+
+    const uid = (req as any).user.uid;
+    const [{ txs, recurringObligations, financeTz, now }, accountBalances] = await Promise.all([
+      loadRecurringPlanning(uid),
+      loadAccountBalanceSummary(uid),
+    ]);
+    const verification = buildVerificationReport(txs, financeTz);
+
+    res.json({
+      summary: verification.summary,
+      categories: verification.categories,
+      merchants: verification.merchants.slice(0, 50),
+      trends: aggregateTrends(txs, rangeParam, financeTz),
+      recurringObligations,
+      householdInsights: buildHouseholdInsights(
+        txs,
+        recurringObligations.obligations,
+        getDateForDateInTimezone(now, financeTz)
+      ),
+      verification,
+      postedTransactions: buildTransactionsPage(txs, { status: 'posted', limit: 6 }).transactions,
+      pendingTransactions: buildTransactionsPage(txs, { status: 'pending', limit: 4 }).transactions,
+      accountBalances,
+    });
+  } catch (error: any) {
+    console.error("Dashboard Overview Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 app.get("/api/dashboard/household-insights", requireAuth, async (req: express.Request, res: express.Response) => {
   try {

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, RefreshCcw } from 'lucide-react';
-import { MetricCard } from '../components/MetricCard';
 import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
+import { AccountPositionCards } from '../components/AccountPositionCards';
 import {
   formatCurrency,
   formatPercentage,
@@ -15,7 +15,7 @@ import {
   getMerchantDisplayLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
-import { extractHouseholdPlanningResponse, normalizeOverviewPayloads } from '../lib/api-contracts';
+import { extractHouseholdPlanningResponse, extractOverviewResponse } from '../lib/api-contracts';
 import type {
   DashboardSummary,
   DashboardCategory,
@@ -25,6 +25,7 @@ import type {
   Transaction,
   RecurringObligationsResponse,
   HouseholdInsights,
+  AccountBalanceSummary,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -48,6 +49,7 @@ export function OverviewPage({
     useState<DashboardVerificationResponse | null>(null);
   const [postedTxs, setPostedTxs] = useState<Transaction[]>([]);
   const [pendingTxs, setPendingTxs] = useState<Transaction[]>([]);
+  const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trendRange, setTrendRange] =
@@ -58,51 +60,11 @@ export function OverviewPage({
     setError(null);
 
     try {
-      const [
-        summaryRes,
-        categoriesRes,
-        merchantsRes,
-        trendsRes,
-        householdPlanningRes,
-        verificationRes,
-        postedRes,
-        pendingRes,
-      ] = await Promise.all([
-        apiFetch('/api/dashboard/summary'),
-        apiFetch('/api/dashboard/categories'),
-        apiFetch('/api/dashboard/merchants'),
-        apiFetch(`/api/dashboard/trends?range=${trendRange}`),
-        apiFetch('/api/dashboard/household-insights'),
-        apiFetch('/api/dashboard/verification'),
-        apiFetch('/api/transactions?status=posted&limit=6'),
-        apiFetch('/api/transactions?status=pending&limit=4'),
-      ]);
-
-      const responses = [
-        summaryRes,
-        categoriesRes,
-        merchantsRes,
-        trendsRes,
-        householdPlanningRes,
-        verificationRes,
-        postedRes,
-        pendingRes,
-      ];
-
-      if (responses.some((response) => !response.ok)) {
+      const response = await apiFetch(`/api/dashboard/overview?range=${trendRange}`);
+      if (!response.ok) {
         throw new Error('Failed to load overview data.');
       }
-
-      const normalized = normalizeOverviewPayloads({
-        summary: await summaryRes.json(),
-        categories: await categoriesRes.json(),
-        merchants: await merchantsRes.json(),
-        trends: await trendsRes.json(),
-        householdPlanning: await householdPlanningRes.json(),
-        verification: await verificationRes.json(),
-        postedTransactions: await postedRes.json(),
-        pendingTransactions: await pendingRes.json(),
-      });
+      const normalized = extractOverviewResponse(await response.json());
 
       setSummary(normalized.summary);
       setCategories(normalized.categories);
@@ -113,6 +75,7 @@ export function OverviewPage({
       setVerification(normalized.verification);
       setPostedTxs(normalized.postedTransactions);
       setPendingTxs(normalized.pendingTransactions);
+      setAccountBalances(normalized.accountBalances);
     } catch (err: unknown) {
       console.error(err);
       setError(
@@ -246,29 +209,13 @@ export function OverviewPage({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <MetricCard
-          title="Spending"
-          value={formatCurrency(summary?.currentMonth.spending)}
-          subtitle={spendingSubtitle}
-          loading={loading && !summary}
-        />
-        <MetricCard
-          title="Income"
-          value={formatCurrency(summary?.currentMonth.income)}
-          loading={loading && !summary}
-        />
-        <MetricCard
-          title="Net Cash Flow"
-          value={formatCurrency(summary?.currentMonth.netCashFlow)}
-          loading={loading && !summary}
-        />
-        <MetricCard
-          title="Savings Rate"
-          value={formatPercentage(summary?.currentMonth.savingsRate)}
-          loading={loading && !summary}
-        />
-      </div>
+      <AccountPositionCards
+        balances={accountBalances}
+        spending={summary?.currentMonth.spending}
+        spendingSubtitle={spendingSubtitle}
+        projectedMonthEndSpending={householdInsights?.forecast.projectedMonthEndSpending}
+        loading={loading && !summary}
+      />
 
       <HouseholdInsightsCard
         insights={householdInsights}

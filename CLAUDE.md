@@ -122,7 +122,7 @@ All four tabs live: Overview, Transactions, Accounts, Settings. Running against 
 ### Known open items
 
 - **Dataset gaps in the acceptance harness.** `explicitRefund`, `cashWithdrawal`, and `incomingP2P` read NOT EXERCISED — the data never contained those shapes. Not code defects.
-- **No account balances.** Deliberate. `/accounts/balance/get` is not called and nothing is inferred from transaction history. Adding balances is a real backend pass, not a display change.
+- **Cached account balances.** Successful transaction syncs now call the free `/accounts/get` endpoint after the ledger cursor is safely committed. Current balance state and one dated snapshot per day are stored in Firestore; balances are never inferred from transactions. `/accounts/balance/get` is not called, so the display is explicitly sync-fresh rather than real-time.
 - **Developer Tools in Production.** `DeveloperVerification` and `SandboxAcceptance` still render in Settings behind an env flag. Sandbox-only actions should be hidden or inert in Production — worth confirming.
 - **Access tokens unencrypted at the application layer.** Firestore encrypts at rest, but there is no field-level encryption. Considered acceptable for a single-user app; revisit if that changes.
 
@@ -130,7 +130,7 @@ All four tabs live: Overview, Transactions, Accounts, Settings. Running against 
 
 Budgets by category, recurring/subscription detection, month-over-month comparison, transaction detail view. All buildable on existing endpoints with no new financial logic.
 
-Balances would unlock a net-worth view but require the backend pass described above.
+Balance history begins with the first successful sync after the balance pass. Do not backfill it from transaction history. The Overview calls the total a connected-account position rather than net worth because unconnected assets and debts are outside its scope.
 
 ---
 

@@ -356,3 +356,54 @@ export interface AccountSummary {
 }
 
 export type ConnectedAccount = AccountSummary;
+
+export type AccountBalanceStatus = 'fresh' | 'stale' | 'missing';
+
+export interface AccountBalanceRecord extends AccountSummary {
+  current: number | null;
+  available: number | null;
+  limit: number | null;
+  isoCurrencyCode: string | null;
+  unofficialCurrencyCode: string | null;
+  fetchedAt: string | null;
+  balanceStatus: AccountBalanceStatus;
+}
+
+export interface AccountBalanceSummary {
+  status: 'complete' | 'partial' | 'unavailable';
+  currency: string | null;
+  oldestFetchedAt: string | null;
+  newestFetchedAt: string | null;
+  connectedItemCount: number;
+  reportingItemCount: number;
+  freshItemCount: number;
+  missingCurrentBalanceCount: number;
+  currencyIssueCount: number;
+  cashCurrent: number | null;
+  cashAvailable: number | null;
+  creditBalance: number | null;
+  creditOwed: number | null;
+  creditCredits: number | null;
+  loanBalance: number | null;
+  investmentValue: number | null;
+  connectedPosition: number | null;
+  issues: Array<{
+    itemId: string;
+    institutionName: string;
+    reason: 'missing' | 'stale' | 'connection';
+  }>;
+  accounts: AccountBalanceRecord[];
+}
+
+export interface DashboardOverviewResponse {
+  summary: DashboardSummary;
+  categories: DashboardCategory[];
+  merchants: DashboardMerchant[];
+  trends: TrendPoint[];
+  recurringObligations: RecurringObligationsResponse;
+  householdInsights: HouseholdInsights;
+  verification: DashboardVerificationResponse;
+  postedTransactions: Transaction[];
+  pendingTransactions: Transaction[];
+  accountBalances: AccountBalanceSummary;
+}

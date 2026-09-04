@@ -15,6 +15,8 @@ import type {
   HouseholdInsights,
   HouseholdInsightPeriod,
   HouseholdPlanningResponse,
+  AccountBalanceSummary,
+  DashboardOverviewResponse,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -174,6 +176,73 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
   return data as ConnectedAccount[];
 }
 
+function validNullableNumber(value: unknown): boolean {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function validNullableString(value: unknown): boolean {
+  return value === null || typeof value === 'string';
+}
+
+export function extractAccountBalanceSummary(data: unknown): AccountBalanceSummary {
+  const record = requireRecord(data, 'account balances');
+  const numericFields = [
+    'connectedItemCount',
+    'reportingItemCount',
+    'freshItemCount',
+    'missingCurrentBalanceCount',
+    'currencyIssueCount',
+  ];
+  const nullableNumberFields = [
+    'cashCurrent',
+    'cashAvailable',
+    'creditBalance',
+    'creditOwed',
+    'creditCredits',
+    'loanBalance',
+    'investmentValue',
+    'connectedPosition',
+  ];
+
+  if (
+    !['complete', 'partial', 'unavailable'].includes(String(record.status)) ||
+    !validNullableString(record.currency) ||
+    !validNullableString(record.oldestFetchedAt) ||
+    !validNullableString(record.newestFetchedAt) ||
+    numericFields.some(field => typeof record[field] !== 'number') ||
+    nullableNumberFields.some(field => !validNullableNumber(record[field])) ||
+    !Array.isArray(record.issues) ||
+    record.issues.some(issue => (
+      !isRecord(issue) ||
+      typeof issue.itemId !== 'string' ||
+      typeof issue.institutionName !== 'string' ||
+      !['missing', 'stale', 'connection'].includes(String(issue.reason))
+    )) ||
+    !Array.isArray(record.accounts) ||
+    record.accounts.some(account => (
+      !isRecord(account) ||
+      typeof account.accountId !== 'string' ||
+      typeof account.institutionName !== 'string' ||
+      typeof account.accountName !== 'string' ||
+      typeof account.accountMask !== 'string' ||
+      typeof account.accountType !== 'string' ||
+      typeof account.accountSubtype !== 'string' ||
+      typeof account.health !== 'string' ||
+      !validNullableNumber(account.current) ||
+      !validNullableNumber(account.available) ||
+      !validNullableNumber(account.limit) ||
+      !validNullableString(account.isoCurrencyCode) ||
+      !validNullableString(account.unofficialCurrencyCode) ||
+      !validNullableString(account.fetchedAt) ||
+      !['fresh', 'stale', 'missing'].includes(String(account.balanceStatus))
+    ))
+  ) {
+    throw new Error('Invalid account balances response.');
+  }
+
+  return record as unknown as AccountBalanceSummary;
+}
+
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
   return requireArrayField<ClassificationRuleRecord>(
     data,
@@ -310,5 +379,39 @@ export function normalizeOverviewPayloads(
     verification: extractVerificationResponse(payloads.verification),
     postedTransactions: posted.transactions,
     pendingTransactions: pending.transactions,
+  };
+}
+
+export function extractOverviewResponse(data: unknown): DashboardOverviewResponse {
+  const record = requireRecord(data, 'dashboard overview');
+  const normalized = normalizeOverviewPayloads({
+    summary: record.summary,
+    categories: { categories: record.categories },
+    merchants: { merchants: record.merchants },
+    trends: { monthly: record.trends },
+    householdPlanning: {
+      recurringObligations: record.recurringObligations,
+      insights: record.householdInsights,
+    },
+    verification: record.verification,
+    postedTransactions: {
+      transactions: record.postedTransactions,
+      total: Array.isArray(record.postedTransactions) ? record.postedTransactions.length : 0,
+      page: 1,
+      limit: 6,
+      totalPages: 1,
+    },
+    pendingTransactions: {
+      transactions: record.pendingTransactions,
+      total: Array.isArray(record.pendingTransactions) ? record.pendingTransactions.length : 0,
+      page: 1,
+      limit: 4,
+      totalPages: 1,
+    },
+  });
+
+  return {
+    ...normalized,
+    accountBalances: extractAccountBalanceSummary(record.accountBalances),
   };
 }
