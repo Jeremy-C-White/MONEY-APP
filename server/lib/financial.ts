@@ -34,6 +34,12 @@ export type TransactionOverride = {
   reviewedBy?: string;
 };
 
+export type ClassificationSuggestion = {
+  ruleId: string;
+  classification: 'income' | 'spending' | 'refund' | 'internal_transfer';
+  offsetCategory: string | null;
+};
+
 export function isClassification(value: unknown): value is Classification {
   return typeof value === 'string' && CLASSIFICATIONS.includes(value as Classification);
 }
@@ -124,6 +130,7 @@ export type NormalizedTransaction = {
   isOverridden: boolean;
   overrideNote: string | null;
   overrideOffsetCategory: string | null;
+  classificationSuggestion?: ClassificationSuggestion | null;
 };
 
 // Google Sheets dates are days since Dec 30, 1899
@@ -245,7 +252,9 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const isCashBackReward = cashFlowAmount > 0 &&
     (combinedDescLower.includes('cash reward') ||
       combinedDescLower.includes('cashback') ||
-      combinedDescLower.includes('cash back'));
+      combinedDescLower.includes('cash back') ||
+      name.trim().toLowerCase() === 'reward redemption' ||
+      name.trim().toLowerCase() === 'merchant offers credit');
 
   // TRANSFER_IN_DEPOSIT establishes how money entered the account, not its
   // economic purpose. Keep these deposits grouped for review without
@@ -330,6 +339,7 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     isOverridden: false,
     overrideNote: null,
     overrideOffsetCategory: null,
+    classificationSuggestion: null,
   };
 }
 
@@ -349,6 +359,81 @@ export function applyTransactionOverride(
       ? override.offsetCategory
       : null,
   };
+}
+
+function civilDayNumber(date: string): number | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return null;
+  return Math.floor(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / 86400000);
+}
+
+function normalizedDescriptionTokens(value: string): Set<string> {
+  return new Set(value.toLowerCase().match(/[a-z0-9]+/g) || []);
+}
+
+export function reconcilePairedPayPalFunding(
+  transactions: NormalizedTransaction[]
+): NormalizedTransaction[] {
+  const incoming = transactions.filter(transaction =>
+    !transaction.pending &&
+    !transaction.removed &&
+    !transaction.isOverridden &&
+    transaction.cashFlowAmount > 0 &&
+    transaction.accountType.toLowerCase() === 'depository' &&
+    transaction.accountSubtype.toLowerCase() === 'paypal' &&
+    transaction.categoryDetailed === 'TRANSFER_IN_TRANSFER_IN_FROM_APPS' &&
+    /^payment from\s+.+/i.test(transaction.name.trim()) &&
+    (transaction.classification === 'other' || transaction.classification === 'unclassified_deposit')
+  );
+  const outgoing = transactions.filter(transaction =>
+    !transaction.pending &&
+    !transaction.removed &&
+    !transaction.isOverridden &&
+    transaction.cashFlowAmount < 0 &&
+    transaction.accountType.toLowerCase() === 'depository' &&
+    transaction.classification !== 'credit_card_payment' &&
+    (
+      /money transfer authorized.*visa direct/i.test(transaction.name) ||
+      (/paypal inst xfer/i.test(transaction.name) && !/ppcr cc repayme/i.test(transaction.name))
+    )
+  );
+
+  const candidates = incoming.flatMap(inflow => outgoing.flatMap(outflow => {
+    if (inflow.accountId === outflow.accountId) return [];
+    if (Math.abs(inflow.cashFlowAmount + outflow.cashFlowAmount) >= 0.01) return [];
+    const ownerName = inflow.name.replace(/^payment from\s+/i, '');
+    const ownerTokens = normalizedDescriptionTokens(ownerName);
+    const outflowTokens = normalizedDescriptionTokens(outflow.name);
+    if (ownerTokens.size === 0 || ![...ownerTokens].every(token => outflowTokens.has(token))) return [];
+    const inflowDay = civilDayNumber(inflow.normalizedDate);
+    const outflowDay = civilDayNumber(outflow.normalizedDate);
+    if (inflowDay === null || outflowDay === null) return [];
+    const dayDistance = Math.abs(inflowDay - outflowDay);
+    if (dayDistance > 3) return [];
+    return [{ inflow, outflow, dayDistance }];
+  })).sort((a, b) =>
+    a.dayDistance - b.dayDistance ||
+    a.inflow.transactionId.localeCompare(b.inflow.transactionId) ||
+    a.outflow.transactionId.localeCompare(b.outflow.transactionId)
+  );
+
+  const pairedIds = new Set<string>();
+  for (const candidate of candidates) {
+    if (pairedIds.has(candidate.inflow.transactionId) || pairedIds.has(candidate.outflow.transactionId)) {
+      continue;
+    }
+    pairedIds.add(candidate.inflow.transactionId);
+    pairedIds.add(candidate.outflow.transactionId);
+  }
+
+  return transactions.map(transaction => pairedIds.has(transaction.transactionId)
+    ? {
+        ...transaction,
+        classification: 'internal_transfer',
+        ...getClassificationAdjustments('internal_transfer', transaction.cashFlowAmount),
+      }
+    : transaction
+  );
 }
 
 export function deduplicateAndNormalizeTransactions(
@@ -383,16 +468,18 @@ export function deduplicateAndNormalizeTransactions(
     return t;
   });
 
+  const transferReconciledTx = reconcilePairedPayPalFunding(deduplicatedTx);
+
   // Second pass: Context-aware merchant credit detection
   const merchantCategorySpendingSet = new Set<string>();
   
-  for (const t of deduplicatedTx) {
+  for (const t of transferReconciledTx) {
     if (!t.removed && !t.pending && t.classification === 'spending' && t.spendingAdjustment > 0 && t.normalizedMerchant) {
       merchantCategorySpendingSet.add(`${t.normalizedMerchant}|${t.normalizedCategory}`);
     }
   }
 
-  return deduplicatedTx.map(t => {
+  return transferReconciledTx.map(t => {
     if (!t.removed && !t.pending && t.cashFlowAmount > 0) {
       if (!t.isOverridden && t.classification === 'other') {
         const strictKey = `${t.normalizedMerchant}|${t.normalizedCategory}`;

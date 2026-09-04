@@ -5,7 +5,7 @@ import { buildVerificationReport } from './aggregations';
 function buildRow(overrides: Record<string, string>): any[] {
   const row = new Array(24).fill('');
   row[0] = overrides.txId || 'test_tx';
-  row[1] = 'acc_1';
+  row[1] = overrides.accountId || 'acc_1';
   row[4] = overrides.accountName || '';
   row[6] = overrides.accountType || 'depository';
   row[7] = overrides.accountSubtype || 'checking';
@@ -84,6 +84,78 @@ describe('PayPal account-role classification', () => {
     expect(tx.classification).toBe('spending');
     expect(tx.countsTowardSpending).toBe(true);
     expect(tx.spendingAdjustment).toBe(84.25);
+  });
+
+  it('reconciles equal owner funding rows across the linked PayPal and bank accounts', () => {
+    const transactions = deduplicateAndNormalizeTransactions([
+      buildRow({
+        txId: 'paypal-in',
+        accountId: 'paypal-account',
+        name: 'Payment from Account Owner',
+        cashFlowAmount: '100',
+        catPrimary: 'TRANSFER_IN',
+        catDetailed: 'TRANSFER_IN_TRANSFER_IN_FROM_APPS',
+        accountType: 'depository',
+        accountSubtype: 'paypal',
+      }),
+      buildRow({
+        txId: 'bank-out',
+        accountId: 'bank-account',
+        name: 'MONEY TRANSFER AUTHORIZED ON 02/28 Account Owner Visa Direct CA CARD 4343',
+        cashFlowAmount: '-100',
+        catPrimary: 'TRANSFER_OUT',
+        catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS',
+        accountType: 'depository',
+        accountSubtype: 'checking',
+      }),
+    ]);
+
+    expect(transactions.map(transaction => transaction.classification)).toEqual([
+      'internal_transfer',
+      'internal_transfer',
+    ]);
+    expect(transactions.every(transaction => !transaction.countsTowardSpending && !transaction.countsTowardIncome)).toBe(true);
+  });
+
+  it('uses exact amount evidence and never consumes one counterpart twice', () => {
+    const transactions = deduplicateAndNormalizeTransactions([
+      buildRow({
+        txId: 'paypal-in-1', accountId: 'paypal-account', name: 'Payment from Account Owner', cashFlowAmount: '50',
+        catPrimary: 'TRANSFER_IN', catDetailed: 'TRANSFER_IN_TRANSFER_IN_FROM_APPS', accountSubtype: 'paypal',
+      }),
+      buildRow({
+        txId: 'paypal-in-2', accountId: 'paypal-account', name: 'Payment from Account Owner', cashFlowAmount: '50',
+        catPrimary: 'TRANSFER_IN', catDetailed: 'TRANSFER_IN_TRANSFER_IN_FROM_APPS', accountSubtype: 'paypal',
+      }),
+      buildRow({
+        txId: 'bank-out', accountId: 'bank-account', name: 'PAYPAL INST XFER 241211 OWNER ACCOUNT', cashFlowAmount: '-50',
+        catPrimary: 'ENTERTAINMENT', catDetailed: 'ENTERTAINMENT_MUSIC_AND_AUDIO', accountSubtype: 'checking',
+      }),
+      buildRow({
+        txId: 'wrong-amount', accountId: 'bank-account', name: 'PAYPAL INST XFER 241211 OWNER ACCOUNT', cashFlowAmount: '-75',
+        catPrimary: 'TRANSFER_OUT', catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS', accountSubtype: 'checking',
+      }),
+    ]);
+
+    expect(transactions.filter(transaction => transaction.classification === 'internal_transfer')).toHaveLength(2);
+    expect(transactions.find(transaction => transaction.transactionId === 'wrong-amount')?.classification).toBe('person_to_person');
+  });
+
+  it('does not pair a same-value transfer to a different person', () => {
+    const transactions = deduplicateAndNormalizeTransactions([
+      buildRow({
+        txId: 'paypal-in', accountId: 'paypal-account', name: 'Payment from Account Owner', cashFlowAmount: '100',
+        catPrimary: 'TRANSFER_IN', catDetailed: 'TRANSFER_IN_TRANSFER_IN_FROM_APPS', accountSubtype: 'paypal',
+      }),
+      buildRow({
+        txId: 'bank-out', accountId: 'bank-account',
+        name: 'MONEY TRANSFER AUTHORIZED ON 02/28 Different Person Visa Direct CA CARD 9999',
+        cashFlowAmount: '-100', catPrimary: 'TRANSFER_OUT',
+        catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS', accountSubtype: 'checking',
+      }),
+    ]);
+
+    expect(transactions.map(transaction => transaction.classification)).toEqual(['other', 'person_to_person']);
   });
 
   it('keeps a genuine PayPal transfer to another person as P2P spending', () => {
@@ -824,6 +896,38 @@ describe('Classification corrections', () => {
     expect(tx.classification).toBe('income');
     expect(tx.countsTowardIncome).toBe(true);
     expect(tx.incomeAdjustment).toBe(25.50);
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it.each([
+    ['Reward Redemption', 14.39],
+    ['Merchant Offers Credit', 20],
+  ])('classifies the exact issuer reward wording as income: %s', (name, amount) => {
+    const tx = classifyTransaction(buildRow({
+      name,
+      cashFlowAmount: String(amount),
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+    }));
+
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.incomeAdjustment).toBe(amount);
+    expect(tx.countsTowardSpending).toBe(false);
+  });
+
+  it('keeps a provisional dispute credit out of income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'CITIBANK CONDITIONAL CREDIT FOR DISPUTE',
+      cashFlowAmount: '399',
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+      accountType: 'credit',
+      accountSubtype: 'credit card',
+    }));
+
+    expect(tx.classification).toBe('other');
+    expect(tx.countsTowardIncome).toBe(false);
     expect(tx.countsTowardSpending).toBe(false);
   });
 

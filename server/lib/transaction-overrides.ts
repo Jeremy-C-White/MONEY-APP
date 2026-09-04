@@ -3,6 +3,11 @@ import {
   type NormalizedTransaction,
   type TransactionOverride,
 } from './financial';
+import {
+  buildClassificationRule,
+  ClassificationRuleRequestError,
+  type StoredClassificationRule,
+} from './classification-rules';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -72,10 +77,12 @@ export function parseStoredTransactionOverride(value: unknown): TransactionOverr
 
 export type TransactionOverrideServiceDependencies = {
   loadTransactions: (uid: string) => Promise<NormalizedTransaction[]>;
-  setOverride: (
+  persistOverride: (
     uid: string,
     transactionId: string,
-    override: StoredTransactionOverride
+    override: StoredTransactionOverride,
+    rememberedRule: StoredClassificationRule | null,
+    appliedSuggestionRuleId: string | null
   ) => Promise<void>;
   deleteOverride: (uid: string, transactionId: string) => Promise<void>;
   invalidateCache: (uid: string) => void;
@@ -107,15 +114,59 @@ export async function saveTransactionOverride(
   value: unknown
 ): Promise<StoredTransactionOverride> {
   const parsed = parseTransactionOverrideInput(value);
-  await requireOverridableTransaction(dependencies, uid, transactionId);
+  const transaction = await requireOverridableTransaction(dependencies, uid, transactionId);
+  const input = isRecord(value) ? value : {};
+  if (input.rememberRule !== undefined && typeof input.rememberRule !== 'boolean') {
+    throw new TransactionOverrideRequestError('rememberRule must be a boolean.', 400);
+  }
+  if (input.suggestionRuleId !== undefined &&
+      (typeof input.suggestionRuleId !== 'string' || !input.suggestionRuleId.trim())) {
+    throw new TransactionOverrideRequestError('suggestionRuleId must be a non-empty string.', 400);
+  }
+  if (input.rememberRule === true && input.suggestionRuleId) {
+    throw new TransactionOverrideRequestError('A confirmed suggestion cannot create another rule.', 400);
+  }
+
+  const appliedSuggestionRuleId = typeof input.suggestionRuleId === 'string'
+    ? input.suggestionRuleId.trim()
+    : null;
+  if (appliedSuggestionRuleId) {
+    const suggestion = transaction.classificationSuggestion;
+    if (!suggestion ||
+        suggestion.ruleId !== appliedSuggestionRuleId ||
+        suggestion.classification !== parsed.classification ||
+        suggestion.offsetCategory !== parsed.offsetCategory) {
+      throw new TransactionOverrideRequestError('This remembered suggestion is no longer valid.', 400);
+    }
+  }
+
+  const reviewedAt = dependencies.reviewedAt();
 
   const stored: StoredTransactionOverride = {
     ...parsed,
-    reviewedAt: dependencies.reviewedAt(),
+    reviewedAt,
     reviewedBy: uid,
   };
 
-  await dependencies.setOverride(uid, transactionId, stored);
+  let rememberedRule: StoredClassificationRule | null = null;
+  if (input.rememberRule === true) {
+    try {
+      rememberedRule = buildClassificationRule(transaction, parsed, reviewedAt);
+    } catch (error) {
+      if (error instanceof ClassificationRuleRequestError) {
+        throw new TransactionOverrideRequestError(error.message, error.status);
+      }
+      throw error;
+    }
+  }
+
+  await dependencies.persistOverride(
+    uid,
+    transactionId,
+    stored,
+    rememberedRule,
+    appliedSuggestionRuleId
+  );
   dependencies.invalidateCache(uid);
   return stored;
 }

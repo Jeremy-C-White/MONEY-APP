@@ -299,6 +299,13 @@ export interface Transaction {
   isOverridden: boolean;
   overrideNote: string | null;
   overrideOffsetCategory: string | null;
+  classificationSuggestion?: ClassificationSuggestion | null;
+}
+
+export interface ClassificationSuggestion {
+  ruleId: string;
+  classification: 'income' | 'spending' | 'refund' | 'internal_transfer';
+  offsetCategory: string | null;
 }
 
 export interface TransactionOverrideRecord {
@@ -312,6 +319,22 @@ export interface TransactionOverrideRecord {
 
 export interface TransactionOverridesResponse {
   overrides: TransactionOverrideRecord[];
+}
+
+export interface ClassificationRuleRecord {
+  ruleId: string;
+  merchantKey: string;
+  category: string | null;
+  direction: 'inflow' | 'outflow';
+  classification: ClassificationSuggestion['classification'];
+  offsetCategory: string | null;
+  createdFromTransactionId: string;
+  createdAt: unknown;
+  timesApplied: number;
+}
+
+export interface ClassificationRulesResponse {
+  rules: ClassificationRuleRecord[];
 }
 
 export interface TransactionsResponse {

@@ -319,6 +319,107 @@ describe('TransactionsPage', () => {
     });
   });
 
+  it('confirms a remembered suggestion with one click', async () => {
+    let confirmed = false;
+    const apiFetch = vi.fn().mockImplementation(async (url, options) => {
+      if (options?.method === 'PUT') {
+        confirmed = true;
+        return { ok: true, json: async () => ({}) };
+      }
+      if (url.includes('/api/transactions')) {
+        return {
+          ok: true,
+          json: async () => confirmed
+            ? { ...mockRes, transactions: [], total: 0, totalPages: 0 }
+            : {
+                ...mockRes,
+                transactions: [{
+                  ...mockTx,
+                  cashFlowAmount: 25,
+                  classification: 'other',
+                  classificationSuggestion: {
+                    ruleId: 'rule_1',
+                    classification: 'income',
+                    offsetCategory: null,
+                  },
+                }],
+              },
+        };
+      }
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(
+        <TransactionsPage apiFetch={apiFetch} refreshKey={0} initialViewMode="needs_review" />
+      );
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Suggested from a past decision'));
+
+    const confirmButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.trim() === 'Confirm suggestion');
+    await act(async () => confirmButton?.click());
+
+    await vi.waitFor(() => {
+      const putCall = apiFetch.mock.calls.find(([, options]) => options?.method === 'PUT');
+      expect(JSON.parse(String(putCall?.[1]?.body))).toEqual({
+        classification: 'income',
+        offsetCategory: null,
+        note: null,
+        suggestionRuleId: 'rule_1',
+      });
+    });
+  });
+
+  it('remembers a review decision only when the checkbox is selected', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url, options) => {
+      if (options?.method === 'PUT') return { ok: true, json: async () => ({}) };
+      if (url.includes('/api/transactions')) {
+        return {
+          ok: true,
+          json: async () => ({
+            ...mockRes,
+            transactions: [{ ...mockTx, cashFlowAmount: 20, classification: 'other' }],
+          }),
+        };
+      }
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(
+        <TransactionsPage apiFetch={apiFetch} refreshKey={0} initialViewMode="needs_review" />
+      );
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Starbucks'));
+    const reviewButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.trim() === 'Review');
+    await act(async () => reviewButton?.click());
+
+    const classificationSelect = container.querySelector('select[aria-label="Review classification"]') as HTMLSelectElement;
+    const rememberCheckbox = container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    await act(async () => {
+      classificationSelect.value = 'income';
+      classificationSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      rememberCheckbox.click();
+    });
+    const saveButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.trim() === 'Save review');
+    await act(async () => saveButton?.click());
+
+    await vi.waitFor(() => {
+      const putCall = apiFetch.mock.calls.find(([, options]) => options?.method === 'PUT');
+      expect(JSON.parse(String(putCall?.[1]?.body))).toMatchObject({
+        classification: 'income',
+        rememberRule: true,
+      });
+    });
+  });
+
   it('shows reviewed transactions in the audit tab and supports undo', async () => {
     const overriddenResponse = {
       ...mockRes,

@@ -9,6 +9,7 @@ import type {
   AccountSummary,
   ConnectedAccount,
   TransactionOverrideRecord,
+  ClassificationRuleRecord,
   RecurringObligationsResponse,
   AppStatusResponse,
   HouseholdInsights,
@@ -171,6 +172,14 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
   }
 
   return data as ConnectedAccount[];
+}
+
+export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
+  return requireArrayField<ClassificationRuleRecord>(
+    data,
+    'rules',
+    'classification rules'
+  );
 }
 
 export function extractStatusResponse(data: unknown): AppStatusResponse {

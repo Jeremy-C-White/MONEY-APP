@@ -471,6 +471,37 @@ describe('Zero-amount bucket', () => {
   });
 });
 
+describe('Remembered exact classifier patterns', () => {
+  it('keeps reward income and PayPal self-funding reconciled in existing bridge buckets', () => {
+    const res = buildVerificationReport([
+      mockTx({
+        transactionId: 'reward',
+        classification: 'income',
+        cashFlowAmount: 20,
+        countsTowardIncome: true,
+        incomeAdjustment: 20,
+      }),
+      mockTx({
+        transactionId: 'paypal-in',
+        classification: 'internal_transfer',
+        cashFlowAmount: 100,
+      }),
+      mockTx({
+        transactionId: 'paypal-out',
+        classification: 'internal_transfer',
+        cashFlowAmount: -100,
+      }),
+    ], 'America/New_York');
+
+    expect(res.summary.allTime.income).toBe(20);
+    expect(res.summary.allTime.spending).toBe(0);
+    expect(res.reconciliation.bridge.recognizedIncome).toBe(20);
+    expect(res.reconciliation.bridge.internalTransfers).toBe(0);
+    expect(res.reconciliation.bridge.activePostedRawCashFlowTotal).toBe(20);
+    expect(res.reconciliation.bridge.accountingBridgeReconciles).toBe(true);
+  });
+});
+
 describe('Override category offsets', () => {
   it('attributes an overridden refund to its offset category and preserves reconciliation', () => {
     const report = buildVerificationReport([

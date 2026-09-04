@@ -10,6 +10,7 @@ import {
   extractAccountsResponse,
   extractConnectedAccountsResponse,
   extractTransactionOverridesResponse,
+  extractClassificationRulesResponse,
   extractRecurringObligationsResponse,
   extractStatusResponse,
   extractHouseholdPlanningResponse,
@@ -449,6 +450,25 @@ describe('presentation formatters', () => {
 
     expect(overrides).toHaveLength(1);
     expect(overrides[0].transactionId).toBe('tx_123');
+  });
+
+  it('unwraps remembered classification rules', () => {
+    const rules = extractClassificationRulesResponse({
+      rules: [{
+        ruleId: 'rule_1',
+        merchantKey: 'walmart',
+        category: 'general_merchandise',
+        direction: 'inflow',
+        classification: 'refund',
+        offsetCategory: 'GENERAL_MERCHANDISE',
+        createdFromTransactionId: 'tx_123',
+        createdAt: null,
+        timesApplied: 2,
+      }],
+    });
+
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({ ruleId: 'rule_1', timesApplied: 2 });
   });
 
   it('labels unclassified deposits neutrally and keeps them in review', () => {

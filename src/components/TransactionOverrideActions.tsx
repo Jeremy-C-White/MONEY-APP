@@ -28,15 +28,40 @@ export function TransactionOverrideActions({
   const [classification, setClassification] = useState<ReviewClassification | ''>('');
   const [offsetCategory, setOffsetCategory] = useState('');
   const [note, setNote] = useState('');
+  const [rememberRule, setRememberRule] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const save = async () => {
-    if (!classification) {
+  const resetEditor = () => {
+    setEditing(false);
+    setClassification('');
+    setOffsetCategory('');
+    setNote('');
+    setRememberRule(false);
+  };
+
+  const beginEditing = () => {
+    const suggestion = transaction.classificationSuggestion;
+    setClassification(suggestion?.classification || '');
+    setOffsetCategory(suggestion?.offsetCategory || '');
+    setRememberRule(false);
+    setEditing(true);
+  };
+
+  const save = async ({
+    selectedClassification = classification,
+    selectedOffsetCategory = offsetCategory,
+    suggestionRuleId = null,
+  }: {
+    selectedClassification?: ReviewClassification | '';
+    selectedOffsetCategory?: string;
+    suggestionRuleId?: string | null;
+  } = {}) => {
+    if (!selectedClassification) {
       setEditing(false);
       return;
     }
-    if (classification === 'refund' && !offsetCategory) {
+    if (selectedClassification === 'refund' && !selectedOffsetCategory) {
       setError('Choose the category this reimbursement offsets.');
       return;
     }
@@ -50,9 +75,11 @@ export function TransactionOverrideActions({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            classification,
-            offsetCategory: classification === 'refund' ? offsetCategory : null,
+            classification: selectedClassification,
+            offsetCategory: selectedClassification === 'refund' ? selectedOffsetCategory : null,
             note: note || null,
+            ...(rememberRule ? { rememberRule: true } : {}),
+            ...(suggestionRuleId ? { suggestionRuleId } : {}),
           }),
         }
       );
@@ -60,10 +87,7 @@ export function TransactionOverrideActions({
         const payload = await response.json().catch(() => null);
         throw new Error(payload?.error || 'Could not save this review.');
       }
-      setEditing(false);
-      setClassification('');
-      setOffsetCategory('');
-      setNote('');
+      resetEditor();
       await onChanged();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : 'Could not save this review.');
@@ -122,10 +146,44 @@ export function TransactionOverrideActions({
   if (!reviewable) return null;
 
   if (!editing) {
+    if (transaction.classificationSuggestion) {
+      const suggestion = transaction.classificationSuggestion;
+      const suggestionLabel = REVIEW_OPTIONS.find(option => option.value === suggestion.classification)?.label;
+      return (
+        <div className="mt-2 rounded-lg border border-sky-200 bg-sky-50 p-2.5 text-xs">
+          <p className="font-semibold text-sky-800">Suggested from a past decision</p>
+          <p className="mt-0.5 text-slate-600">Suggested: {suggestionLabel}</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => void save({
+                selectedClassification: suggestion.classification,
+                selectedOffsetCategory: suggestion.offsetCategory || '',
+                suggestionRuleId: suggestion.ruleId,
+              })}
+              className="rounded-lg bg-sky-700 px-3 py-1.5 font-semibold text-white hover:bg-sky-800 disabled:opacity-50"
+            >
+              {saving ? 'Confirming...' : 'Confirm suggestion'}
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={beginEditing}
+              className="rounded-lg px-3 py-1.5 font-semibold text-sky-800 hover:bg-sky-100 disabled:opacity-50"
+            >
+              Change
+            </button>
+          </div>
+          {error && <p className="mt-1 text-xs font-medium text-rose-600">{error}</p>}
+        </div>
+      );
+    }
+
     return (
       <button
         type="button"
-        onClick={() => setEditing(true)}
+        onClick={beginEditing}
         className="mt-2 inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
       >
         Review
@@ -152,6 +210,22 @@ export function TransactionOverrideActions({
           ))}
         </select>
       </label>
+
+      {(transaction.classification === 'other' || transaction.classification === 'unclassified_deposit') &&
+        !transaction.classificationSuggestion && (
+          <label className="flex items-start gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={rememberRule}
+              onChange={event => setRememberRule(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600"
+            />
+            <span>
+              Remember this for future <strong>{transaction.normalizedMerchant || transaction.name}</strong> transactions.
+              Suggestions still require confirmation.
+            </span>
+          </label>
+        )}
 
       {classification === 'refund' && (
         <label className="block text-xs font-semibold text-slate-700">
@@ -199,7 +273,7 @@ export function TransactionOverrideActions({
           type="button"
           disabled={saving}
           onClick={() => {
-            setEditing(false);
+            resetEditor();
             setError('');
           }}
           className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"

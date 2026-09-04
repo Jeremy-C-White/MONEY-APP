@@ -85,7 +85,7 @@ describe('transaction override service', () => {
   beforeEach(() => {
     dependencies = {
       loadTransactions: vi.fn().mockResolvedValue([transaction()]),
-      setOverride: vi.fn().mockResolvedValue(undefined),
+      persistOverride: vi.fn().mockResolvedValue(undefined),
       deleteOverride: vi.fn().mockResolvedValue(undefined),
       invalidateCache: vi.fn(),
       reviewedAt: vi.fn().mockReturnValue('timestamp'),
@@ -103,7 +103,7 @@ describe('transaction override service', () => {
       message: 'Transaction not found.',
     }));
 
-    expect(dependencies.setOverride).not.toHaveBeenCalled();
+    expect(dependencies.persistOverride).not.toHaveBeenCalled();
     expect(dependencies.invalidateCache).not.toHaveBeenCalled();
   });
 
@@ -120,7 +120,7 @@ describe('transaction override service', () => {
       { classification: 'income' }
     )).rejects.toBeInstanceOf(TransactionOverrideRequestError);
 
-    expect(dependencies.setOverride).not.toHaveBeenCalled();
+    expect(dependencies.persistOverride).not.toHaveBeenCalled();
   });
 
   it('writes the reviewed record and invalidates cache after success', async () => {
@@ -138,12 +138,12 @@ describe('transaction override service', () => {
       reviewedAt: 'timestamp',
       reviewedBy: 'user_1',
     });
-    expect(dependencies.setOverride).toHaveBeenCalledWith('user_1', 'tx_1', result);
+    expect(dependencies.persistOverride).toHaveBeenCalledWith('user_1', 'tx_1', result, null, null);
     expect(dependencies.invalidateCache).toHaveBeenCalledWith('user_1');
   });
 
   it('does not invalidate cache when persistence fails', async () => {
-    vi.mocked(dependencies.setOverride).mockRejectedValue(new Error('write failed'));
+    vi.mocked(dependencies.persistOverride).mockRejectedValue(new Error('write failed'));
 
     await expect(saveTransactionOverride(
       dependencies,
@@ -160,5 +160,56 @@ describe('transaction override service', () => {
 
     expect(dependencies.deleteOverride).toHaveBeenCalledWith('user_1', 'tx_1');
     expect(dependencies.invalidateCache).toHaveBeenCalledWith('user_1');
+  });
+
+  it('atomically persists a remembered rule with its source override', async () => {
+    await saveTransactionOverride(
+      dependencies,
+      'user_1',
+      'tx_1',
+      { classification: 'income', rememberRule: true }
+    );
+
+    expect(dependencies.persistOverride).toHaveBeenCalledWith(
+      'user_1',
+      'tx_1',
+      expect.objectContaining({ classification: 'income' }),
+      expect.objectContaining({
+        merchantKey: 'deposit',
+        category: 'transfer_in',
+        direction: 'inflow',
+        classification: 'income',
+        timesApplied: 0,
+      }),
+      null
+    );
+  });
+
+  it('confirms only the suggestion currently attached to the transaction', async () => {
+    const suggested = transaction({
+      classificationSuggestion: {
+        ruleId: 'rule_1',
+        classification: 'income',
+        offsetCategory: null,
+      },
+    });
+    vi.mocked(dependencies.loadTransactions).mockResolvedValue([suggested]);
+
+    await saveTransactionOverride(dependencies, 'user_1', 'tx_1', {
+      classification: 'income',
+      suggestionRuleId: 'rule_1',
+    });
+    expect(dependencies.persistOverride).toHaveBeenCalledWith(
+      'user_1',
+      'tx_1',
+      expect.objectContaining({ classification: 'income' }),
+      null,
+      'rule_1'
+    );
+
+    await expect(saveTransactionOverride(dependencies, 'user_1', 'tx_1', {
+      classification: 'spending',
+      suggestionRuleId: 'rule_1',
+    })).rejects.toEqual(expect.objectContaining({ status: 400 }));
   });
 });

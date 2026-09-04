@@ -23,6 +23,13 @@ import {
   TransactionOverrideRequestError,
   type TransactionOverrideServiceDependencies,
 } from "./server/lib/transaction-overrides";
+import {
+  applyClassificationSuggestions,
+  parseStoredClassificationRule,
+  removeClassificationRule,
+  ClassificationRuleRequestError,
+  type ClassificationRuleServiceDependencies,
+} from "./server/lib/classification-rules";
 import { detectLikelyRecurringObligations } from "./server/lib/recurring-obligations";
 import {
   buildRecurringPlanningReport,
@@ -1806,7 +1813,12 @@ async function fetchNormalizedTransactions(
       ? fetchRows()
       : withGoogleAuth(uid, fetchRows);
     const overridesPromise = userRef.collection('transaction_overrides').get();
-    const [getRes, overridesSnapshot] = await Promise.all([rowsPromise, overridesPromise]);
+    const rulesPromise = userRef.collection('classification_rules').get();
+    const [getRes, overridesSnapshot, rulesSnapshot] = await Promise.all([
+      rowsPromise,
+      overridesPromise,
+      rulesPromise,
+    ]);
 
     const overrides = new Map<string, TransactionOverride>();
     for (const document of overridesSnapshot.docs) {
@@ -1814,17 +1826,48 @@ async function fetchNormalizedTransactions(
       if (override) overrides.set(document.id, override);
     }
 
+    const rules = rulesSnapshot.docs.flatMap(document => {
+      const rule = parseStoredClassificationRule(document.id, document.data());
+      return rule ? [rule] : [];
+    });
+
     const rows = getRes.data.values || [];
-    return deduplicateAndNormalizeTransactions(rows, overrides);
+    return applyClassificationSuggestions(
+      deduplicateAndNormalizeTransactions(rows, overrides),
+      rules
+    );
   });
 }
 
 const transactionOverrideDependencies: TransactionOverrideServiceDependencies = {
   loadTransactions: fetchNormalizedTransactions,
-  setOverride: async (uid, transactionId, override) => {
-    await db.collection('users').doc(uid)
-      .collection('transaction_overrides').doc(transactionId)
-      .set(override);
+  persistOverride: async (
+    uid,
+    transactionId,
+    override,
+    rememberedRule,
+    appliedSuggestionRuleId
+  ) => {
+    const userRef = db.collection('users').doc(uid);
+    const batch = db.batch();
+    batch.set(userRef.collection('transaction_overrides').doc(transactionId), override);
+
+    if (rememberedRule) {
+      const { ruleId, ...ruleData } = rememberedRule;
+      batch.set(
+        userRef.collection('classification_rules').doc(ruleId),
+        { ...ruleData, timesApplied: FieldValue.increment(0) },
+        { merge: true }
+      );
+    }
+    if (appliedSuggestionRuleId) {
+      batch.update(
+        userRef.collection('classification_rules').doc(appliedSuggestionRuleId),
+        { timesApplied: FieldValue.increment(1) }
+      );
+    }
+
+    await batch.commit();
   },
   deleteOverride: async (uid, transactionId) => {
     await db.collection('users').doc(uid)
@@ -1833,6 +1876,15 @@ const transactionOverrideDependencies: TransactionOverrideServiceDependencies = 
   },
   invalidateCache: uid => dashboardCache.invalidate(uid),
   reviewedAt: () => Timestamp.now(),
+};
+
+const classificationRuleDependencies: ClassificationRuleServiceDependencies = {
+  deleteRule: async (uid, ruleId) => {
+    await db.collection('users').doc(uid)
+      .collection('classification_rules').doc(ruleId)
+      .delete();
+  },
+  invalidateCache: uid => dashboardCache.invalidate(uid),
 };
 
 const recurringDecisionDependencies: RecurringDecisionServiceDependencies = {
@@ -2132,6 +2184,39 @@ app.get("/api/transactions/overrides", requireAuth, async (req: express.Request,
     res.json({ overrides });
   } catch (error: any) {
     console.error("Transaction Overrides List Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/classification-rules", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const snapshot = await db.collection('users').doc(uid)
+      .collection('classification_rules')
+      .get();
+    const rules = snapshot.docs.flatMap(document => {
+      const rule = parseStoredClassificationRule(document.id, document.data());
+      return rule ? [rule] : [];
+    });
+    rules.sort((a, b) => a.merchantKey.localeCompare(b.merchantKey));
+    res.json({ rules });
+  } catch (error: any) {
+    console.error("Classification Rules List Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/classification-rules/:ruleId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const ruleId = req.params.ruleId;
+    await removeClassificationRule(classificationRuleDependencies, uid, ruleId);
+    res.json({ success: true, ruleId });
+  } catch (error: any) {
+    if (error instanceof ClassificationRuleRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Classification Rule Delete Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

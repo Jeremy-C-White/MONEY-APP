@@ -9,6 +9,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage, type TransactionsViewMode } from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
+import { ClassificationRulesCard } from './components/ClassificationRulesCard';
 import { extractStatusResponse } from './lib/api-contracts';
 import {
   STATUS_REFRESH_INTERVAL_MS,
@@ -720,6 +721,7 @@ export default function App() {
             </div>
           )}
           
+          <ClassificationRulesCard apiFetch={apiFetch} />
           <DeveloperVerification user={user} />
           {(import.meta as any).env.VITE_ENABLE_SANDBOX_ACCEPTANCE === 'true' && (
             <SandboxAcceptance user={user} plaidItems={plaidItems} />
