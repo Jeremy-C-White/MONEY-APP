@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { usePlaidLink } from 'react-plaid-link';
 import { auth, signInWithGoogle, logOut } from './firebase';
 import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off, CheckCircle2, AlertTriangle, X } from 'lucide-react';
@@ -81,7 +81,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
+  const apiFetch = useCallback(async (endpoint: string, options: RequestInit = {}) => {
     if (!auth.currentUser) throw new Error("No user");
     const token = await auth.currentUser.getIdToken();
     const headers = {
@@ -90,7 +90,7 @@ export default function App() {
       'Authorization': `Bearer ${token}`
     };
     return fetch(endpoint, { ...options, headers });
-  };
+  }, []);
 
   const handleSignIn = async () => {
     try {
