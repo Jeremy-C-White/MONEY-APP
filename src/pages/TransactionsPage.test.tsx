@@ -76,6 +76,81 @@ describe('TransactionsPage', () => {
     expect(container.textContent).toContain('1234');
     // Validates pagination metadata
     expect(container.textContent).toContain('1 transactions');
+    expect([...container.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Review')).toBe(true);
+  });
+
+  it.each([
+    ['pending', { pending: true, status: 'pending' }],
+    ['removed', { pending: false, status: 'removed', removed: true }],
+  ])('does not offer overrides for %s transactions', async (_label, transactionState) => {
+    const apiFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/api/transactions')) {
+        return {
+          ok: true,
+          json: async () => ({
+            ...mockRes,
+            transactions: [{ ...mockTx, ...transactionState }],
+          }),
+        };
+      }
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(
+        <TransactionsPage
+          apiFetch={apiFetch}
+          refreshKey={0}
+          initialViewMode={transactionState.status === 'pending' ? 'pending' : 'posted'}
+        />
+      );
+    });
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Starbucks'));
+    expect([...container.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Review')).toBe(false);
+  });
+
+  it('supports undo for an overridden transaction in Posted', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url, options) => {
+      if (options?.method === 'DELETE') return { ok: true, json: async () => ({ success: true }) };
+      if (url.includes('/api/transactions')) {
+        return {
+          ok: true,
+          json: async () => ({
+            ...mockRes,
+            transactions: [{
+              ...mockTx,
+              classification: 'internal_transfer',
+              isOverridden: true,
+              overrideNote: 'Pass-through funds',
+            }],
+          }),
+        };
+      }
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Pass-through funds'));
+
+    const undoButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.trim() === 'Undo');
+    await act(async () => {
+      undoButton?.click();
+    });
+
+    await vi.waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/transactions/t_123/override',
+        { method: 'DELETE' }
+      );
+    });
   });
 
   it('requests pending status when Pending is selected', async () => {

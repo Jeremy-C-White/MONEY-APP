@@ -385,7 +385,7 @@ export function TransactionsPage({
                   <TransactionOverrideActions
                     transaction={tx}
                     categories={categories}
-                    reviewable={viewMode === 'needs_review'}
+                    reviewable={(viewMode === 'needs_review' || viewMode === 'posted') && !tx.pending && !tx.removed}
                     apiFetch={apiFetch}
                     onChanged={loadTransactions}
                   />
@@ -425,7 +425,7 @@ export function TransactionsPage({
                         <TransactionOverrideActions
                           transaction={tx}
                           categories={categories}
-                          reviewable={viewMode === 'needs_review'}
+                          reviewable={(viewMode === 'needs_review' || viewMode === 'posted') && !tx.pending && !tx.removed}
                           apiFetch={apiFetch}
                           onChanged={loadTransactions}
                         />
