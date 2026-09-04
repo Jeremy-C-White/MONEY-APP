@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap, filterTransactions, buildTransactionsPage } from './aggregations';
+import { aggregateSummary, aggregateCategories, aggregateTrends, buildVerificationReport, buildAccountHealthMap, filterTransactions, buildTransactionsPage, aggregatePeriodCategoryBreakdown } from './aggregations';
 import { NormalizedTransaction } from './financial';
 
 function mockTx(overrides: Partial<NormalizedTransaction>): NormalizedTransaction {
@@ -548,5 +548,128 @@ describe('Override category offsets', () => {
 
     expect(filterTransactions([refund], { category: 'FOOD_AND_DRINK' })).toEqual([refund]);
     expect(filterTransactions([refund], { category: 'TRANSFER_IN' })).toEqual([]);
+  });
+});
+
+describe('aggregatePeriodCategoryBreakdown', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function spendTx(overrides: Partial<NormalizedTransaction> = {}) {
+    return mockTx({
+      classification: 'spending',
+      countsTowardSpending: true,
+      ...overrides,
+    });
+  }
+
+  it('period filtering returns only transactions in the selected window', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+    const txs = [
+      spendTx({ transactionId: 'in', normalizedDate: '2026-09-10', normalizedCategory: 'FOOD_AND_DRINK', categoryDetailed: 'FOOD_AND_DRINK_GROCERIES', spendingAdjustment: 40 }),
+      spendTx({ transactionId: 'out_before', normalizedDate: '2026-08-31', normalizedCategory: 'FOOD_AND_DRINK', categoryDetailed: 'FOOD_AND_DRINK_GROCERIES', spendingAdjustment: 999 }),
+      spendTx({ transactionId: 'out_after', normalizedDate: '2026-10-01', normalizedCategory: 'FOOD_AND_DRINK', categoryDetailed: 'FOOD_AND_DRINK_GROCERIES', spendingAdjustment: 999 }),
+    ];
+
+    const report = aggregatePeriodCategoryBreakdown(txs, 'this_month', 'America/New_York');
+
+    expect(report.categories).toHaveLength(1);
+    expect(report.categories[0].netSpending).toBe(40);
+  });
+
+  it('includes a transaction on the first or last day of the month in that month, and excludes the adjacent months', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+    const txs = [
+      spendTx({ transactionId: 'first_day', normalizedDate: '2026-09-01', spendingAdjustment: 10 }),
+      spendTx({ transactionId: 'last_day', normalizedDate: '2026-09-30', spendingAdjustment: 20 }),
+      spendTx({ transactionId: 'prev_last_day', normalizedDate: '2026-08-31', spendingAdjustment: 999 }),
+      spendTx({ transactionId: 'next_first_day', normalizedDate: '2026-10-01', spendingAdjustment: 999 }),
+    ];
+
+    const report = aggregatePeriodCategoryBreakdown(txs, 'this_month', 'America/New_York');
+
+    expect(report.categories[0].netSpending).toBe(30);
+    expect(report.categories[0].transactionCount).toBe(2);
+  });
+
+  it('category expansion returns merchants and detailed categories belonging to that category only', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+    const txs = [
+      spendTx({ transactionId: 'g1', normalizedDate: '2026-09-05', normalizedCategory: 'FOOD_AND_DRINK', categoryDetailed: 'FOOD_AND_DRINK_GROCERIES', normalizedMerchant: 'Kroger', spendingAdjustment: 60 }),
+      spendTx({ transactionId: 'r1', normalizedDate: '2026-09-06', normalizedCategory: 'FOOD_AND_DRINK', categoryDetailed: 'FOOD_AND_DRINK_RESTAURANT', normalizedMerchant: 'Chipotle', spendingAdjustment: 25 }),
+      // Same merchant name, different category - must not bleed into FOOD_AND_DRINK's breakdown.
+      spendTx({ transactionId: 'shop1', normalizedDate: '2026-09-07', normalizedCategory: 'GENERAL_MERCHANDISE', categoryDetailed: 'GENERAL_MERCHANDISE_SUPERSTORES', normalizedMerchant: 'Kroger', spendingAdjustment: 15 }),
+    ];
+
+    const report = aggregatePeriodCategoryBreakdown(txs, 'this_month', 'America/New_York');
+    const food = report.categories.find(c => c.category === 'FOOD_AND_DRINK');
+    const merch = report.categories.find(c => c.category === 'GENERAL_MERCHANDISE');
+
+    expect(food?.netSpending).toBe(85);
+    expect(food?.details.map(d => d.categoryDetailed).sort()).toEqual(['FOOD_AND_DRINK_GROCERIES', 'FOOD_AND_DRINK_RESTAURANT']);
+    const groceries = food?.details.find(d => d.categoryDetailed === 'FOOD_AND_DRINK_GROCERIES');
+    expect(groceries?.merchants).toEqual([{ merchant: 'Kroger', netSpending: 60, transactionCount: 1 }]);
+
+    expect(merch?.netSpending).toBe(15);
+    expect(merch?.details[0].merchants).toEqual([{ merchant: 'Kroger', netSpending: 15, transactionCount: 1 }]);
+  });
+
+  it('returns null change when the prior period has no data at all, distinct from a category with zero prior spending', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+
+    const noPriorLedger = [
+      spendTx({ transactionId: 'only', normalizedDate: '2026-09-10', normalizedCategory: 'HOME_IMPROVEMENT', spendingAdjustment: 6400 }),
+    ];
+    const noPriorReport = aggregatePeriodCategoryBreakdown(noPriorLedger, 'this_month', 'America/New_York');
+    expect(noPriorReport.categories[0].previousSpending).toBeNull();
+    expect(noPriorReport.categories[0].change).toBeNull();
+
+    const withPriorLedger = [
+      spendTx({ transactionId: 'this_month', normalizedDate: '2026-09-10', normalizedCategory: 'HOME_IMPROVEMENT', spendingAdjustment: 6400 }),
+      // Prior month has activity, just none in this category - a real $0, not unknown.
+      spendTx({ transactionId: 'last_month_other_cat', normalizedDate: '2026-08-10', normalizedCategory: 'FOOD_AND_DRINK', spendingAdjustment: 100 }),
+    ];
+    const withPriorReport = aggregatePeriodCategoryBreakdown(withPriorLedger, 'this_month', 'America/New_York');
+    const homeImprovement = withPriorReport.categories.find(c => c.category === 'HOME_IMPROVEMENT');
+    expect(homeImprovement?.previousSpending).toBe(0);
+    expect(homeImprovement?.change).toBe(6400);
+  });
+
+  it('all-time totals match the existing aggregateCategories baseline exactly', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+    const txs = [
+      spendTx({ transactionId: 't1', normalizedDate: '2024-01-05', normalizedCategory: 'FOOD_AND_DRINK', spendingAdjustment: 50 }),
+      spendTx({ transactionId: 't2', normalizedDate: '2025-06-20', normalizedCategory: 'FOOD_AND_DRINK', spendingAdjustment: 30 }),
+      spendTx({ transactionId: 't3', normalizedDate: '2026-09-01', normalizedCategory: 'GENERAL_MERCHANDISE', spendingAdjustment: 20 }),
+    ];
+
+    const baseline = aggregateCategories(txs);
+    const allTime = aggregatePeriodCategoryBreakdown(txs, 'all_time', 'America/New_York');
+
+    expect(allTime.startMonth).toBeNull();
+    expect(allTime.endMonth).toBeNull();
+    for (const category of allTime.categories) {
+      expect(category.previousSpending).toBeNull();
+      expect(category.change).toBeNull();
+    }
+    expect(allTime.categories.map(c => ({ category: c.category, netSpending: c.netSpending, transactionCount: c.transactionCount, percentage: c.percentage })))
+      .toEqual(baseline.map(c => ({ category: c.category, netSpending: c.netSpending, transactionCount: c.transactionCount, percentage: c.percentage })));
+  });
+
+  it('last_3_months spans the current month and the two before it', () => {
+    vi.setSystemTime(new Date('2026-09-15T16:00:00Z'));
+    const txs = [
+      spendTx({ transactionId: 'jul', normalizedDate: '2026-07-05', spendingAdjustment: 10 }),
+      spendTx({ transactionId: 'aug', normalizedDate: '2026-08-05', spendingAdjustment: 20 }),
+      spendTx({ transactionId: 'sep', normalizedDate: '2026-09-05', spendingAdjustment: 30 }),
+      spendTx({ transactionId: 'jun', normalizedDate: '2026-06-30', spendingAdjustment: 999 }),
+    ];
+
+    const report = aggregatePeriodCategoryBreakdown(txs, 'last_3_months', 'America/New_York');
+    expect(report.categories[0].netSpending).toBe(60);
   });
 });

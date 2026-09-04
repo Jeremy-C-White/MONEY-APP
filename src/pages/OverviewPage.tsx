@@ -4,13 +4,11 @@ import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
 import { AccountPositionCards } from '../components/AccountPositionCards';
+import { CategoryBreakdownCard } from '../components/CategoryBreakdownCard';
 import {
   formatCurrency,
-  formatPercentage,
   formatPercentagePoints,
   formatMonthLabel,
-  getCategoryLabel,
-  getClassificationLabel,
   getTransactionClassificationLabel,
   getMerchantDisplayLabel,
   formatFriendlyDate,
@@ -18,8 +16,6 @@ import {
 import { extractHouseholdPlanningResponse, extractOverviewResponse } from '../lib/api-contracts';
 import type {
   DashboardSummary,
-  DashboardCategory,
-  DashboardMerchant,
   TrendPoint,
   DashboardVerificationResponse,
   Transaction,
@@ -38,8 +34,6 @@ export function OverviewPage({
   onReviewTransactions: () => void;
 }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [categories, setCategories] = useState<DashboardCategory[]>([]);
-  const [merchants, setMerchants] = useState<DashboardMerchant[]>([]);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
   const [recurringObligations, setRecurringObligations] =
     useState<RecurringObligationsResponse | null>(null);
@@ -67,8 +61,6 @@ export function OverviewPage({
       const normalized = extractOverviewResponse(await response.json());
 
       setSummary(normalized.summary);
-      setCategories(normalized.categories);
-      setMerchants(normalized.merchants);
       setTrends(normalized.trends);
       setRecurringObligations(normalized.recurringObligations);
       setHouseholdInsights(normalized.householdInsights);
@@ -222,86 +214,43 @@ export function OverviewPage({
         loading={loading && !householdInsights}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-        <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden">
-          <div className="flex items-center justify-between gap-3 mb-6">
-            <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
-            <div className="flex bg-slate-100 p-1 rounded-lg">
-              {(['6m', '12m', 'ytd'] as const).map((range) => (
-                <button
-                  key={range}
-                  onClick={() => setTrendRange(range)}
-                  className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${
-                    trendRange === range
-                      ? 'bg-white shadow-sm text-slate-900'
-                      : 'text-slate-500 hover:text-slate-700'
-                  }`}
-                >
-                  {range}
-                </button>
-              ))}
-            </div>
-          </div>
-          <TrendChart data={trends} loading={loading && trends.length === 0} />
-          <div className="flex justify-center space-x-6 mt-4">
-            <div className="flex items-center text-sm text-slate-500">
-              <div className="w-3 h-3 bg-emerald-400 rounded-sm mr-2" />
-              Income
-            </div>
-            <div className="flex items-center text-sm text-slate-500">
-              <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
-              Spending
-            </div>
-            <div className="flex items-center text-sm text-slate-500">
-              <div className="w-4 h-0.5 bg-slate-900 mr-2" />
-              Net cash flow
-            </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden mb-8">
+        <div className="flex items-center justify-between gap-3 mb-6">
+          <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
+          <div className="flex bg-slate-100 p-1 rounded-lg">
+            {(['6m', '12m', 'ytd'] as const).map((range) => (
+              <button
+                key={range}
+                onClick={() => setTrendRange(range)}
+                className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${
+                  trendRange === range
+                    ? 'bg-white shadow-sm text-slate-900'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {range}
+              </button>
+            ))}
           </div>
         </div>
-
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
-          <h3 className="text-lg font-medium text-slate-900 mb-6">Top Categories</h3>
-          {loading && categories.length === 0 ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((item) => (
-                <div key={item} className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : categories.length === 0 ? (
-            <div className="text-sm text-slate-500 text-center py-8">No categories found</div>
-          ) : (
-            <div className="space-y-5">
-              {categories.slice(0, 5).map((category) => (
-                <div key={category.category}>
-                  <div className="flex justify-between gap-3 text-sm mb-1">
-                    <span className="font-medium text-slate-700 truncate">
-                      {getCategoryLabel(category.category)}
-                    </span>
-                    <span className="font-medium text-slate-900 whitespace-nowrap">
-                      {formatCurrency(category.netSpending)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between gap-3 text-[11px] text-slate-400 mb-1.5">
-                    <span>
-                      {category.transactionCount}{' '}
-                      {category.transactionCount === 1 ? 'transaction' : 'transactions'}
-                    </span>
-                    <span>{formatPercentage(category.percentage)}</span>
-                  </div>
-                  <div className="w-full bg-slate-100 rounded-full h-1.5">
-                    <div
-                      className="bg-indigo-500 h-1.5 rounded-full"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, category.percentage * 100))}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <TrendChart data={trends} loading={loading && trends.length === 0} />
+        <div className="flex justify-center space-x-6 mt-4">
+          <div className="flex items-center text-sm text-slate-500">
+            <div className="w-3 h-3 bg-emerald-400 rounded-sm mr-2" />
+            Income
+          </div>
+          <div className="flex items-center text-sm text-slate-500">
+            <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
+            Spending
+          </div>
+          <div className="flex items-center text-sm text-slate-500">
+            <div className="w-4 h-0.5 bg-slate-900 mr-2" />
+            Net cash flow
+          </div>
         </div>
       </div>
+
+      <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} />
 
       <div className="mb-8">
         <RecurringObligationsCard
@@ -312,96 +261,61 @@ export function OverviewPage({
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
-          <h3 className="text-lg font-medium text-slate-900 mb-6">Transactions</h3>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
+        <h3 className="text-lg font-medium text-slate-900 mb-6">Transactions</h3>
 
-          {pendingTxs.length > 0 && (
-            <div className="mb-6">
-              <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-                Pending
-              </h4>
-              <div className="space-y-3">
-                {pendingTxs.map((transaction) => (
-  <React.Fragment key={transaction.transactionId}>
-    <TransactionRow tx={transaction} />
-  </React.Fragment>
-))}
-              </div>
-            </div>
-          )}
-
-          <div>
+        {pendingTxs.length > 0 && (
+          <div className="mb-6">
             <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              Posted
+              Pending
             </h4>
-            {loading && postedTxs.length === 0 ? (
-              <div className="space-y-4">
-                {[1, 2, 3].map((item) => (
-                  <div key={item} className="h-12 bg-slate-100 rounded-lg animate-pulse" />
-                ))}
-              </div>
-            ) : postedTxs.length === 0 ? (
-              <div className="text-sm text-slate-500 text-center py-4">
-                No posted transactions
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {postedTxs.map((transaction) => (
+            <div className="space-y-3">
+              {pendingTxs.map((transaction) => (
   <React.Fragment key={transaction.transactionId}>
     <TransactionRow tx={transaction} />
   </React.Fragment>
 ))}
-              </div>
-            )}
+            </div>
           </div>
-        </div>
+        )}
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
-          <h3 className="text-lg font-medium text-slate-900 mb-6">Top Merchants</h3>
-          {loading && merchants.length === 0 ? (
+        <div>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
+            Posted
+          </h4>
+          {loading && postedTxs.length === 0 ? (
             <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map((item) => (
+              {[1, 2, 3].map((item) => (
                 <div key={item} className="h-12 bg-slate-100 rounded-lg animate-pulse" />
               ))}
             </div>
-          ) : merchants.length === 0 ? (
-            <div className="text-sm text-slate-500 text-center py-4">No merchants found</div>
+          ) : postedTxs.length === 0 ? (
+            <div className="text-sm text-slate-500 text-center py-4">
+              No posted transactions
+            </div>
           ) : (
-            <div className="space-y-4">
-              {merchants.slice(0, 5).map((merchant) => (
-                <div
-                  key={merchant.merchant}
-                  className="flex justify-between items-center p-3 hover:bg-slate-50 rounded-xl transition-colors"
-                >
-                  <div className="truncate pr-4">
-                    <p className="font-medium text-slate-900 truncate">{getMerchantDisplayLabel({ fallbackDescription: merchant.merchant })}</p>
-                    <p className="text-xs text-slate-500">
-                      {merchant.transactionCount}{' '}
-                      {merchant.transactionCount === 1 ? 'transaction' : 'transactions'}
-                    </p>
-                  </div>
-                  <div className="font-medium text-slate-900 whitespace-nowrap">
-                    {formatCurrency(merchant.netSpending)}
-                  </div>
-                </div>
-              ))}
+            <div className="space-y-3">
+              {postedTxs.map((transaction) => (
+  <React.Fragment key={transaction.transactionId}>
+    <TransactionRow tx={transaction} />
+  </React.Fragment>
+))}
             </div>
           )}
+        </div>
 
-          <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-100">
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Pending Spending</p>
-              <p className="font-medium text-slate-900">
-                {formatCurrency(summary?.allTime.pendingSpending)}
-              </p>
-            </div>
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Active Posted</p>
-              <p className="font-medium text-slate-900">
-                {summary?.activePostedCount ?? 0} rows
-              </p>
-            </div>
+        <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-100">
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Pending Spending</p>
+            <p className="font-medium text-slate-900">
+              {formatCurrency(summary?.allTime.pendingSpending)}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Active Posted</p>
+            <p className="font-medium text-slate-900">
+              {summary?.activePostedCount ?? 0} rows
+            </p>
           </div>
         </div>
       </div>

@@ -16,6 +16,7 @@ import {
   extractHouseholdPlanningResponse,
   extractAccountBalanceSummary,
   extractOverviewResponse,
+  extractCategoryBreakdownResponse,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -631,13 +632,79 @@ describe('extractConnectedAccountsResponse', () => {
 describe('extractTransactionsResponse metadata', () => {
   it('enforces required metadata', () => {
     expect(() => extractTransactionsResponse({ transactions: [] })).toThrow();
-    
-    expect(() => extractTransactionsResponse({ 
+
+    expect(() => extractTransactionsResponse({
       transactions: [],
       total: 10,
       page: 1,
       limit: 10,
       totalPages: 1
     })).not.toThrow();
+  });
+});
+
+describe('extractCategoryBreakdownResponse', () => {
+  const validPayload = {
+    period: 'this_month',
+    startMonth: '2026-09',
+    endMonth: '2026-09',
+    categories: [
+      {
+        category: 'FOOD_AND_DRINK',
+        netSpending: 85,
+        transactionCount: 2,
+        percentage: 1,
+        previousSpending: 0,
+        change: 85,
+        details: [
+          {
+            categoryDetailed: 'FOOD_AND_DRINK_GROCERIES',
+            netSpending: 60,
+            transactionCount: 1,
+            merchants: [{ merchant: 'Kroger', netSpending: 60, transactionCount: 1 }],
+          },
+        ],
+      },
+    ],
+    merchants: [{ merchant: 'Kroger', netSpending: 60, transactionCount: 1 }],
+  };
+
+  it('extracts a well-formed category breakdown response, including nested details and merchants', () => {
+    const result = extractCategoryBreakdownResponse(validPayload);
+    expect(result.period).toBe('this_month');
+    expect(result.categories[0].details[0].merchants[0].merchant).toBe('Kroger');
+    expect(result.categories[0].change).toBe(85);
+  });
+
+  it('accepts a null previousSpending/change and a null startMonth/endMonth (all_time)', () => {
+    const result = extractCategoryBreakdownResponse({
+      ...validPayload,
+      period: 'all_time',
+      startMonth: null,
+      endMonth: null,
+      categories: [{ ...validPayload.categories[0], previousSpending: null, change: null }],
+    });
+    expect(result.startMonth).toBeNull();
+    expect(result.categories[0].change).toBeNull();
+  });
+
+  it('rejects an unknown period value', () => {
+    expect(() => extractCategoryBreakdownResponse({ ...validPayload, period: 'last_week' })).toThrow(
+      'Invalid category breakdown response.'
+    );
+  });
+
+  it('rejects a malformed nested merchant', () => {
+    expect(() => extractCategoryBreakdownResponse({
+      ...validPayload,
+      merchants: [{ merchant: 'Kroger' }],
+    })).toThrow('Invalid category breakdown response.');
+  });
+
+  it('rejects a malformed nested detail', () => {
+    expect(() => extractCategoryBreakdownResponse({
+      ...validPayload,
+      categories: [{ ...validPayload.categories[0], details: [{ categoryDetailed: 'X' }] }],
+    })).toThrow('Invalid category breakdown response.');
   });
 });
