@@ -307,4 +307,61 @@ describe('TransactionsPage', () => {
       expect(container.textContent).toContain('Failed to load transactions');
     });
   });
+
+  it('clears unrelated filters when opening the complete Needs Review queue', async () => {
+    const requestedEndpoints: string[] = [];
+    const apiFetch = vi.fn().mockImplementation(async (endpoint) => {
+      requestedEndpoints.push(endpoint);
+      if (endpoint === '/api/accounts') {
+        return { ok: true, json: async () => [{
+          accountId: 'acc_1',
+          institutionName: 'Example Bank',
+          accountName: 'Checking',
+          accountMask: '1234',
+          accountType: 'depository',
+          accountSubtype: 'checking',
+          health: 'healthy',
+        }] };
+      }
+      if (endpoint === '/api/dashboard/categories') {
+        return { ok: true, json: async () => ({ categories: [] }) };
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          transactions: [],
+          total: endpoint.includes('classification=other%2Cunclassified_deposit') ? 74 : 0,
+          page: 1,
+          limit: 25,
+          totalPages: endpoint.includes('classification=other%2Cunclassified_deposit') ? 3 : 0,
+        }),
+      };
+    });
+
+    await act(async () => {
+      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} />);
+    });
+    await vi.waitFor(() => expect(container.querySelector('select')).not.toBeNull());
+
+    const accountSelect = container.querySelector('select') as HTMLSelectElement;
+    await act(async () => {
+      accountSelect.value = 'acc_1';
+      accountSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    const reviewButton = [...container.querySelectorAll('button')]
+      .find(button => button.textContent?.trim() === 'Needs Review');
+    await act(async () => {
+      reviewButton?.click();
+    });
+
+    await vi.waitFor(() => {
+      const reviewRequest = requestedEndpoints
+        .filter(endpoint => endpoint.startsWith('/api/transactions?'))
+        .at(-1);
+      expect(reviewRequest).toContain('classification=other%2Cunclassified_deposit');
+      expect(reviewRequest).not.toContain('account=');
+      expect(container.textContent).toContain('74 transactions remain to review.');
+    });
+  });
 });

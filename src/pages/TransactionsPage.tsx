@@ -111,6 +111,24 @@ export function TransactionsPage({
     setPage(1);
   };
 
+  const selectViewMode = (mode: TransactionsViewMode) => {
+    setViewMode(mode);
+    setPage(1);
+
+    if (mode === 'needs_review') {
+      // The review inbox is a complete work queue. A search or account/date
+      // filter left over from another tab must not make outstanding items look
+      // as though they have all been reviewed.
+      setSearchInput('');
+      setDebouncedSearch('');
+      setFilterAccount('');
+      setFilterClassification('');
+      setFilterCategory('');
+      setFilterStartDate('');
+      setFilterEndDate('');
+    }
+  };
+
   const loadTransactions = async () => {
     setRefreshWarning(null);
     if (initialLoad) {
@@ -194,25 +212,25 @@ export function TransactionsPage({
         <div className="flex gap-6 mt-6 border-b border-slate-200">
           <button 
             className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'posted' ? activeTabClasses : inactiveTabClasses}`}
-            onClick={() => updateFilter(setViewMode, 'posted')}
+            onClick={() => selectViewMode('posted')}
           >
             Posted
           </button>
           <button 
             className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'pending' ? activeTabClasses : inactiveTabClasses}`}
-            onClick={() => updateFilter(setViewMode, 'pending')}
+            onClick={() => selectViewMode('pending')}
           >
             Pending
           </button>
           <button 
             className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'needs_review' ? activeTabClasses : inactiveTabClasses}`}
-            onClick={() => updateFilter(setViewMode, 'needs_review')}
+            onClick={() => selectViewMode('needs_review')}
           >
             Needs Review
           </button>
           <button
             className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
-            onClick={() => updateFilter(setViewMode, 'overridden')}
+            onClick={() => selectViewMode('overridden')}
           >
             Reviewed
           </button>
