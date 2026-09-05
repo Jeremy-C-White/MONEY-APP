@@ -7,6 +7,7 @@ import {
   RefreshCcw,
   Loader2,
   Landmark,
+  ShoppingBasket,
 } from 'lucide-react';
 
 interface AppShellProps {
@@ -20,6 +21,7 @@ interface AppShellProps {
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
+  { id: 'walmart', label: 'Walmart', icon: ShoppingBasket },
   { id: 'accounts', label: 'Accounts', icon: Wallet },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];

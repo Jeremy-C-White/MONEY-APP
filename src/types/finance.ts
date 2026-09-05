@@ -491,3 +491,104 @@ export interface DashboardOverviewResponse {
   accountBalances: AccountBalanceSummary;
   cashFlowForecast: CashFlowForecast;
 }
+
+export type WalmartInsightPeriod = 'last_12_months' | 'this_year' | 'all_time';
+
+export interface WalmartSourceStatus {
+  connected: boolean;
+  spreadsheetId?: string;
+  spreadsheetTitle?: string;
+  spreadsheetUrl?: string;
+}
+
+export interface WalmartMonthlyInsight {
+  month: string;
+  totalSpend: number;
+  fuelSpend: number;
+  orderCount: number;
+}
+
+export interface WalmartTopItem {
+  productName: string;
+  productUrl: string | null;
+  purchaseCount: number;
+  quantity: number;
+  spend: number;
+  lastPurchased: string;
+}
+
+export interface WalmartOrderItem {
+  productName: string;
+  productUrl: string | null;
+  quantity: number;
+  price: number;
+  fuel: boolean;
+}
+
+export interface WalmartPriceHistoryPoint {
+  month: string;
+  averageUnitPrice: number;
+  lowUnitPrice: number;
+  highUnitPrice: number;
+  purchaseCount: number;
+}
+
+export interface WalmartPriceTrend {
+  productName: string;
+  productUrl: string | null;
+  purchaseCount: number;
+  firstPurchased: string;
+  lastPurchased: string;
+  firstUnitPrice: number;
+  latestUnitPrice: number;
+  lowUnitPrice: number;
+  highUnitPrice: number;
+  changeAmount: number;
+  changePercentage: number | null;
+  history: WalmartPriceHistoryPoint[];
+}
+
+export interface WalmartRecentOrder {
+  orderNumber: string;
+  date: string;
+  channel: 'delivery' | 'pickup' | 'shipping' | 'in_store' | 'online';
+  total: number;
+  tip: number;
+  savings: number;
+  itemCount: number;
+  fuel: boolean;
+  items: WalmartOrderItem[];
+}
+
+export interface WalmartInsightsResponse {
+  source: {
+    spreadsheetTitle: string;
+    spreadsheetUrl: string;
+  };
+  period: WalmartInsightPeriod;
+  startDate: string | null;
+  endDate: string | null;
+  summary: {
+    totalSpend: number;
+    orderCount: number;
+    averageOrder: number;
+    onlineSpend: number;
+    inStoreSpend: number;
+    tips: number;
+    savings: number;
+    fuelSpend: number;
+    fuelGallons: number;
+    averageFuelPricePerGallon: number | null;
+    fuelPurchaseCount: number;
+  };
+  monthly: WalmartMonthlyInsight[];
+  topItems: WalmartTopItem[];
+  priceTrends: WalmartPriceTrend[];
+  recentOrders: WalmartRecentOrder[];
+  quality: {
+    canceledItemRowsExcluded: number;
+    statusDuplicateRowsExcluded: number;
+    zeroDollarOrdersExcluded: number;
+    incompleteOrderStubsExcluded: number;
+  };
+}

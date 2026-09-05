@@ -22,6 +22,8 @@ import type {
   CategoryBreakdownCategory,
   CategoryBreakdownDetail,
   CategoryBreakdownMerchant,
+  WalmartInsightsResponse,
+  WalmartSourceStatus,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -300,6 +302,128 @@ export function extractAccountBalanceSummary(data: unknown): AccountBalanceSumma
   }
 
   return record as unknown as AccountBalanceSummary;
+}
+
+export function extractWalmartSourceStatus(data: unknown): WalmartSourceStatus {
+  const record = requireRecord(data, 'Walmart source');
+  if (typeof record.connected !== 'boolean') {
+    throw new Error('Invalid Walmart source response.');
+  }
+  if (record.connected && (
+    typeof record.spreadsheetId !== 'string' ||
+    typeof record.spreadsheetTitle !== 'string' ||
+    typeof record.spreadsheetUrl !== 'string'
+  )) {
+    throw new Error('Invalid Walmart source response.');
+  }
+  return record as unknown as WalmartSourceStatus;
+}
+
+function isWalmartMonthlyInsight(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.month === 'string' &&
+    typeof value.totalSpend === 'number' &&
+    typeof value.fuelSpend === 'number' &&
+    typeof value.orderCount === 'number';
+}
+
+function isWalmartTopItem(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.productName === 'string' &&
+    validNullableString(value.productUrl) &&
+    typeof value.purchaseCount === 'number' &&
+    typeof value.quantity === 'number' &&
+    typeof value.spend === 'number' &&
+    typeof value.lastPurchased === 'string';
+}
+
+function isWalmartOrderItem(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.productName === 'string' &&
+    validNullableString(value.productUrl) &&
+    typeof value.quantity === 'number' &&
+    typeof value.price === 'number' &&
+    typeof value.fuel === 'boolean';
+}
+
+function isWalmartPriceHistoryPoint(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.month === 'string' &&
+    typeof value.averageUnitPrice === 'number' &&
+    typeof value.lowUnitPrice === 'number' &&
+    typeof value.highUnitPrice === 'number' &&
+    typeof value.purchaseCount === 'number';
+}
+
+function isWalmartPriceTrend(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.productName === 'string' &&
+    validNullableString(value.productUrl) &&
+    typeof value.purchaseCount === 'number' &&
+    typeof value.firstPurchased === 'string' &&
+    typeof value.lastPurchased === 'string' &&
+    typeof value.firstUnitPrice === 'number' &&
+    typeof value.latestUnitPrice === 'number' &&
+    typeof value.lowUnitPrice === 'number' &&
+    typeof value.highUnitPrice === 'number' &&
+    typeof value.changeAmount === 'number' &&
+    validNullableNumber(value.changePercentage) &&
+    Array.isArray(value.history) &&
+    value.history.every(isWalmartPriceHistoryPoint);
+}
+
+function isWalmartRecentOrder(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.orderNumber === 'string' &&
+    typeof value.date === 'string' &&
+    ['delivery', 'pickup', 'shipping', 'in_store', 'online'].includes(String(value.channel)) &&
+    typeof value.total === 'number' &&
+    typeof value.tip === 'number' &&
+    typeof value.savings === 'number' &&
+    typeof value.itemCount === 'number' &&
+    typeof value.fuel === 'boolean' &&
+    Array.isArray(value.items) &&
+    value.items.every(isWalmartOrderItem);
+}
+
+export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsResponse {
+  const record = requireRecord(data, 'Walmart insights');
+  if (
+    !isRecord(record.source) ||
+    typeof record.source.spreadsheetTitle !== 'string' ||
+    typeof record.source.spreadsheetUrl !== 'string' ||
+    !['last_12_months', 'this_year', 'all_time'].includes(String(record.period)) ||
+    !(typeof record.startDate === 'string' || record.startDate === null) ||
+    !(typeof record.endDate === 'string' || record.endDate === null) ||
+    !isRecord(record.summary) ||
+    typeof record.summary.totalSpend !== 'number' ||
+    typeof record.summary.orderCount !== 'number' ||
+    typeof record.summary.averageOrder !== 'number' ||
+    typeof record.summary.onlineSpend !== 'number' ||
+    typeof record.summary.inStoreSpend !== 'number' ||
+    typeof record.summary.tips !== 'number' ||
+    typeof record.summary.savings !== 'number' ||
+    typeof record.summary.fuelSpend !== 'number' ||
+    typeof record.summary.fuelGallons !== 'number' ||
+    !(typeof record.summary.averageFuelPricePerGallon === 'number' || record.summary.averageFuelPricePerGallon === null) ||
+    typeof record.summary.fuelPurchaseCount !== 'number' ||
+    !Array.isArray(record.monthly) ||
+    !record.monthly.every(isWalmartMonthlyInsight) ||
+    !Array.isArray(record.topItems) ||
+    !record.topItems.every(isWalmartTopItem) ||
+    !Array.isArray(record.priceTrends) ||
+    !record.priceTrends.every(isWalmartPriceTrend) ||
+    !Array.isArray(record.recentOrders) ||
+    !record.recentOrders.every(isWalmartRecentOrder) ||
+    !isRecord(record.quality) ||
+    typeof record.quality.canceledItemRowsExcluded !== 'number' ||
+    typeof record.quality.statusDuplicateRowsExcluded !== 'number' ||
+    typeof record.quality.zeroDollarOrdersExcluded !== 'number' ||
+    typeof record.quality.incompleteOrderStubsExcluded !== 'number'
+  ) {
+    throw new Error('Invalid Walmart insights response.');
+  }
+  return record as unknown as WalmartInsightsResponse;
 }
 
 function isPaycheckStream(value: unknown): boolean {

@@ -8,6 +8,7 @@ import { AppShell } from './components/AppShell';
 import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage, type TransactionsViewMode } from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
+import { WalmartInsightsPage } from './pages/WalmartInsightsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 import { ClassificationRulesCard } from './components/ClassificationRulesCard';
 import { extractStatusResponse } from './lib/api-contracts';
@@ -502,6 +503,10 @@ export default function App() {
           refreshKey={refreshKey}
           initialViewMode={transactionsInitialView}
         />
+      )}
+
+      {activeTab === 'walmart' && (
+        <WalmartInsightsPage apiFetch={apiFetch} />
       )}
 
       {activeTab === 'accounts' && (

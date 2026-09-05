@@ -18,6 +18,8 @@ import {
   extractCashFlowForecast,
   extractOverviewResponse,
   extractCategoryBreakdownResponse,
+  extractWalmartInsightsResponse,
+  extractWalmartSourceStatus,
 } from './api-contracts';
 import {
   formatMonthLabel,
@@ -758,5 +760,100 @@ describe('extractCategoryBreakdownResponse', () => {
       ...validPayload,
       categories: [{ ...validPayload.categories[0], details: [{ categoryDetailed: 'X' }] }],
     })).toThrow('Invalid category breakdown response.');
+  });
+});
+
+describe('Walmart response contracts', () => {
+  const insights = {
+    source: {
+      spreadsheetTitle: 'Walmart_Orders',
+      spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/example/edit',
+    },
+    period: 'last_12_months',
+    startDate: '2025-10-01',
+    endDate: '2026-09-04',
+    summary: {
+      totalSpend: 120,
+      orderCount: 2,
+      averageOrder: 60,
+      onlineSpend: 80,
+      inStoreSpend: 40,
+      tips: 5,
+      savings: 3,
+      fuelSpend: 40,
+      fuelGallons: 10,
+      averageFuelPricePerGallon: 4,
+      fuelPurchaseCount: 1,
+    },
+    monthly: [{ month: '2026-08', totalSpend: 120, fuelSpend: 40, orderCount: 2 }],
+    topItems: [{
+      productName: 'Organic Bananas',
+      productUrl: 'https://www.walmart.com/ip/123456789',
+      purchaseCount: 2,
+      quantity: 2,
+      spend: 4,
+      lastPurchased: '2026-08-29',
+    }],
+    priceTrends: [{
+      productName: 'Organic Bananas',
+      productUrl: 'https://www.walmart.com/ip/123456789',
+      purchaseCount: 2,
+      firstPurchased: '2026-01-01',
+      lastPurchased: '2026-08-29',
+      firstUnitPrice: 2,
+      latestUnitPrice: 2.5,
+      lowUnitPrice: 1.9,
+      highUnitPrice: 2.5,
+      changeAmount: 0.5,
+      changePercentage: 0.25,
+      history: [{
+        month: '2026-08',
+        averageUnitPrice: 2.5,
+        lowUnitPrice: 2.5,
+        highUnitPrice: 2.5,
+        purchaseCount: 1,
+      }],
+    }],
+    recentOrders: [{
+      orderNumber: 'order-1',
+      date: '2026-08-29',
+      channel: 'delivery',
+      total: 80,
+      tip: 5,
+      savings: 3,
+      itemCount: 1,
+      fuel: false,
+      items: [{
+        productName: 'Organic Bananas',
+        productUrl: 'https://www.walmart.com/ip/123456789',
+        quantity: 1,
+        price: 2,
+        fuel: false,
+      }],
+    }],
+    quality: {
+      canceledItemRowsExcluded: 1,
+      statusDuplicateRowsExcluded: 2,
+      zeroDollarOrdersExcluded: 1,
+      incompleteOrderStubsExcluded: 1,
+    },
+  };
+
+  it('accepts connected and disconnected Walmart source states', () => {
+    expect(extractWalmartSourceStatus({ connected: false })).toEqual({ connected: false });
+    expect(extractWalmartSourceStatus({
+      connected: true,
+      spreadsheetId: 'sheet-id',
+      spreadsheetTitle: 'Walmart_Orders',
+      spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+    }).connected).toBe(true);
+  });
+
+  it('accepts a complete Walmart insights payload and rejects malformed nested data', () => {
+    expect(extractWalmartInsightsResponse(insights).summary.fuelSpend).toBe(40);
+    expect(() => extractWalmartInsightsResponse({
+      ...insights,
+      recentOrders: [{ ...insights.recentOrders[0], items: null }],
+    })).toThrow('Invalid Walmart insights response.');
   });
 });

@@ -16,6 +16,16 @@ FinSync is a server-orchestrated, offline-first personal finance application tha
 * **Database**: Firebase Firestore (for storing secure metadata, session ledgers, item indexes, and sync cursors).
 * **Sync Destination**: Google Sheets (Machine-owned `Transactions_Raw` worksheet).
 
+## Walmart Receipt Intelligence
+
+FinSync can connect a separate, read-only Walmart purchase-history spreadsheet containing `Orders` and `Items` tabs. The Walmart data powers its own insights area with monthly spending, channel mix, frequently purchased products, cleaned receipt details, delivery tips, savings, fuel usage, and effective unit-price history for repeat purchases.
+
+Walmart receipts are enrichment data, not a second financial ledger. Their totals are never added to the Plaid-derived cash-flow calculations, and the protected `Transactions_Raw` schema is unchanged. FinSync also ignores shipping addresses, payment details, tracking numbers, delivery instructions, and receipt barcodes.
+
+To connect a source, open **Walmart** in FinSync and paste the Google Sheets link. The Google account already authorized for FinSync must be able to open the spreadsheet.
+
+When the export contains Walmart product hyperlinks, FinSync preserves them as safe `walmart.com/ip/` links. Price Watch uses receipt history for its calculations and offers an exact-product link for checking today's localized Walmart price; it does not scrape or represent the linked page price as a verified live quote.
+
 ## Plaid Integration & Production Trial Safety Model
 
 FinSync is engineered specifically around Plaid's Production Trial plan constraints (strictly 10 Lifetime Items) and zero-token-leakage principles.

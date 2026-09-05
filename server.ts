@@ -44,6 +44,14 @@ import {
 import { buildHouseholdInsights } from "./server/lib/household-insights";
 import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
 import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
+import {
+  buildWalmartInsights,
+  extractGoogleSpreadsheetId,
+  WALMART_INSIGHT_PERIODS,
+  type WalmartInsightPeriod,
+  type WalmartInsights,
+  type WalmartSheetRow,
+} from "./server/lib/walmart-insights";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -1988,6 +1996,112 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
   return getRes.data.values || [];
 }
 
+interface WalmartInsightsCacheEntry {
+  spreadsheetId: string;
+  period: WalmartInsightPeriod;
+  expiresAt: number;
+  report: WalmartInsights;
+}
+
+const walmartInsightsCache = new Map<string, WalmartInsightsCacheEntry>();
+const WALMART_INSIGHTS_CACHE_MS = 5 * 60 * 1000;
+
+async function getGoogleSheetsClientForUser(uid: string) {
+  const userRef = db.collection('users').doc(uid);
+  const userDoc = await userRef.get();
+  const userData = userDoc.data();
+  if (!userData?.google_refresh_token) {
+    const error = new Error('Connect Google Sheets before adding a Walmart purchase source.');
+    (error as any).code = 'GOOGLE_SHEETS_NOT_CONNECTED';
+    throw error;
+  }
+
+  const oauth2Client = getOauth2Client();
+  oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
+  return {
+    sheets: google.sheets({ version: 'v4', auth: oauth2Client }),
+    userRef,
+    userData,
+  };
+}
+
+async function readWalmartWorkbook(uid: string, spreadsheetId: string) {
+  const { sheets } = await getGoogleSheetsClientForUser(uid);
+  const metadata = await withGoogleAuth(uid, () => sheets.spreadsheets.get({
+    spreadsheetId,
+    fields: 'properties.title,sheets.properties.title',
+  }));
+  const sheetNames = new Set(
+    (metadata.data.sheets || []).map(sheet => sheet.properties?.title).filter(Boolean)
+  );
+  if (!sheetNames.has('Orders') || !sheetNames.has('Items')) {
+    throw new Error('This spreadsheet must contain tabs named Orders and Items.');
+  }
+
+  const [orders, items, productLinks] = await Promise.all([
+    withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Orders!A:Y',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    })),
+    withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Items!A:H',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    })),
+    withGoogleAuth(uid, () => sheets.spreadsheets.get({
+      spreadsheetId,
+      ranges: ['Items!H:H'],
+      includeGridData: true,
+      fields: 'sheets.data',
+    })),
+  ]);
+
+  const itemRows = ((items.data.values || []) as WalmartSheetRow[]).map(row => [...row]);
+  for (const grid of productLinks.data.sheets?.[0]?.data || []) {
+    const startRow = grid.startRow || 0;
+    for (const [offset, rowData] of (grid.rowData || []).entries()) {
+      const hyperlink = rowData.values?.[0]?.hyperlink;
+      const row = itemRows[startRow + offset];
+      if (hyperlink && row) row[7] = hyperlink;
+    }
+  }
+
+  return {
+    title: metadata.data.properties?.title || 'Walmart purchases',
+    orderRows: (orders.data.values || []) as WalmartSheetRow[],
+    itemRows,
+  };
+}
+
+async function loadWalmartInsights(
+  uid: string,
+  spreadsheetId: string,
+  period: WalmartInsightPeriod,
+  forceRefresh = false
+) {
+  const cached = walmartInsightsCache.get(uid);
+  if (
+    !forceRefresh &&
+    cached &&
+    cached.spreadsheetId === spreadsheetId &&
+    cached.period === period &&
+    cached.expiresAt > Date.now()
+  ) {
+    return cached.report;
+  }
+
+  const workbook = await readWalmartWorkbook(uid, spreadsheetId);
+  const report = buildWalmartInsights(workbook.orderRows, workbook.itemRows, { period });
+  walmartInsightsCache.set(uid, {
+    spreadsheetId,
+    period,
+    expiresAt: Date.now() + WALMART_INSIGHTS_CACHE_MS,
+    report,
+  });
+  return report;
+}
+
 
 app.get("/api/dev/accounts-preflight", requireAuth, async (req: express.Request, res: express.Response) => {
   if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
@@ -2457,6 +2571,126 @@ app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/walmart/source", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    const spreadsheetId = String(userData?.walmartSpreadsheetId || '').trim();
+    if (!spreadsheetId) return res.json({ connected: false });
+
+    res.json({
+      connected: true,
+      spreadsheetId,
+      spreadsheetTitle: String(userData?.walmartSpreadsheetTitle || 'Walmart purchases'),
+      spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+    });
+  } catch (error: any) {
+    console.error("Walmart Source Status Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/walmart/source", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const spreadsheetId = extractGoogleSpreadsheetId(req.body?.spreadsheetUrl);
+    if (!spreadsheetId) {
+      return res.status(400).json({
+        code: 'INVALID_WALMART_SPREADSHEET',
+        error: 'Enter a valid Google Sheets link for the Walmart export.',
+      });
+    }
+
+    const workbook = await readWalmartWorkbook(uid, spreadsheetId);
+    buildWalmartInsights(workbook.orderRows, workbook.itemRows, { period: 'last_12_months' });
+    const { userRef } = await getGoogleSheetsClientForUser(uid);
+    await userRef.set({
+      walmartSpreadsheetId: spreadsheetId,
+      walmartSpreadsheetTitle: workbook.title,
+      walmartSourceConnectedAt: Timestamp.now(),
+    }, { merge: true });
+    walmartInsightsCache.delete(uid);
+
+    res.json({
+      connected: true,
+      spreadsheetId,
+      spreadsheetTitle: workbook.title,
+      spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+    });
+  } catch (error: any) {
+    const validationError = /(?:must contain tabs named|is missing required columns)/i.test(error?.message || '');
+    const status = error?.code === 'GOOGLE_SHEETS_NOT_CONNECTED' ? 409
+      : validationError || [403, 404].includes(error?.code || error?.response?.status) ? 400
+        : 500;
+    console.error("Walmart Source Connect Error:", error);
+    res.status(status).json({
+      code: error?.code || 'WALMART_SOURCE_ERROR',
+      error: validationError
+        ? error.message
+        : status === 400
+          ? 'FinSync could not access that spreadsheet. Confirm the link and that your connected Google account can open it.'
+          : error.message,
+    });
+  }
+});
+
+app.delete("/api/walmart/source", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    await db.collection('users').doc(uid).set({
+      walmartSpreadsheetId: FieldValue.delete(),
+      walmartSpreadsheetTitle: FieldValue.delete(),
+      walmartSourceConnectedAt: FieldValue.delete(),
+    }, { merge: true });
+    walmartInsightsCache.delete(uid);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error("Walmart Source Disconnect Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/walmart/insights", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const period = String(req.query.period || 'last_12_months');
+    if (!WALMART_INSIGHT_PERIODS.includes(period as WalmartInsightPeriod)) {
+      return res.status(400).json({
+        error: `Invalid period parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}`,
+      });
+    }
+
+    const uid = (req as any).user.uid;
+    const userDoc = await db.collection('users').doc(uid).get();
+    const userData = userDoc.data();
+    const spreadsheetId = String(userData?.walmartSpreadsheetId || '').trim();
+    if (!spreadsheetId) {
+      return res.status(404).json({
+        code: 'WALMART_SOURCE_NOT_CONNECTED',
+        error: 'Connect your Walmart purchase spreadsheet to view insights.',
+      });
+    }
+
+    const report = await loadWalmartInsights(
+      uid,
+      spreadsheetId,
+      period as WalmartInsightPeriod,
+      req.query.refresh === 'true'
+    );
+    res.json({
+      source: {
+        spreadsheetTitle: String(userData?.walmartSpreadsheetTitle || 'Walmart purchases'),
+        spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+      },
+      ...report,
+    });
+  } catch (error: any) {
+    const status = error?.code === 'GOOGLE_SHEETS_NOT_CONNECTED' ? 409 : 500;
+    console.error("Walmart Insights Error:", error);
+    res.status(status).json({ code: error?.code || 'WALMART_INSIGHTS_ERROR', error: error.message });
   }
 });
   if (process.env.NODE_ENV !== "production") {
