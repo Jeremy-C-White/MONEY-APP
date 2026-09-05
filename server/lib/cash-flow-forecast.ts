@@ -228,6 +228,7 @@ function scheduleBills(input: {
   asOfDate: string;
   throughDate: string;
   forecastAccountId: string | null;
+  balanceBasis: 'available' | 'current' | null;
 }): ScheduledCashEvent[] {
   const accountsById = new Map(input.accounts.map(account => [account.accountId, account]));
   const pending = input.transactions.filter(transaction => transaction.pending && !transaction.removed);
@@ -251,7 +252,7 @@ function scheduleBills(input: {
       const date = occurrenceDate(obligation.lastChargeDate, obligation.cadence, occurrence);
       if (date <= input.asOfDate) continue;
       if (date > input.throughDate) break;
-      const pendingMatch = pending.some(transaction => {
+      const pendingMatch = pending.find(transaction => {
         const distance = daysBetween(transaction.normalizedDate, date);
         return (
           normalizedMerchant(transaction.normalizedMerchant) === merchantKey &&
@@ -259,14 +260,27 @@ function scheduleBills(input: {
           distance != null && Math.abs(distance) <= 3
         );
       });
-      if (isSeasonActive(obligation, date) && !pendingMatch) {
+      if (!isSeasonActive(obligation, date)) continue;
+      if (pendingMatch && input.balanceBasis === 'available') continue;
+
+      const pendingAmount = pendingMatch
+        ? pendingMatch.spendingAdjustment > 0
+          ? pendingMatch.spendingAdjustment
+          : Math.abs(pendingMatch.cashFlowAmount)
+        : null;
+      const eventDate = pendingMatch
+        ? pendingMatch.normalizedDate <= input.asOfDate
+          ? addDays(input.asOfDate, 1)
+          : pendingMatch.normalizedDate
+        : date;
+      if (eventDate <= input.throughDate) {
         events.push({
-          eventId: `bill:${obligation.obligationId}:${date}`,
-          date,
+          eventId: `bill:${obligation.obligationId}:${eventDate}`,
+          date: eventDate,
           kind: 'bill',
           direction: 'outflow',
           label: obligation.merchant,
-          amount,
+          amount: pendingAmount && Number.isFinite(pendingAmount) ? roundCurrency(pendingAmount) : amount,
           accountId,
           accountName: accountLabel(account),
           affectsForecastBalance: Boolean(
@@ -329,6 +343,7 @@ export function buildCashFlowForecast(input: {
     asOfDate: input.asOfDate,
     throughDate,
     forecastAccountId: account?.accountId || null,
+    balanceBasis,
   });
   const paycheckEvents = paycheckStreams.flatMap(stream => {
     const events: ScheduledCashEvent[] = [];

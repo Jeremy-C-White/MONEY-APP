@@ -284,6 +284,49 @@ describe('buildCashFlowForecast', () => {
     expect(result.dailyBalances.at(-1)?.balance).toBe(4800);
   });
 
+  it('deducts the actual pending amount when only a current balance is available', () => {
+    const history = transaction({
+      transactionId: 'bill-history-current',
+      normalizedDate: '2026-08-31',
+      normalizedMerchant: 'Internet Co',
+    });
+    const pending = transaction({
+      transactionId: 'bill-pending-current',
+      normalizedDate: '2026-09-06',
+      normalizedMerchant: 'Internet Co',
+      pending: true,
+      cashFlowAmount: -125,
+      spendingAdjustment: 125,
+    });
+    const result = buildCashFlowForecast({
+      transactions: [
+        ...payDates.map((date, index) => payroll(`current-pay-${index}`, date, 'SC2439134', 2800)),
+        history,
+        pending,
+      ],
+      recurringObligations: [obligation({
+        obligationId: 'internet-current',
+        merchant: 'Internet Co',
+        cadence: 'weekly',
+        lastChargeDate: '2026-08-31',
+        expectedMonthlyAmount: 433.33,
+      })],
+      accountBalances: balances([account({ current: 2100, available: null })]),
+      asOfDate: '2026-09-04',
+      horizonDays: 7,
+    });
+
+    expect(result.balanceBasis).toBe('current');
+    expect(result.upcomingBills).toEqual([
+      expect.objectContaining({
+        date: '2026-09-06',
+        amount: 125,
+        affectsForecastBalance: true,
+      }),
+    ]);
+    expect(result.dailyBalances.at(-1)?.balance).toBe(4775);
+  });
+
   it('keeps monthly bills anchored to the original day after a short month', () => {
     const result = buildCashFlowForecast({
       transactions: [transaction({

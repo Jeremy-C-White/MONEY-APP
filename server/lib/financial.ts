@@ -204,7 +204,10 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   const oneFinanceAchPrefix = /^one finance,?\s+inc\.?\s+ach\s+trans\.?(?:\s|$)/;
   const isOneFinanceOwnAccountDeposit = cashFlowAmount > 0 &&
     accountType === 'depository' &&
-    catPrimary === 'TRANSFER_IN' &&
+    (
+      catPrimary === 'TRANSFER_IN' ||
+      catDetailed === 'LOAN_DISBURSEMENTS_CASH_ADVANCES'
+    ) &&
     [name, merchantName, originalDescription].some(value => oneFinanceAchPrefix.test(value.trim().toLowerCase()));
 
   const isConfirmedInternalTransfer =

@@ -358,14 +358,15 @@ describe('Confirmed transfer reconciliation', () => {
   });
 
   it.each([
-    'One Finance, Inc ACH Trans Jeremy White',
-    'ONE FINANCE INC. ACH TRANS. JEREMY WHITE',
-  ])('reconciles positive One Finance ACH deposits as own-account transfers', name => {
+    ['One Finance, Inc ACH Trans Jeremy White', 'TRANSFER_IN', 'TRANSFER_IN_DEPOSIT'],
+    ['ONE FINANCE INC. ACH TRANS. JEREMY WHITE', 'TRANSFER_IN', 'TRANSFER_IN_DEPOSIT'],
+    ['One Finance, Inc ACH Trans Jeremy White Jeremy White', 'LOAN_DISBURSEMENTS', 'LOAN_DISBURSEMENTS_CASH_ADVANCES'],
+  ])('reconciles positive One Finance ACH deposits as own-account transfers', (name, catPrimary, catDetailed) => {
     const tx = classifyTransaction(buildRow({
       name,
       cashFlowAmount: '250',
-      catPrimary: 'TRANSFER_IN',
-      catDetailed: 'TRANSFER_IN_DEPOSIT',
+      catPrimary,
+      catDetailed,
       accountType: 'depository',
     }));
 
