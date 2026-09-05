@@ -67,7 +67,6 @@ const summaryPayload = {
     previousMonthToDateIncome: 450,
     spendingDifference: 300,
     spendingPercentageChange: 150,
-    projectedMonthEndSpending: 1000,
   },
   activePostedCount: 15,
 };

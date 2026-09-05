@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertCircle, Clock3 } from 'lucide-react';
 import { formatCurrency } from '../lib/formatters';
-import type { AccountBalanceSummary } from '../types/finance';
+import type { AccountBalanceSummary, HouseholdInsights } from '../types/finance';
 import { MetricCard } from './MetricCard';
 
 function formatBalanceTime(value: string | null): string {
@@ -21,12 +21,14 @@ export function AccountPositionCards({
   spending,
   spendingSubtitle,
   projectedMonthEndSpending,
+  projectionMaturity,
   loading,
 }: {
   balances: AccountBalanceSummary | null;
   spending: number | null | undefined;
   spendingSubtitle: React.ReactNode;
   projectedMonthEndSpending: number | null | undefined;
+  projectionMaturity: HouseholdInsights['forecast']['maturity'] | null | undefined;
   loading?: boolean;
 }) {
   const awaiting = Boolean(loading && !balances);
@@ -100,7 +102,20 @@ export function AccountPositionCards({
         <MetricCard
           title="Projected month-end"
           value={formatCurrency(projectedMonthEndSpending)}
-          subtitle="Posted + pending + expected recurring + variable pace"
+          subtitle={
+            <div className="space-y-1">
+              <div className="font-medium text-indigo-600">
+                {projectionMaturity === 'early'
+                  ? 'Early estimate'
+                  : projectionMaturity === 'developing'
+                    ? 'Developing estimate'
+                    : projectionMaturity === 'established'
+                      ? 'Established estimate'
+                      : 'Estimate not ready'}
+              </div>
+              <div>Posted + pending + expected recurring + variable pace</div>
+            </div>
+          }
           loading={loading}
         />
       </div>

@@ -88,8 +88,6 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
   const pacedSpendingPercentageChange = previousMonthToDateSpending > 0
     ? (pacedSpendingDifference / previousMonthToDateSpending) * 100
     : null;
-  const dailyRate = currentDayOfMonth > 0 ? currentMonthSpending / currentDayOfMonth : 0;
-  const projectedMonthEndSpending = dailyRate * daysInCurrentMonth;
 
   return {
     allTime: {
@@ -125,7 +123,6 @@ export function aggregateSummary(txs: NormalizedTransaction[], financeTimezone: 
       previousMonthToDateIncome,
       spendingDifference: pacedSpendingDifference,
       spendingPercentageChange: pacedSpendingPercentageChange,
-      projectedMonthEndSpending,
     },
     activePostedCount
   };

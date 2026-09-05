@@ -70,7 +70,6 @@ export interface DashboardSummary {
     previousMonthToDateIncome: number;
     spendingDifference: number;
     spendingPercentageChange: number | null;
-    projectedMonthEndSpending: number;
   };
   activePostedCount: number;
 }

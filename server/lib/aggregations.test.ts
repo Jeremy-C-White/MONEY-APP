@@ -229,7 +229,6 @@ describe('Month-to-date pacing', () => {
     expect(res.pacing.spendingDifference).toBe(-40);
     expect(res.pacing.spendingPercentageChange).toBe(-50);
     expect(Number.isNaN(res.pacing.spendingPercentageChange as number)).toBe(false);
-    expect(Number.isFinite(res.pacing.projectedMonthEndSpending)).toBe(true);
   });
 
   it('previous-month-to-date is zero: percentage change is null, not 0 or Infinity', () => {
@@ -245,7 +244,7 @@ describe('Month-to-date pacing', () => {
     expect(res.pacing.spendingDifference).toBe(25);
   });
 
-  it('projection: 10 days elapsed, $1,000 spent, 30-day month -> projected 3000', () => {
+  it('keeps pacing focused on comparable month-to-date values instead of producing a second forecast', () => {
     vi.setSystemTime(new Date('2026-09-10T16:00:00Z')); // Sept 10 (30-day month), noon ET
     const txs = [
       mockTx({ normalizedDate: '2026-09-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 1000 }),
@@ -255,7 +254,7 @@ describe('Month-to-date pacing', () => {
 
     expect(res.pacing.dayOfMonth).toBe(10);
     expect(res.pacing.daysInMonth).toBe(30);
-    expect(res.pacing.projectedMonthEndSpending).toBe(3000);
+    expect(res.pacing).not.toHaveProperty('projectedMonthEndSpending');
   });
 
   it('leaves currentMonth, previousMonth, and allTime fields unchanged', () => {

@@ -492,6 +492,7 @@ export default function App() {
           apiFetch={apiFetch}
           refreshKey={refreshKey}
           onReviewTransactions={openNeedsReview}
+          onViewTransactions={() => navigateToTab('transactions')}
         />
       )}
       

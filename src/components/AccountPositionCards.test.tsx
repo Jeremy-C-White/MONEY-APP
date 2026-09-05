@@ -54,6 +54,7 @@ describe('AccountPositionCards', () => {
           spending={725}
           spendingSubtitle="Compared with last month"
           projectedMonthEndSpending={1850}
+          projectionMaturity="established"
         />
       );
     });
@@ -68,6 +69,7 @@ describe('AccountPositionCards', () => {
     expect(container.textContent).toContain('$725.00');
     expect(container.textContent).toContain('Projected month-end');
     expect(container.textContent).toContain('$1,850.00');
+    expect(container.textContent).toContain('Established estimate');
   });
 
   it('does not present missing balances as zero', () => {
@@ -90,6 +92,7 @@ describe('AccountPositionCards', () => {
           spending={0}
           spendingSubtitle={null}
           projectedMonthEndSpending={0}
+          projectionMaturity="early"
         />
       );
     });
@@ -107,6 +110,7 @@ describe('AccountPositionCards', () => {
           spending={100}
           spendingSubtitle={null}
           projectedMonthEndSpending={400}
+          projectionMaturity="developing"
         />
       );
     });

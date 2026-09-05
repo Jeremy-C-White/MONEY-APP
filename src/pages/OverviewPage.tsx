@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, RefreshCcw } from 'lucide-react';
+import { AlertCircle, ArrowRight, RefreshCcw } from 'lucide-react';
 import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
@@ -10,16 +10,12 @@ import {
   formatCurrency,
   formatPercentagePoints,
   formatMonthLabel,
-  getTransactionClassificationLabel,
-  getMerchantDisplayLabel,
-  formatFriendlyDate,
 } from '../lib/formatters';
 import { extractOverviewResponse } from '../lib/api-contracts';
 import type {
   DashboardSummary,
   TrendPoint,
   DashboardVerificationResponse,
-  Transaction,
   RecurringObligationsResponse,
   HouseholdInsights,
   AccountBalanceSummary,
@@ -30,10 +26,12 @@ export function OverviewPage({
   apiFetch,
   refreshKey,
   onReviewTransactions,
+  onViewTransactions,
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   onReviewTransactions: () => void;
+  onViewTransactions: () => void;
 }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
@@ -43,8 +41,6 @@ export function OverviewPage({
     useState<HouseholdInsights | null>(null);
   const [verification, setVerification] =
     useState<DashboardVerificationResponse | null>(null);
-  const [postedTxs, setPostedTxs] = useState<Transaction[]>([]);
-  const [pendingTxs, setPendingTxs] = useState<Transaction[]>([]);
   const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
   const [cashFlowForecast, setCashFlowForecast] = useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,8 +64,6 @@ export function OverviewPage({
       setRecurringObligations(normalized.recurringObligations);
       setHouseholdInsights(normalized.householdInsights);
       setVerification(normalized.verification);
-      setPostedTxs(normalized.postedTransactions);
-      setPendingTxs(normalized.pendingTransactions);
       setAccountBalances(normalized.accountBalances);
       setCashFlowForecast(normalized.cashFlowForecast);
     } catch (err: unknown) {
@@ -142,11 +136,6 @@ export function OverviewPage({
           <span className="text-slate-400">No previous data</span>
         )}
       </div>
-      {pacing && (
-        <div className="text-slate-400">
-          On track for about {formatCurrency(pacing.projectedMonthEndSpending)}
-        </div>
-      )}
     </div>
   );
 
@@ -202,6 +191,7 @@ export function OverviewPage({
         spending={summary?.currentMonth.spending}
         spendingSubtitle={spendingSubtitle}
         projectedMonthEndSpending={householdInsights?.forecast.projectedMonthEndSpending}
+        projectionMaturity={householdInsights?.forecast.maturity}
         loading={loading && !summary}
       />
 
@@ -261,133 +251,15 @@ export function OverviewPage({
           onChanged={fetchData}
         />
       </div>
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6">
-        <h3 className="text-lg font-medium text-slate-900 mb-6">Transactions</h3>
-
-        {pendingTxs.length > 0 && (
-          <div className="mb-6">
-            <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-              Pending
-            </h4>
-            <div className="space-y-3">
-              {pendingTxs.map((transaction) => (
-  <React.Fragment key={transaction.transactionId}>
-    <TransactionRow tx={transaction} />
-  </React.Fragment>
-))}
-            </div>
-          </div>
-        )}
-
-        <div>
-          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">
-            Posted
-          </h4>
-          {loading && postedTxs.length === 0 ? (
-            <div className="space-y-4">
-              {[1, 2, 3].map((item) => (
-                <div key={item} className="h-12 bg-slate-100 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : postedTxs.length === 0 ? (
-            <div className="text-sm text-slate-500 text-center py-4">
-              No posted transactions
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {postedTxs.map((transaction) => (
-  <React.Fragment key={transaction.transactionId}>
-    <TransactionRow tx={transaction} />
-  </React.Fragment>
-))}
-            </div>
-          )}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-100">
-          <div>
-            <p className="text-xs text-slate-500 mb-1">Pending Spending</p>
-            <p className="font-medium text-slate-900">
-              {formatCurrency(summary?.allTime.pendingSpending)}
-            </p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500 mb-1">Active Posted</p>
-            <p className="font-medium text-slate-900">
-              {summary?.activePostedCount ?? 0} rows
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function TransactionRow({ tx }: { tx: Transaction }) {
-  const isPositive = tx.cashFlowAmount > 0;
-
-  let label = getTransactionClassificationLabel(
-    tx.classification,
-    tx.isOverridden,
-    tx.overrideOffsetCategory
-  );
-  if (
-    tx.classification === 'other' &&
-    tx.normalizedCategory.includes('TRANSFER')
-  ) {
-    label = 'Unclassified transfer';
-  }
-
-  const accountContext = [
-    tx.institutionName,
-    tx.accountName,
-    tx.accountMask ? `•••• ${tx.accountMask}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ');
-
-  return (
-    <div className="flex justify-between items-start gap-3 p-2.5 sm:p-3 hover:bg-slate-50 rounded-xl transition-colors text-sm">
-      <div className="flex-1 min-w-0">
-        <p className="font-medium text-slate-900 truncate">
-          {getMerchantDisplayLabel({
-            merchant: tx.normalizedMerchant,
-            fallbackDescription: tx.name,
-            classification: tx.classification,
-          })}
-        </p>
-
-        <div className="flex items-center text-xs text-slate-500 mt-0.5 space-x-2 min-w-0">
-          <span className="whitespace-nowrap">{formatFriendlyDate(tx.normalizedDate)}</span>
-          <span className="w-1 h-1 rounded-full bg-slate-300 flex-shrink-0" />
-          <span className="truncate">{label}</span>
-          {tx.isOverridden && (
-            <span
-              className="rounded-full bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-indigo-700"
-              title={tx.overrideNote || 'Manually reviewed'}
-            >
-              Reviewed
-            </span>
-          )}
-        </div>
-
-        {tx.isOverridden && tx.overrideNote && (
-          <p className="text-[11px] text-slate-400 mt-0.5 truncate">{tx.overrideNote}</p>
-        )}
-
-        {accountContext && (
-          <p className="text-[11px] text-slate-400 mt-0.5 truncate">{accountContext}</p>
-        )}
-      </div>
-
-      <div
-        className={`font-medium whitespace-nowrap pt-0.5 ${
-          isPositive ? 'text-emerald-600' : 'text-slate-900'
-        }`}
-      >
-        {isPositive ? '+' : ''}
-        {formatCurrency(tx.cashFlowAmount)}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={onViewTransactions}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          View all transactions
+          <ArrowRight className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
