@@ -6,7 +6,6 @@ import {
   Settings,
   RefreshCcw,
   Loader2,
-  Landmark,
   ShoppingBasket,
 } from 'lucide-react';
 
@@ -34,13 +33,11 @@ export function AppShell({
   setActiveTab,
 }: AppShellProps) {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen min-h-dvh bg-slate-50 flex flex-col md:flex-row">
       <aside className="hidden md:flex flex-col w-64 bg-white border-r border-slate-200 fixed h-full z-20">
         <div className="p-6">
           <div className="text-xl font-bold text-slate-900 tracking-tight flex items-center">
-            <div className="mr-3 flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600">
-              <Landmark aria-hidden="true" className="h-4 w-4 text-white" />
-            </div>
+            <img src="/icons/finsync-64.png" alt="" aria-hidden="true" className="mr-3 h-8 w-8 rounded-lg" />
             FinSync
           </div>
         </div>
@@ -63,13 +60,11 @@ export function AppShell({
         </nav>
       </aside>
 
-      <main className="flex-1 md:ml-64 flex flex-col min-h-screen w-full relative">
+      <main className="flex-1 md:ml-64 flex flex-col min-h-screen min-h-dvh min-w-0 w-full relative">
         <header className="md:hidden bg-white border-b border-slate-200 sticky top-0 z-30 pt-[env(safe-area-inset-top)]">
           <div className="px-4 h-16 flex items-center justify-between">
             <div className="text-lg font-bold text-slate-900 flex items-center">
-              <div className="mr-2 flex h-6 w-6 items-center justify-center rounded-md bg-indigo-600">
-                <Landmark aria-hidden="true" className="h-3.5 w-3.5 text-white" />
-              </div>
+              <img src="/icons/finsync-64.png" alt="" aria-hidden="true" className="mr-2 h-7 w-7 rounded-lg" />
               FinSync
             </div>
 
@@ -117,6 +112,7 @@ export function AppShell({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
+                aria-current={activeTab === item.id ? 'page' : undefined}
                 className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
                   activeTab === item.id
                     ? 'text-indigo-600'

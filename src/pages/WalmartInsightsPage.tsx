@@ -331,7 +331,7 @@ export function WalmartInsightsPage({
                 key={option.value}
                 type="button"
                 onClick={() => setPeriod(option.value)}
-                className={`min-h-9 rounded-lg px-3 text-xs font-semibold transition ${
+                className={`min-h-11 rounded-lg px-3 text-xs font-semibold transition ${
                   period === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
@@ -585,8 +585,8 @@ export function WalmartInsightsPage({
             <p>
               Cleanup applied: {report.quality.canceledItemRowsExcluded} canceled rows and {report.quality.statusDuplicateRowsExcluded} status duplicates excluded.
             </p>
-            <div className="flex items-center gap-3">
-              <a href={report.source.spreadsheetUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700">
+            <div className="flex min-w-0 flex-wrap items-center gap-3">
+              <a href={report.source.spreadsheetUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 font-semibold text-blue-600 hover:text-blue-700">
                 Open {report.source.spreadsheetTitle} <ExternalLink className="h-3.5 w-3.5" />
               </a>
               <button type="button" onClick={() => void disconnect()} className="inline-flex items-center gap-1 font-semibold text-slate-500 hover:text-rose-600">

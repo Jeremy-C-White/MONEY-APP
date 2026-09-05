@@ -206,31 +206,31 @@ export function TransactionsPage({
   };
 
   return (
-    <div className="flex-1 flex flex-col h-screen overflow-hidden bg-slate-50">
-      <div className="bg-white px-6 pt-6 border-b border-slate-200 shrink-0 safe-top">
+    <div className="flex min-w-0 flex-1 flex-col bg-slate-50">
+      <div className="shrink-0 border-b border-slate-200 bg-white px-4 pt-5 sm:px-6 sm:pt-6">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Transactions</h1>
         
-        <div className="flex gap-6 mt-6 border-b border-slate-200">
+        <div className="scrollbar-none -mx-4 mt-4 flex gap-4 overflow-x-auto border-b border-slate-200 px-4 sm:mx-0 sm:mt-6 sm:gap-6 sm:px-0">
           <button 
-            className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'posted' ? activeTabClasses : inactiveTabClasses}`}
+            className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'posted' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('posted')}
           >
             Posted
           </button>
           <button 
-            className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'pending' ? activeTabClasses : inactiveTabClasses}`}
+            className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'pending' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('pending')}
           >
             Pending
           </button>
           <button 
-            className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'needs_review' ? activeTabClasses : inactiveTabClasses}`}
+            className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'needs_review' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('needs_review')}
           >
             Needs Review
           </button>
           <button
-            className={`pb-3 px-1 border-b-2 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
+            className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('overridden')}
           >
             Reviewed
@@ -238,14 +238,14 @@ export function TransactionsPage({
         </div>
       </div>
       
-      <div className="flex-1 overflow-auto p-4 md:p-6 pb-24 md:pb-6">
+      <div className="flex-1 p-0 pt-4 sm:p-4 md:p-6 md:pb-6">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 space-y-4">
           <div className="relative">
             <Search className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
             <input 
               type="text"
               placeholder="Search transactions"
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-colors"
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm transition-colors focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
             />
@@ -253,7 +253,7 @@ export function TransactionsPage({
           
           <div className="flex flex-wrap gap-3">
             <select 
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
               value={filterAccount}
               onChange={(e) => updateFilter(setFilterAccount, e.target.value)}
             >
@@ -265,7 +265,7 @@ export function TransactionsPage({
             
             {viewMode !== 'needs_review' && (
               <select 
-                className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
                 value={filterClassification}
                 onChange={(e) => updateFilter(setFilterClassification, e.target.value)}
               >
@@ -277,7 +277,7 @@ export function TransactionsPage({
             )}
             
             <select 
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
               value={filterCategory}
               onChange={(e) => updateFilter(setFilterCategory, e.target.value)}
             >
@@ -289,14 +289,14 @@ export function TransactionsPage({
             
             <input 
               type="date"
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
               value={filterStartDate}
               onChange={(e) => updateFilter(setFilterStartDate, e.target.value)}
             />
             
             <input 
               type="date"
-              className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
               value={filterEndDate}
               onChange={(e) => updateFilter(setFilterEndDate, e.target.value)}
             />
@@ -453,20 +453,20 @@ export function TransactionsPage({
             
             {/* Pagination */}
             {totalPages > 1 && (
-              <div className="mt-6 flex justify-between items-center bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-200">
+              <div className="mt-6 flex flex-col gap-3 rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <span className="text-sm text-slate-500 font-medium">{total} transactions &middot; Page {page} of {totalPages}</span>
-                <div className="flex gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:flex">
                   <button 
                     disabled={page <= 1} 
                     onClick={() => setPage(p => p - 1)}
-                    className="flex items-center gap-1 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                    className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
                   >
                     <ChevronLeft className="w-4 h-4" /> Previous
                   </button>
                   <button 
                     disabled={page >= totalPages} 
                     onClick={() => setPage(p => p + 1)}
-                    className="flex items-center gap-1 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                    className="flex min-h-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-40"
                   >
                     Next <ChevronRight className="w-4 h-4" />
                   </button>

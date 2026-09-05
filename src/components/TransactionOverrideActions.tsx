@@ -185,7 +185,7 @@ export function TransactionOverrideActions({
       <button
         type="button"
         onClick={beginEditing}
-        className="mt-2 inline-flex items-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
+        className="mt-2 inline-flex min-h-11 items-center rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
       >
         Review
       </button>
@@ -274,7 +274,7 @@ export function TransactionOverrideActions({
           type="button"
           disabled={saving}
           onClick={() => void save()}
-          className="rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="min-h-11 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50"
         >
           {saving ? 'Saving…' : classification ? 'Save review' : 'Leave for later'}
         </button>
@@ -285,7 +285,7 @@ export function TransactionOverrideActions({
             resetEditor();
             setError('');
           }}
-          className="rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+          className="min-h-11 rounded-lg px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
         >
           Cancel
         </button>

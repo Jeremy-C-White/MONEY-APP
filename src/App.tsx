@@ -429,7 +429,7 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#F8FAFC]">
+      <div className="flex h-screen h-dvh items-center justify-center bg-[#F8FAFC]">
         <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
       </div>
     );
@@ -437,12 +437,10 @@ export default function App() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col font-sans overflow-x-hidden">
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-10 py-6 flex items-center justify-between sticky top-0 z-10">
+      <div className="min-h-screen min-h-dvh bg-[#F8FAFC] text-slate-900 flex flex-col font-sans overflow-x-hidden">
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-4 pb-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:px-10 sm:py-6">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-100">
-              <Landmark className="h-5 w-5 text-white" />
-            </div>
+            <img src="/icons/finsync-64.png" alt="" aria-hidden="true" className="h-10 w-10 rounded-xl shadow-lg shadow-indigo-100" />
             <h1 className="text-2xl font-bold tracking-tight">FinSync</h1>
           </div>
           <button
@@ -515,7 +513,7 @@ export default function App() {
       
       {activeTab === 'settings' && (
         <div className="max-w-5xl mx-auto w-full">
-          <div className="flex justify-between items-center mb-8">
+          <div className="mb-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-2xl font-bold text-slate-900">Settings & Developer Tools</h2>
             <button
               onClick={logOut}
@@ -594,7 +592,7 @@ export default function App() {
           </div>
 
           {/* Plaid Connection Card */}
-          <div className="bg-slate-900 text-white p-8 rounded-3xl shadow-xl flex flex-col justify-between mb-8">
+          <div className="mb-8 flex flex-col justify-between rounded-3xl bg-slate-900 p-5 text-white shadow-xl sm:p-8">
             <div>
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -676,19 +674,19 @@ export default function App() {
               </div>
               <div className="divide-y divide-slate-100">
                 {plaidItems.map((item) => (
-                  <div key={item.internal_id} className="px-6 py-4 flex justify-between items-center hover:bg-slate-50 text-sm">
-                    <div>
+                  <div key={item.internal_id} className="flex flex-col gap-3 px-4 py-4 text-sm hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                    <div className="min-w-0">
                       <p className="font-medium text-slate-900">{item.institution_name}</p>
                       <p className="text-xs text-slate-500 mt-0.5 uppercase tracking-wide font-semibold">
                         Health: {item.health.replace(/_/g, ' ')} 
                         {item.has_updates && ' • Updates Available'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                       {item.health === 'login_required' ? (
                         <button
                            onClick={() => generateLinkToken(item.internal_id)}
-                           className="flex items-center gap-1.5 text-amber-600 bg-amber-50 px-3 py-1.5 rounded-lg hover:bg-amber-100 font-medium transition-colors"
+                           className="flex min-h-11 items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-1.5 font-medium text-amber-600 transition-colors hover:bg-amber-100"
                         >
                            <RefreshCcw className="h-3.5 w-3.5" />
                            Repair
@@ -715,7 +713,7 @@ export default function App() {
                       )}
                       <button 
                          onClick={() => removeBank(item.internal_id)}
-                         className="text-slate-400 hover:text-rose-600 transition-colors ml-4"
+                         className="ml-auto flex min-h-11 min-w-11 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 sm:ml-4"
                          title="Disconnect Bank"
                       >
                          <LogOut className="h-4 w-4" />
