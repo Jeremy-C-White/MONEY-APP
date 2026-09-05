@@ -69,6 +69,36 @@ describe('PayPal account-role classification', () => {
     expect(tx.countsTowardSpending).toBe(false);
   });
 
+  it('treats historical Verizon-described PayPal prepaid loads as internal transfers', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment from VERIZON V3 | DIR DEP',
+      cashFlowAmount: '300',
+      catPrimary: 'INCOME',
+      catDetailed: 'INCOME_SALARY',
+      accountName: 'PayPal',
+      accountType: 'depository',
+      accountSubtype: 'paypal',
+    }));
+
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.incomeAdjustment).toBe(0);
+  });
+
+  it('keeps the same Verizon direct-deposit description as income on a checking account', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'Payment from VERIZON V3 | DIR DEP',
+      cashFlowAmount: '300',
+      catPrimary: 'INCOME',
+      catDetailed: 'INCOME_SALARY',
+      accountType: 'depository',
+      accountSubtype: 'checking',
+    }));
+
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+  });
+
   it('keeps a purchase made from the PayPal deposit account as spending', () => {
     const tx = classifyTransaction(buildRow({
       name: 'Payment to Walmart',
@@ -325,6 +355,41 @@ describe('Confirmed transfer reconciliation', () => {
     expect(tx.classification).toBe('internal_transfer');
     expect(tx.countsTowardSpending).toBe(false);
     expect(tx.countsTowardIncome).toBe(false);
+  });
+
+  it.each([
+    'One Finance, Inc ACH Trans Jeremy White',
+    'ONE FINANCE INC. ACH TRANS. JEREMY WHITE',
+  ])('reconciles positive One Finance ACH deposits as own-account transfers', name => {
+    const tx = classifyTransaction(buildRow({
+      name,
+      cashFlowAmount: '250',
+      catPrimary: 'TRANSFER_IN',
+      catDetailed: 'TRANSFER_IN_DEPOSIT',
+      accountType: 'depository',
+    }));
+
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
+    expect(tx.incomeAdjustment).toBe(0);
+  });
+
+  it.each([
+    ['-250', 'TRANSFER_OUT', 'TRANSFER_OUT_OTHER_TRANSFER_OUT', 'depository'],
+    ['250', 'OTHER', 'OTHER_OTHER', 'depository'],
+    ['250', 'TRANSFER_IN', 'TRANSFER_IN_DEPOSIT', 'credit'],
+  ])('does not auto-reconcile an out-of-scope One Finance ACH row', (cashFlowAmount, catPrimary, catDetailed, accountType) => {
+    const tx = classifyTransaction(buildRow({
+      name: 'One Finance, Inc ACH Trans Jeremy White',
+      cashFlowAmount,
+      catPrimary,
+      catDetailed,
+      accountType,
+    }));
+
+    expect(tx.classification).not.toBe('internal_transfer');
   });
 
   it('classifies confirmed outgoing Visa Direct app transfers as P2P spending', () => {

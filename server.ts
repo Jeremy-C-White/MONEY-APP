@@ -42,6 +42,7 @@ import {
   type StoredRecurringObligationDecision,
 } from "./server/lib/recurring-obligation-decisions";
 import { buildHouseholdInsights } from "./server/lib/household-insights";
+import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
 import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
 
 // Environment config check (log warnings gracefully without crashing startup)
@@ -2190,6 +2191,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       loadAccountBalanceSummary(uid),
     ]);
     const verification = buildVerificationReport(txs, financeTz);
+    const asOfDate = getDateForDateInTimezone(now, financeTz);
 
     res.json({
       summary: verification.summary,
@@ -2200,12 +2202,18 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       householdInsights: buildHouseholdInsights(
         txs,
         recurringObligations.obligations,
-        getDateForDateInTimezone(now, financeTz)
+        asOfDate
       ),
       verification,
       postedTransactions: buildTransactionsPage(txs, { status: 'posted', limit: 6 }).transactions,
       pendingTransactions: buildTransactionsPage(txs, { status: 'pending', limit: 4 }).transactions,
       accountBalances,
+      cashFlowForecast: buildCashFlowForecast({
+        transactions: txs,
+        recurringObligations: recurringObligations.obligations,
+        accountBalances,
+        asOfDate,
+      }),
     });
   } catch (error: any) {
     console.error("Dashboard Overview Error:", error);

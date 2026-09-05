@@ -16,6 +16,7 @@ import type {
   HouseholdInsightPeriod,
   HouseholdPlanningResponse,
   AccountBalanceSummary,
+  CashFlowForecast,
   DashboardOverviewResponse,
   CategoryBreakdownResponse,
   CategoryBreakdownCategory,
@@ -301,6 +302,70 @@ export function extractAccountBalanceSummary(data: unknown): AccountBalanceSumma
   return record as unknown as AccountBalanceSummary;
 }
 
+function isPaycheckStream(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.streamId === 'string' &&
+    typeof value.source === 'string' &&
+    typeof value.accountId === 'string' &&
+    typeof value.typicalAmount === 'number' &&
+    value.cadence === 'biweekly' &&
+    typeof value.occurrenceCount === 'number' &&
+    typeof value.lastDate === 'string' &&
+    typeof value.nextDate === 'string'
+  );
+}
+
+function isScheduledCashEvent(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.eventId === 'string' &&
+    typeof value.date === 'string' &&
+    (value.kind === 'paycheck' || value.kind === 'bill') &&
+    (value.direction === 'inflow' || value.direction === 'outflow') &&
+    typeof value.label === 'string' &&
+    typeof value.amount === 'number' &&
+    validNullableString(value.accountId) &&
+    validNullableString(value.accountName) &&
+    typeof value.affectsForecastBalance === 'boolean'
+  );
+}
+
+export function extractCashFlowForecast(data: unknown): CashFlowForecast {
+  const record = requireRecord(data, 'cash flow forecast');
+  const forecastAccountValid = record.forecastAccount === null || (
+    isRecord(record.forecastAccount) &&
+    typeof record.forecastAccount.accountId === 'string' &&
+    typeof record.forecastAccount.institutionName === 'string' &&
+    typeof record.forecastAccount.accountName === 'string' &&
+    typeof record.forecastAccount.accountMask === 'string'
+  );
+  if (
+    !['ready', 'stale', 'unavailable'].includes(String(record.status)) ||
+    typeof record.asOfDate !== 'string' ||
+    typeof record.throughDate !== 'string' ||
+    !['available', 'current', null].includes(record.balanceBasis as 'available' | 'current' | null) ||
+    !validNullableNumber(record.startingBalance) ||
+    !forecastAccountValid ||
+    !Array.isArray(record.paycheckStreams) ||
+    record.paycheckStreams.some(stream => !isPaycheckStream(stream)) ||
+    !Array.isArray(record.upcomingBills) ||
+    record.upcomingBills.some(event => !isScheduledCashEvent(event)) ||
+    !Array.isArray(record.scheduledEvents) ||
+    record.scheduledEvents.some(event => !isScheduledCashEvent(event)) ||
+    !Array.isArray(record.dailyBalances) ||
+    record.dailyBalances.some(point => !(
+      isRecord(point) && typeof point.date === 'string' && typeof point.balance === 'number'
+    )) ||
+    !validNullableNumber(record.minimumBalance) ||
+    !validNullableString(record.minimumBalanceDate) ||
+    !validNullableString(record.warning)
+  ) {
+    throw new Error('Invalid cash flow forecast response.');
+  }
+  return record as unknown as CashFlowForecast;
+}
+
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
   return requireArrayField<ClassificationRuleRecord>(
     data,
@@ -471,5 +536,6 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
   return {
     ...normalized,
     accountBalances: extractAccountBalanceSummary(record.accountBalances),
+    cashFlowForecast: extractCashFlowForecast(record.cashFlowForecast),
   };
 }

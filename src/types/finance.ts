@@ -395,6 +395,57 @@ export interface AccountBalanceSummary {
   accounts: AccountBalanceRecord[];
 }
 
+export type CashFlowForecastStatus = 'ready' | 'stale' | 'unavailable';
+
+export interface PaycheckStream {
+  streamId: string;
+  source: string;
+  accountId: string;
+  typicalAmount: number;
+  cadence: 'biweekly';
+  occurrenceCount: number;
+  lastDate: string;
+  nextDate: string;
+}
+
+export interface ScheduledCashEvent {
+  eventId: string;
+  date: string;
+  kind: 'paycheck' | 'bill';
+  direction: 'inflow' | 'outflow';
+  label: string;
+  amount: number;
+  accountId: string | null;
+  accountName: string | null;
+  affectsForecastBalance: boolean;
+}
+
+export interface DailyCashBalance {
+  date: string;
+  balance: number;
+}
+
+export interface CashFlowForecast {
+  status: CashFlowForecastStatus;
+  asOfDate: string;
+  throughDate: string;
+  balanceBasis: 'available' | 'current' | null;
+  startingBalance: number | null;
+  forecastAccount: {
+    accountId: string;
+    institutionName: string;
+    accountName: string;
+    accountMask: string;
+  } | null;
+  paycheckStreams: PaycheckStream[];
+  upcomingBills: ScheduledCashEvent[];
+  scheduledEvents: ScheduledCashEvent[];
+  dailyBalances: DailyCashBalance[];
+  minimumBalance: number | null;
+  minimumBalanceDate: string | null;
+  warning: string | null;
+}
+
 export type CategoryPeriod = 'this_month' | 'last_month' | 'last_3_months' | 'this_year' | 'all_time';
 
 export interface CategoryBreakdownMerchant {
@@ -439,4 +490,5 @@ export interface DashboardOverviewResponse {
   postedTransactions: Transaction[];
   pendingTransactions: Transaction[];
   accountBalances: AccountBalanceSummary;
+  cashFlowForecast: CashFlowForecast;
 }

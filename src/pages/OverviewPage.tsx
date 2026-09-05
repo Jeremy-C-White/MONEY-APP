@@ -4,6 +4,7 @@ import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
 import { AccountPositionCards } from '../components/AccountPositionCards';
+import { CashFlowForecastCard } from '../components/CashFlowForecastCard';
 import { CategoryBreakdownCard } from '../components/CategoryBreakdownCard';
 import {
   formatCurrency,
@@ -13,7 +14,7 @@ import {
   getMerchantDisplayLabel,
   formatFriendlyDate,
 } from '../lib/formatters';
-import { extractHouseholdPlanningResponse, extractOverviewResponse } from '../lib/api-contracts';
+import { extractOverviewResponse } from '../lib/api-contracts';
 import type {
   DashboardSummary,
   TrendPoint,
@@ -22,6 +23,7 @@ import type {
   RecurringObligationsResponse,
   HouseholdInsights,
   AccountBalanceSummary,
+  CashFlowForecast,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -44,6 +46,7 @@ export function OverviewPage({
   const [postedTxs, setPostedTxs] = useState<Transaction[]>([]);
   const [pendingTxs, setPendingTxs] = useState<Transaction[]>([]);
   const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
+  const [cashFlowForecast, setCashFlowForecast] = useState<CashFlowForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trendRange, setTrendRange] =
@@ -68,6 +71,7 @@ export function OverviewPage({
       setPostedTxs(normalized.postedTransactions);
       setPendingTxs(normalized.pendingTransactions);
       setAccountBalances(normalized.accountBalances);
+      setCashFlowForecast(normalized.cashFlowForecast);
     } catch (err: unknown) {
       console.error(err);
       setError(
@@ -83,14 +87,6 @@ export function OverviewPage({
   useEffect(() => {
     void fetchData();
   }, [trendRange, refreshKey]);
-
-  const refreshRecurringObligations = async () => {
-    const response = await apiFetch('/api/dashboard/household-insights');
-    if (!response.ok) throw new Error('Unable to refresh recurring services.');
-    const planning = extractHouseholdPlanningResponse(await response.json());
-    setRecurringObligations(planning.recurringObligations);
-    setHouseholdInsights(planning.insights);
-  };
 
   if (error && !summary) {
     return (
@@ -209,6 +205,11 @@ export function OverviewPage({
         loading={loading && !summary}
       />
 
+      <CashFlowForecastCard
+        forecast={cashFlowForecast}
+        loading={loading && !cashFlowForecast}
+      />
+
       <HouseholdInsightsCard
         insights={householdInsights}
         loading={loading && !householdInsights}
@@ -257,7 +258,7 @@ export function OverviewPage({
           report={recurringObligations}
           loading={loading && !recurringObligations}
           apiFetch={apiFetch}
-          onChanged={refreshRecurringObligations}
+          onChanged={fetchData}
         />
       </div>
 

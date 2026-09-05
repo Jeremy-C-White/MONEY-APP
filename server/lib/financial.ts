@@ -201,9 +201,16 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     catPrimary === 'TRANSFER_OUT' &&
     catDetailed === 'TRANSFER_OUT_INVESTMENT_AND_RETIREMENT_FUNDS';
 
+  const oneFinanceAchPrefix = /^one finance,?\s+inc\.?\s+ach\s+trans\.?(?:\s|$)/;
+  const isOneFinanceOwnAccountDeposit = cashFlowAmount > 0 &&
+    accountType === 'depository' &&
+    catPrimary === 'TRANSFER_IN' &&
+    [name, merchantName, originalDescription].some(value => oneFinanceAchPrefix.test(value.trim().toLowerCase()));
+
   const isConfirmedInternalTransfer =
     catDetailed === 'TRANSFER_OUT_ACCOUNT_TRANSFER' ||
     catDetailed === 'TRANSFER_IN_ACCOUNT_TRANSFER' ||
+    isOneFinanceOwnAccountDeposit ||
     ((catPrimary === 'TRANSFER_IN' || catPrimary === 'TRANSFER_OUT') &&
       (
         /save as you go transfer (debit to|credit from)/.test(combinedDescLower) ||
@@ -233,6 +240,15 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     catDetailed === 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS' &&
     combinedDescLower.includes('paypal') &&
     combinedDescLower.includes('add to balance');
+
+  // Historical PayPal prepaid-card funding used a Verizon direct-deposit
+  // description even though it was an owner-directed card load, not a third
+  // household paycheck. Scope this exception to the PayPal deposit account so
+  // genuine Verizon payroll landing in checking remains earned income.
+  const isPayPalVerizonPrepaidLoad = cashFlowAmount > 0 &&
+    accountType === 'depository' &&
+    accountSubtype === 'paypal' &&
+    /^payment from verizon v3\s*\|\s*dir dep\b/.test(name.trim().toLowerCase());
 
   const isEarnedIncome = cashFlowAmount > 0 && accountType === 'depository' &&
     (
@@ -276,6 +292,8 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     // provider keywords such as "PayPal" in an account or transaction name.
     classification = 'credit_card_payment';
   } else if (isPayPalBalanceLoad) {
+    classification = 'internal_transfer';
+  } else if (isPayPalVerizonPrepaidLoad) {
     classification = 'internal_transfer';
   } else if (isP2P) {
     classification = 'person_to_person';

@@ -15,6 +15,7 @@ import {
   extractStatusResponse,
   extractHouseholdPlanningResponse,
   extractAccountBalanceSummary,
+  extractCashFlowForecast,
   extractOverviewResponse,
   extractCategoryBreakdownResponse,
 } from './api-contracts';
@@ -297,6 +298,46 @@ const accountBalancesPayload = {
   }],
 };
 
+const cashFlowForecastPayload = {
+  status: 'ready' as const,
+  asOfDate: '2026-09-04',
+  throughDate: '2026-10-04',
+  balanceBasis: 'available' as const,
+  startingBalance: 2400,
+  forecastAccount: {
+    accountId: 'acc_1',
+    institutionName: 'Chase',
+    accountName: 'Checking',
+    accountMask: '1234',
+  },
+  paycheckStreams: [{
+    streamId: 'acc_1:SC123',
+    source: 'Verizon payroll',
+    accountId: 'acc_1',
+    typicalAmount: 2800,
+    cadence: 'biweekly' as const,
+    occurrenceCount: 8,
+    lastDate: '2026-08-28',
+    nextDate: '2026-09-11',
+  }],
+  upcomingBills: [{
+    eventId: 'bill:internet:2026-09-07',
+    date: '2026-09-07',
+    kind: 'bill' as const,
+    direction: 'outflow' as const,
+    label: 'Internet Co',
+    amount: 100,
+    accountId: 'acc_1',
+    accountName: 'Checking ••••1234',
+    affectsForecastBalance: true,
+  }],
+  scheduledEvents: [],
+  dailyBalances: [{ date: '2026-09-04', balance: 2400 }],
+  minimumBalance: 2300,
+  minimumBalanceDate: '2026-09-07',
+  warning: null,
+};
+
 describe('API response contracts', () => {
   it('validates the application status response', () => {
     const status = extractStatusResponse({
@@ -364,6 +405,16 @@ describe('API response contracts', () => {
       ...accountBalancesPayload,
       cashCurrent: '2500',
     })).toThrow('Invalid account balances response.');
+  });
+
+  it('validates the scheduled cash forecast contract', () => {
+    const result = extractCashFlowForecast(cashFlowForecastPayload);
+    expect(result.paycheckStreams[0].source).toBe('Verizon payroll');
+    expect(result.upcomingBills[0].affectsForecastBalance).toBe(true);
+    expect(() => extractCashFlowForecast({
+      ...cashFlowForecastPayload,
+      balanceBasis: 'combined',
+    })).toThrow('Invalid cash flow forecast response.');
   });
 
   it('reads the paced comparison from summary.pacing', () => {
@@ -437,9 +488,11 @@ describe('API response contracts', () => {
       postedTransactions: [transaction],
       pendingTransactions: [{ ...transaction, transactionId: 'pending_1', pending: true }],
       accountBalances: accountBalancesPayload,
+      cashFlowForecast: cashFlowForecastPayload,
     });
 
     expect(result.accountBalances.connectedPosition).toBe(2000);
+    expect(result.cashFlowForecast.minimumBalance).toBe(2300);
     expect(result.trends[0].month).toBe('2026-09');
     expect(result.pendingTransactions[0].pending).toBe(true);
   });
