@@ -78,6 +78,8 @@ export interface WalmartInsights {
     fuelGallons: number;
     averageFuelPricePerGallon: number | null;
     fuelPurchaseCount: number;
+    returnAmount: number;
+    returnCount: number;
   };
   monthly: WalmartMonthlyInsight[];
   topItems: WalmartTopItem[];
@@ -136,6 +138,7 @@ const REQUIRED_ITEM_HEADERS = [
   'Price',
   'Status',
   'Order Type',
+  'Product Link',
 ];
 
 const MONTHS: Record<string, number> = {
@@ -269,6 +272,35 @@ function walmartProductUrl(value: unknown): string | null {
   }
 }
 
+function walmartProductId(productUrl: string | null): string | null {
+  if (!productUrl) return null;
+  try {
+    const segments = new URL(productUrl).pathname.split('/').filter(Boolean);
+    if (segments[0]?.toLowerCase() !== 'ip') return null;
+    const candidate = segments[segments.length - 1];
+    return /^\d+$/.test(candidate) ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizedProductName(productName: string): string {
+  const normalized = productName
+    .toLowerCase()
+    .replace(/\bgallons?\b/g, 'gal')
+    .replace(/\bounces?\b/g, 'oz')
+    .replace(/\bfluid\s+oz\b/g, 'fl oz')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+  return normalized.split(' ').sort().join(' ');
+}
+
+export function getWalmartProductIdentity(productName: string, productUrl: string | null): string {
+  const productId = walmartProductId(productUrl);
+  return productId ? `item:${productId}` : `name:${normalizedProductName(productName)}`;
+}
+
 export function isFuelProduct(productName: string): boolean {
   return /\b(?:gasoline|unleaded|diesel)\b/i.test(productName);
 }
@@ -282,7 +314,7 @@ function cleanItems(items: ParsedItem[]): {
   for (const item of items) {
     const key = [
       item.orderNumber,
-      item.productName.toLowerCase(),
+      getWalmartProductIdentity(item.productName, item.productUrl),
       item.quantity,
       item.price,
       item.orderType,
@@ -354,8 +386,10 @@ export function buildWalmartInsights(
 
   const inPeriod = (date: string) => (!startDate || date >= startDate) && date <= endDate;
   const datedOrders = allOrders.filter(order => inPeriod(order.date));
-  const orders = datedOrders.filter(order => order.total > 0);
-  const orderNumbers = new Set(orders.map(order => order.orderNumber));
+  const purchaseOrders = datedOrders.filter(order => order.total > 0);
+  const returnOrders = datedOrders.filter(order => order.total < 0);
+  const financialOrders = datedOrders.filter(order => order.total !== 0);
+  const orderNumbers = new Set(purchaseOrders.map(order => order.orderNumber));
   const {
     items: cleanedItems,
     canceledRows,
@@ -369,18 +403,19 @@ export function buildWalmartInsights(
     itemsByOrder.set(item.orderNumber, group);
   }
 
-  const totalSpend = orders.reduce((sum, order) => sum + order.total, 0);
+  const purchaseSpend = purchaseOrders.reduce((sum, order) => sum + order.total, 0);
+  const totalSpend = financialOrders.reduce((sum, order) => sum + order.total, 0);
   const fuelItems = items.filter(item => item.fuel);
   const fuelSpend = fuelItems.reduce((sum, item) => sum + item.price * item.copies, 0);
   const fuelGallons = fuelItems.reduce((sum, item) => sum + item.quantity * item.copies, 0);
   const fuelOrders = new Set(fuelItems.map(item => item.orderNumber));
 
   const monthlyMap = new Map<string, WalmartMonthlyInsight>();
-  for (const order of orders) {
+  for (const order of financialOrders) {
     const month = order.date.slice(0, 7);
     const entry = monthlyMap.get(month) || { month, totalSpend: 0, fuelSpend: 0, orderCount: 0 };
     entry.totalSpend += order.total;
-    entry.orderCount += 1;
+    if (order.total > 0) entry.orderCount += 1;
     monthlyMap.set(month, entry);
   }
   for (const item of fuelItems) {
@@ -399,7 +434,7 @@ export function buildWalmartInsights(
     lastPurchased: string;
   }>();
   for (const item of items.filter(candidate => !candidate.fuel)) {
-    const key = item.productName.toLowerCase();
+    const key = getWalmartProductIdentity(item.productName, item.productUrl);
     const aggregate = itemAggregates.get(key) || {
       name: item.productName,
       productUrl: item.productUrl,
@@ -409,7 +444,10 @@ export function buildWalmartInsights(
       lastPurchased: item.date,
     };
     aggregate.orderNumbers.add(item.orderNumber);
-    if (item.productUrl && item.date >= aggregate.lastPurchased) aggregate.productUrl = item.productUrl;
+    if (item.date >= aggregate.lastPurchased) {
+      aggregate.name = item.productName;
+      if (item.productUrl) aggregate.productUrl = item.productUrl;
+    }
     aggregate.quantity += item.quantity * item.copies;
     aggregate.spend += item.price * item.copies;
     if (item.date > aggregate.lastPurchased) aggregate.lastPurchased = item.date;
@@ -440,7 +478,7 @@ export function buildWalmartInsights(
     }>;
   }>();
   for (const item of items.filter(candidate => !candidate.fuel && candidate.price > 0 && candidate.quantity > 0)) {
-    const key = item.productName.toLowerCase();
+    const key = getWalmartProductIdentity(item.productName, item.productUrl);
     const product = priceProducts.get(key) || {
       name: item.productName,
       productUrl: item.productUrl,
@@ -454,7 +492,14 @@ export function buildWalmartInsights(
       spend: item.price * item.copies,
       quantity: item.quantity * item.copies,
     });
-    if (item.productUrl) product.productUrl = item.productUrl;
+    const latestKnownDate = product.observations.reduce(
+      (latest, observation) => observation.date > latest ? observation.date : latest,
+      ''
+    );
+    if (item.date >= latestKnownDate) {
+      product.name = item.productName;
+      if (item.productUrl) product.productUrl = item.productUrl;
+    }
     priceProducts.set(key, product);
   }
 
@@ -523,7 +568,7 @@ export function buildWalmartInsights(
     .sort((a, b) => b.purchaseCount - a.purchaseCount || Math.abs(b.changeAmount) - Math.abs(a.changeAmount))
     .slice(0, 10);
 
-  const recentOrders = orders
+  const recentOrders = purchaseOrders
     .slice()
     .sort((a, b) => b.date.localeCompare(a.date) || b.orderNumber.localeCompare(a.orderNumber))
     .slice(0, 15)
@@ -557,16 +602,18 @@ export function buildWalmartInsights(
     endDate,
     summary: {
       totalSpend: roundCurrency(totalSpend),
-      orderCount: orders.length,
-      averageOrder: orders.length ? roundCurrency(totalSpend / orders.length) : 0,
-      onlineSpend: roundCurrency(orders.filter(order => order.orderType !== 'IN_STORE').reduce((sum, order) => sum + order.total, 0)),
-      inStoreSpend: roundCurrency(orders.filter(order => order.orderType === 'IN_STORE').reduce((sum, order) => sum + order.total, 0)),
-      tips: roundCurrency(orders.reduce((sum, order) => sum + order.tip, 0)),
-      savings: roundCurrency(orders.reduce((sum, order) => sum + order.savings, 0)),
+      orderCount: purchaseOrders.length,
+      averageOrder: purchaseOrders.length ? roundCurrency(purchaseSpend / purchaseOrders.length) : 0,
+      onlineSpend: roundCurrency(purchaseOrders.filter(order => order.orderType !== 'IN_STORE').reduce((sum, order) => sum + order.total, 0)),
+      inStoreSpend: roundCurrency(purchaseOrders.filter(order => order.orderType === 'IN_STORE').reduce((sum, order) => sum + order.total, 0)),
+      tips: roundCurrency(purchaseOrders.reduce((sum, order) => sum + order.tip, 0)),
+      savings: roundCurrency(purchaseOrders.reduce((sum, order) => sum + order.savings, 0)),
       fuelSpend: roundCurrency(fuelSpend),
       fuelGallons: roundQuantity(fuelGallons),
       averageFuelPricePerGallon: fuelGallons > 0 ? roundCurrency(fuelSpend / fuelGallons) : null,
       fuelPurchaseCount: fuelOrders.size,
+      returnAmount: roundCurrency(-returnOrders.reduce((sum, order) => sum + order.total, 0)),
+      returnCount: returnOrders.length,
     },
     monthly: [...monthlyMap.values()]
       .sort((a, b) => a.month.localeCompare(b.month))
@@ -581,7 +628,7 @@ export function buildWalmartInsights(
     quality: {
       canceledItemRowsExcluded: canceledRows,
       statusDuplicateRowsExcluded: statusDuplicateRows,
-      zeroDollarOrdersExcluded: datedOrders.length - orders.length,
+      zeroDollarOrdersExcluded: datedOrders.filter(order => order.total === 0).length,
       incompleteOrderStubsExcluded: incomplete,
     },
   };

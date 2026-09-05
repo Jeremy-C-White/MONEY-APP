@@ -296,7 +296,7 @@ export function WalmartInsightsPage({
   };
 
   const maxMonthlySpend = useMemo(
-    () => Math.max(...(report?.monthly.map(month => month.totalSpend) || [0]), 1),
+    () => Math.max(...(report?.monthly.map(month => Math.abs(month.totalSpend)) || [0]), 1),
     [report]
   );
 
@@ -365,7 +365,12 @@ export function WalmartInsightsPage({
       ) : report ? (
         <>
           <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Metric label="Walmart spend" value={formatCurrency(report.summary.totalSpend)} detail={`${report.summary.orderCount} paid orders`} icon={BarChart3} />
+            <Metric
+              label="Net Walmart spend"
+              value={formatCurrency(report.summary.totalSpend)}
+              detail={`${report.summary.orderCount} purchases${report.summary.returnCount > 0 ? ` · ${formatCurrency(report.summary.returnAmount)} returned` : ''}`}
+              icon={BarChart3}
+            />
             <Metric label="Average order" value={formatCurrency(report.summary.averageOrder)} detail="Across paid orders" icon={ShoppingBasket} />
             <Metric label="Fuel item spend" value={formatCurrency(report.summary.fuelSpend)} detail={`${report.summary.fuelPurchaseCount} fuel purchases`} icon={Fuel} />
             <Metric label="Recorded savings" value={formatCurrency(report.summary.savings)} detail={`${formatCurrency(report.summary.tips)} in delivery tips`} icon={Sparkles} />
@@ -380,11 +385,12 @@ export function WalmartInsightsPage({
                 </div>
               </div>
               {report.monthly.length === 0 ? (
-                <p className="py-12 text-center text-sm text-slate-500">No paid orders in this period.</p>
+                <p className="py-12 text-center text-sm text-slate-500">No Walmart order activity in this period.</p>
               ) : (
                 <div className="flex h-52 items-end gap-2 overflow-x-auto pb-1">
                   {report.monthly.map(month => {
-                    const totalHeight = Math.max(8, (month.totalSpend / maxMonthlySpend) * 160);
+                    const isReturnMonth = month.totalSpend < 0;
+                    const totalHeight = Math.max(8, (Math.abs(month.totalSpend) / maxMonthlySpend) * 160);
                     const fuelHeight = month.totalSpend > 0
                       ? Math.min(totalHeight, (month.fuelSpend / month.totalSpend) * totalHeight)
                       : 0;
@@ -393,7 +399,7 @@ export function WalmartInsightsPage({
                         <div className="mb-2 hidden whitespace-nowrap rounded-lg bg-slate-900 px-2 py-1 text-[10px] text-white group-hover:block">
                           {formatCurrency(month.totalSpend)} · {month.orderCount} orders
                         </div>
-                        <div className="relative w-full max-w-10 overflow-hidden rounded-t-lg bg-blue-200" style={{ height: `${totalHeight}px` }}>
+                        <div className={`relative w-full max-w-10 overflow-hidden rounded-t-lg ${isReturnMonth ? 'bg-rose-300' : 'bg-blue-200'}`} style={{ height: `${totalHeight}px` }}>
                           {fuelHeight > 0 && <div className="absolute inset-x-0 bottom-0 bg-amber-400" style={{ height: `${fuelHeight}px` }} />}
                         </div>
                         <span className="mt-2 text-[10px] font-medium text-slate-500">{formatMonthShortWithYear(month.month)}</span>
@@ -405,6 +411,7 @@ export function WalmartInsightsPage({
               <div className="mt-4 flex gap-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
                 <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-blue-200" /> Retail</span>
                 <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-amber-400" /> Fuel</span>
+                <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-rose-300" /> Net return</span>
               </div>
             </section>
 
@@ -443,7 +450,8 @@ export function WalmartInsightsPage({
                   ['Online, delivery & pickup', report.summary.onlineSpend, 'bg-blue-500'],
                   ['In store', report.summary.inStoreSpend, 'bg-indigo-400'],
                 ] as const).map(([label, value, color]) => {
-                  const percentage = report.summary.totalSpend > 0 ? value / report.summary.totalSpend : 0;
+                  const channelSpend = report.summary.onlineSpend + report.summary.inStoreSpend;
+                  const percentage = channelSpend > 0 ? value / channelSpend : 0;
                   return (
                     <div key={label}>
                       <div className="mb-2 flex items-center justify-between text-sm">

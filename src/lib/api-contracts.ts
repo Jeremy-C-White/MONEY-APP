@@ -407,6 +407,8 @@ export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsRe
     typeof record.summary.fuelGallons !== 'number' ||
     !(typeof record.summary.averageFuelPricePerGallon === 'number' || record.summary.averageFuelPricePerGallon === null) ||
     typeof record.summary.fuelPurchaseCount !== 'number' ||
+    typeof record.summary.returnAmount !== 'number' ||
+    typeof record.summary.returnCount !== 'number' ||
     !Array.isArray(record.monthly) ||
     !record.monthly.every(isWalmartMonthlyInsight) ||
     !Array.isArray(record.topItems) ||
@@ -593,8 +595,6 @@ export interface OverviewPayloads {
   trends: unknown;
   householdPlanning: unknown;
   verification: unknown;
-  postedTransactions: unknown;
-  pendingTransactions: unknown;
 }
 
 export interface NormalizedOverviewData {
@@ -605,15 +605,11 @@ export interface NormalizedOverviewData {
   recurringObligations: RecurringObligationsResponse;
   householdInsights: HouseholdInsights;
   verification: DashboardVerificationResponse;
-  postedTransactions: Transaction[];
-  pendingTransactions: Transaction[];
 }
 
 export function normalizeOverviewPayloads(
   payloads: OverviewPayloads
 ): NormalizedOverviewData {
-  const posted = extractTransactionsResponse(payloads.postedTransactions);
-  const pending = extractTransactionsResponse(payloads.pendingTransactions);
   const planning = extractHouseholdPlanningResponse(payloads.householdPlanning);
 
   return {
@@ -624,8 +620,6 @@ export function normalizeOverviewPayloads(
     recurringObligations: planning.recurringObligations,
     householdInsights: planning.insights,
     verification: extractVerificationResponse(payloads.verification),
-    postedTransactions: posted.transactions,
-    pendingTransactions: pending.transactions,
   };
 }
 
@@ -641,20 +635,6 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
       insights: record.householdInsights,
     },
     verification: record.verification,
-    postedTransactions: {
-      transactions: record.postedTransactions,
-      total: Array.isArray(record.postedTransactions) ? record.postedTransactions.length : 0,
-      page: 1,
-      limit: 6,
-      totalPages: 1,
-    },
-    pendingTransactions: {
-      transactions: record.pendingTransactions,
-      total: Array.isArray(record.pendingTransactions) ? record.pendingTransactions.length : 0,
-      page: 1,
-      limit: 4,
-      totalPages: 1,
-    },
   });
 
   return {

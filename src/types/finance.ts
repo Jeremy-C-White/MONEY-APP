@@ -486,8 +486,6 @@ export interface DashboardOverviewResponse {
   recurringObligations: RecurringObligationsResponse;
   householdInsights: HouseholdInsights;
   verification: DashboardVerificationResponse;
-  postedTransactions: Transaction[];
-  pendingTransactions: Transaction[];
   accountBalances: AccountBalanceSummary;
   cashFlowForecast: CashFlowForecast;
 }
@@ -580,6 +578,8 @@ export interface WalmartInsightsResponse {
     fuelGallons: number;
     averageFuelPricePerGallon: number | null;
     fuelPurchaseCount: number;
+    returnAmount: number;
+    returnCount: number;
   };
   monthly: WalmartMonthlyInsight[];
   topItems: WalmartTopItem[];

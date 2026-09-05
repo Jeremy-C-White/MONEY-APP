@@ -24,6 +24,8 @@ const report = {
     fuelGallons: 80,
     averageFuelPricePerGallon: 3,
     fuelPurchaseCount: 8,
+    returnAmount: 40,
+    returnCount: 1,
   },
   monthly: [{ month: '2026-08', totalSpend: 300, fuelSpend: 60, orderCount: 5 }],
   topItems: [{
@@ -113,6 +115,8 @@ describe('WalmartInsightsPage', () => {
     });
 
     await vi.waitFor(() => expect(container.textContent).toContain('$1,200.00'));
+    expect(container.textContent).toContain('Net Walmart spend');
+    expect(container.textContent).toContain('$40.00 returned');
     expect(container.textContent).toContain('80');
     expect(container.textContent).toContain('$3.00');
     expect(container.textContent).toContain('Organic Bananas');

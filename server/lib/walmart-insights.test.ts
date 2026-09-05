@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWalmartInsights,
   extractGoogleSpreadsheetId,
+  getWalmartProductIdentity,
   isFuelProduct,
 } from './walmart-insights';
 
@@ -44,6 +45,8 @@ describe('buildWalmartInsights', () => {
       fuelGallons: 10,
       averageFuelPricePerGallon: 4,
       fuelPurchaseCount: 1,
+      returnAmount: 0,
+      returnCount: 0,
     });
     expect(report.quality).toEqual({
       canceledItemRowsExcluded: 1,
@@ -81,9 +84,46 @@ describe('buildWalmartInsights', () => {
     expect(report.topItems.some(item => item.productName === 'Old Product')).toBe(true);
   });
 
+  it('nets returns without misreporting them as zero-dollar orders', () => {
+    const returnOrders = [
+      orders[0],
+      ['purchase-1', 'Aug 20, 2026', 'GLASS', '', '$0.00', '$100.00', 'SC_DELIVERY'],
+      ['return-1', 'Aug 21, 2026', 'GLASS', '', '$0.00', '-$40.00', 'SC_DELIVERY'],
+      ['zero-1', 'Aug 22, 2026', 'GLASS', '', '$0.00', '$0.00', 'SC_DELIVERY'],
+    ];
+    const returnItems = [
+      items[0],
+      ['purchase-1', 'Aug 20, 2026', 'Test Product', '1', '$100.00', 'Delivered on Aug 20', 'GLASS', 'https://www.walmart.com/ip/222222222'],
+    ];
+
+    const report = buildWalmartInsights(returnOrders, returnItems, {
+      period: 'this_year',
+      now: new Date('2026-09-04T12:00:00Z'),
+    });
+
+    expect(report.summary).toMatchObject({
+      totalSpend: 60,
+      orderCount: 1,
+      averageOrder: 100,
+      onlineSpend: 100,
+      returnAmount: 40,
+      returnCount: 1,
+    });
+    expect(report.quality.zeroDollarOrdersExcluded).toBe(1);
+    expect(report.monthly).toEqual([{
+      month: '2026-08',
+      totalSpend: 60,
+      fuelSpend: 0,
+      orderCount: 1,
+    }]);
+  });
+
   it('rejects a workbook whose expected export columns are missing', () => {
     expect(() => buildWalmartInsights([['Order Number']], items)).toThrow(
       'Orders tab is missing required columns'
+    );
+    expect(() => buildWalmartInsights(orders, items.map(row => row.slice(0, 7)))).toThrow(
+      'Items tab is missing required columns: Product Link'
     );
   });
 
@@ -96,7 +136,7 @@ describe('buildWalmartInsights', () => {
     const priceItems = [
       items[0],
       ['price-1', 'Jan 05, 2026', 'Test Staple', '2', '$4.00', 'Delivered on Jan 06', 'GLASS', 'https://www.walmart.com/ip/111111111'],
-      ['price-2', 'Jun 05, 2026', 'Test Staple', '2', '$5.00', 'Delivered on Jun 06', 'GLASS', 'https://www.walmart.com/ip/111111111'],
+      ['price-2', 'Jun 05, 2026', 'Test Staple, Updated Label', '2', '$5.00', 'Delivered on Jun 06', 'GLASS', 'https://www.walmart.com/ip/Test-Staple/111111111'],
     ];
 
     const report = buildWalmartInsights(priceOrders, priceItems, {
@@ -106,8 +146,8 @@ describe('buildWalmartInsights', () => {
 
     expect(report.priceTrends).toHaveLength(1);
     expect(report.priceTrends[0]).toMatchObject({
-      productName: 'Test Staple',
-      productUrl: 'https://www.walmart.com/ip/111111111',
+      productName: 'Test Staple, Updated Label',
+      productUrl: 'https://www.walmart.com/ip/Test-Staple/111111111',
       purchaseCount: 2,
       firstUnitPrice: 2,
       latestUnitPrice: 2.5,
@@ -136,5 +176,22 @@ describe('Walmart source helpers', () => {
     expect(isFuelProduct('Reg Gasoline Unleaded')).toBe(true);
     expect(isFuelProduct('Great Value Fuel Injector Cleaner')).toBe(false);
     expect(isFuelProduct('Great Value Whole Milk')).toBe(false);
+  });
+
+  it('uses the Walmart item id before the mutable product title', () => {
+    expect(getWalmartProductIdentity(
+      'Great Value Whole Milk, 1 Gallon',
+      'https://www.walmart.com/ip/Great-Value-Whole-Milk/123456789'
+    )).toBe(getWalmartProductIdentity(
+      'Great Value Milk Whole, 1 gal',
+      'https://www.walmart.com/ip/123456789'
+    ));
+    expect(getWalmartProductIdentity(
+      'Great Value Whole Milk, 1 Gallon',
+      null
+    )).toBe(getWalmartProductIdentity(
+      'Great Value Milk Whole, 1 gal',
+      null
+    ));
   });
 });

@@ -459,11 +459,6 @@ describe('API response contracts', () => {
         insights: householdInsightsPayload,
       },
       verification: verificationPayload,
-      postedTransactions: transactionsPayload,
-      pendingTransactions: {
-        ...transactionsPayload,
-        transactions: [{ ...transaction, transactionId: 'pending_1', pending: true }],
-      },
     });
 
     expect(result.summary.currentMonth.month).toBe('2026-09');
@@ -473,8 +468,6 @@ describe('API response contracts', () => {
     expect(result.recurringObligations.obligations[0].merchant).toBe('Verizon');
     expect(result.householdInsights.forecast.projectedMonthEndSpending).toBe(930);
     expect(result.verification.reconciliation.unknownTransferCount).toBe(1);
-    expect(result.postedTransactions[0].normalizedMerchant).toBe('Starbucks');
-    expect(result.pendingTransactions[0].pending).toBe(true);
   });
 
   it('extracts the consolidated Overview response including balances', () => {
@@ -486,8 +479,6 @@ describe('API response contracts', () => {
       recurringObligations: recurringObligationsPayload,
       householdInsights: householdInsightsPayload,
       verification: verificationPayload,
-      postedTransactions: [transaction],
-      pendingTransactions: [{ ...transaction, transactionId: 'pending_1', pending: true }],
       accountBalances: accountBalancesPayload,
       cashFlowForecast: cashFlowForecastPayload,
     });
@@ -495,7 +486,6 @@ describe('API response contracts', () => {
     expect(result.accountBalances.connectedPosition).toBe(2000);
     expect(result.cashFlowForecast.minimumBalance).toBe(2300);
     expect(result.trends[0].month).toBe('2026-09');
-    expect(result.pendingTransactions[0].pending).toBe(true);
   });
 
   it('rejects a wrapper object where an array field is missing', () => {
@@ -784,6 +774,8 @@ describe('Walmart response contracts', () => {
       fuelGallons: 10,
       averageFuelPricePerGallon: 4,
       fuelPurchaseCount: 1,
+      returnAmount: 0,
+      returnCount: 0,
     },
     monthly: [{ month: '2026-08', totalSpend: 120, fuelSpend: 40, orderCount: 2 }],
     topItems: [{

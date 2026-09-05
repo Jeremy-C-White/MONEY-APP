@@ -1997,8 +1997,6 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
 }
 
 interface WalmartInsightsCacheEntry {
-  spreadsheetId: string;
-  period: WalmartInsightPeriod;
   expiresAt: number;
   report: WalmartInsights;
 }
@@ -2006,9 +2004,29 @@ interface WalmartInsightsCacheEntry {
 const walmartInsightsCache = new Map<string, WalmartInsightsCacheEntry>();
 const WALMART_INSIGHTS_CACHE_MS = 5 * 60 * 1000;
 
+function walmartInsightsCacheKey(uid: string, spreadsheetId: string, period: WalmartInsightPeriod) {
+  return `${uid}:${spreadsheetId}:${period}`;
+}
+
+function clearWalmartInsightsCache(uid: string) {
+  for (const key of walmartInsightsCache.keys()) {
+    if (key.startsWith(`${uid}:`)) walmartInsightsCache.delete(key);
+  }
+}
+
+function spreadsheetColumnName(zeroBasedIndex: number): string {
+  let value = zeroBasedIndex + 1;
+  let result = '';
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    result = String.fromCharCode(65 + remainder) + result;
+    value = Math.floor((value - 1) / 26);
+  }
+  return result;
+}
+
 async function getGoogleSheetsClientForUser(uid: string) {
-  const userRef = db.collection('users').doc(uid);
-  const userDoc = await userRef.get();
+  const userDoc = await db.collection('users').doc(uid).get();
   const userData = userDoc.data();
   if (!userData?.google_refresh_token) {
     const error = new Error('Connect Google Sheets before adding a Walmart purchase source.');
@@ -2018,15 +2036,11 @@ async function getGoogleSheetsClientForUser(uid: string) {
 
   const oauth2Client = getOauth2Client();
   oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
-  return {
-    sheets: google.sheets({ version: 'v4', auth: oauth2Client }),
-    userRef,
-    userData,
-  };
+  return google.sheets({ version: 'v4', auth: oauth2Client });
 }
 
 async function readWalmartWorkbook(uid: string, spreadsheetId: string) {
-  const { sheets } = await getGoogleSheetsClientForUser(uid);
+  const sheets = await getGoogleSheetsClientForUser(uid);
   const metadata = await withGoogleAuth(uid, () => sheets.spreadsheets.get({
     spreadsheetId,
     fields: 'properties.title,sheets.properties.title',
@@ -2038,20 +2052,42 @@ async function readWalmartWorkbook(uid: string, spreadsheetId: string) {
     throw new Error('This spreadsheet must contain tabs named Orders and Items.');
   }
 
-  const [orders, items, productLinks] = await Promise.all([
+  const [orderHeaderResult, itemHeaderResult] = await Promise.all([
     withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Orders!A:Y',
+      range: 'Orders!1:1',
       valueRenderOption: 'UNFORMATTED_VALUE',
     })),
     withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Items!A:H',
+      range: 'Items!1:1',
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    })),
+  ]);
+  const orderHeader = (orderHeaderResult.data.values?.[0] || []).map(value => String(value ?? '').trim());
+  const itemHeader = (itemHeaderResult.data.values?.[0] || []).map(value => String(value ?? '').trim());
+  const productLinkIndex = itemHeader.indexOf('Product Link');
+  if (productLinkIndex < 0) {
+    throw new Error('Items tab is missing required columns: Product Link');
+  }
+  const orderEndColumn = spreadsheetColumnName(Math.max(0, orderHeader.length - 1));
+  const itemEndColumn = spreadsheetColumnName(Math.max(0, itemHeader.length - 1));
+  const productLinkColumn = spreadsheetColumnName(productLinkIndex);
+
+  const [orders, items, productLinks] = await Promise.all([
+    withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `Orders!A:${orderEndColumn}`,
+      valueRenderOption: 'UNFORMATTED_VALUE',
+    })),
+    withGoogleAuth(uid, () => sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `Items!A:${itemEndColumn}`,
       valueRenderOption: 'UNFORMATTED_VALUE',
     })),
     withGoogleAuth(uid, () => sheets.spreadsheets.get({
       spreadsheetId,
-      ranges: ['Items!H:H'],
+      ranges: [`Items!${productLinkColumn}:${productLinkColumn}`],
       includeGridData: true,
       fields: 'sheets.data',
     })),
@@ -2063,7 +2099,7 @@ async function readWalmartWorkbook(uid: string, spreadsheetId: string) {
     for (const [offset, rowData] of (grid.rowData || []).entries()) {
       const hyperlink = rowData.values?.[0]?.hyperlink;
       const row = itemRows[startRow + offset];
-      if (hyperlink && row) row[7] = hyperlink;
+      if (hyperlink && row) row[productLinkIndex] = hyperlink;
     }
   }
 
@@ -2080,22 +2116,15 @@ async function loadWalmartInsights(
   period: WalmartInsightPeriod,
   forceRefresh = false
 ) {
-  const cached = walmartInsightsCache.get(uid);
-  if (
-    !forceRefresh &&
-    cached &&
-    cached.spreadsheetId === spreadsheetId &&
-    cached.period === period &&
-    cached.expiresAt > Date.now()
-  ) {
+  const cacheKey = walmartInsightsCacheKey(uid, spreadsheetId, period);
+  const cached = walmartInsightsCache.get(cacheKey);
+  if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
     return cached.report;
   }
 
   const workbook = await readWalmartWorkbook(uid, spreadsheetId);
   const report = buildWalmartInsights(workbook.orderRows, workbook.itemRows, { period });
-  walmartInsightsCache.set(uid, {
-    spreadsheetId,
-    period,
+  walmartInsightsCache.set(cacheKey, {
     expiresAt: Date.now() + WALMART_INSIGHTS_CACHE_MS,
     report,
   });
@@ -2319,8 +2348,6 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
         asOfDate
       ),
       verification,
-      postedTransactions: buildTransactionsPage(txs, { status: 'posted', limit: 6 }).transactions,
-      pendingTransactions: buildTransactionsPage(txs, { status: 'pending', limit: 4 }).transactions,
       accountBalances,
       cashFlowForecast: buildCashFlowForecast({
         transactions: txs,
@@ -2607,13 +2634,13 @@ app.put("/api/walmart/source", requireAuth, async (req: express.Request, res: ex
 
     const workbook = await readWalmartWorkbook(uid, spreadsheetId);
     buildWalmartInsights(workbook.orderRows, workbook.itemRows, { period: 'last_12_months' });
-    const { userRef } = await getGoogleSheetsClientForUser(uid);
+    const userRef = db.collection('users').doc(uid);
     await userRef.set({
       walmartSpreadsheetId: spreadsheetId,
       walmartSpreadsheetTitle: workbook.title,
       walmartSourceConnectedAt: Timestamp.now(),
     }, { merge: true });
-    walmartInsightsCache.delete(uid);
+    clearWalmartInsightsCache(uid);
 
     res.json({
       connected: true,
@@ -2646,7 +2673,7 @@ app.delete("/api/walmart/source", requireAuth, async (req: express.Request, res:
       walmartSpreadsheetTitle: FieldValue.delete(),
       walmartSourceConnectedAt: FieldValue.delete(),
     }, { merge: true });
-    walmartInsightsCache.delete(uid);
+    clearWalmartInsightsCache(uid);
     res.json({ success: true });
   } catch (error: any) {
     console.error("Walmart Source Disconnect Error:", error);
