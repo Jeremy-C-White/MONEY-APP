@@ -1,11 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRight, RefreshCcw } from 'lucide-react';
+import { AlertCircle, ArrowRight, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react';
 import { TrendChart } from '../components/TrendChart';
 import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
 import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
 import { AccountPositionCards } from '../components/AccountPositionCards';
 import { CashFlowForecastCard } from '../components/CashFlowForecastCard';
 import { CategoryBreakdownCard } from '../components/CategoryBreakdownCard';
+import { SafeToSpendCard } from '../components/SafeToSpendCard';
+import { MonthVerdictCard } from '../components/MonthVerdictCard';
+import { UpcomingCommitmentsCard } from '../components/UpcomingCommitmentsCard';
 import {
   formatCurrency,
   formatPercentagePoints,
@@ -20,6 +23,8 @@ import type {
   HouseholdInsights,
   AccountBalanceSummary,
   CashFlowForecast,
+  SafeToSpend,
+  OverviewVerdicts,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -27,11 +32,13 @@ export function OverviewPage({
   refreshKey,
   onReviewTransactions,
   onViewTransactions,
+  onOpenPlanSettings,
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   onReviewTransactions: () => void;
   onViewTransactions: () => void;
+  onOpenPlanSettings?: () => void;
 }) {
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [trends, setTrends] = useState<TrendPoint[]>([]);
@@ -43,8 +50,11 @@ export function OverviewPage({
     useState<DashboardVerificationResponse | null>(null);
   const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
   const [cashFlowForecast, setCashFlowForecast] = useState<CashFlowForecast | null>(null);
+  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
+  const [verdicts, setVerdicts] = useState<OverviewVerdicts | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showMoreDetail, setShowMoreDetail] = useState(false);
   const [trendRange, setTrendRange] =
     useState<'6m' | '12m' | 'ytd'>('12m');
 
@@ -66,6 +76,8 @@ export function OverviewPage({
       setVerification(normalized.verification);
       setAccountBalances(normalized.accountBalances);
       setCashFlowForecast(normalized.cashFlowForecast);
+      setSafeToSpend(normalized.safeToSpend);
+      setVerdicts(normalized.verdicts);
     } catch (err: unknown) {
       console.error(err);
       setError(
@@ -186,6 +198,29 @@ export function OverviewPage({
         </div>
       ) : null}
 
+      {/*
+        The Overview answers four questions in order: what can I spend, how is
+        the month going, what is still coming, and where do I stand. Everything
+        else is detail and sits behind the disclosure below.
+      */}
+      <SafeToSpendCard
+        safeToSpend={safeToSpend}
+        loading={loading && !safeToSpend}
+        onEditBuffer={onOpenPlanSettings}
+      />
+
+      <MonthVerdictCard
+        verdicts={verdicts}
+        loading={loading && !verdicts}
+        onSetTarget={onOpenPlanSettings}
+      />
+
+      <UpcomingCommitmentsCard
+        safeToSpend={safeToSpend}
+        loading={loading && !safeToSpend}
+        onReviewObligations={() => setShowMoreDetail(true)}
+      />
+
       <AccountPositionCards
         balances={accountBalances}
         spending={summary?.currentMonth.spending}
@@ -195,62 +230,83 @@ export function OverviewPage({
         loading={loading && !summary}
       />
 
-      <CashFlowForecastCard
-        forecast={cashFlowForecast}
-        loading={loading && !cashFlowForecast}
-      />
-
-      <HouseholdInsightsCard
-        insights={householdInsights}
-        loading={loading && !householdInsights}
-      />
-
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden mb-8">
-        <div className="flex items-center justify-between gap-3 mb-6">
-          <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
-          <div className="flex bg-slate-100 p-1 rounded-lg">
-            {(['6m', '12m', 'ytd'] as const).map((range) => (
-              <button
-                key={range}
-                onClick={() => setTrendRange(range)}
-                className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${
-                  trendRange === range
-                    ? 'bg-white shadow-sm text-slate-900'
-                    : 'text-slate-500 hover:text-slate-700'
-                }`}
-              >
-                {range}
-              </button>
-            ))}
-          </div>
-        </div>
-        <TrendChart data={trends} loading={loading && trends.length === 0} />
-        <div className="flex justify-center space-x-6 mt-4">
-          <div className="flex items-center text-sm text-slate-500">
-            <div className="w-3 h-3 bg-emerald-400 rounded-sm mr-2" />
-            Income
-          </div>
-          <div className="flex items-center text-sm text-slate-500">
-            <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
-            Spending
-          </div>
-          <div className="flex items-center text-sm text-slate-500">
-            <div className="w-4 h-0.5 bg-slate-900 mr-2" />
-            Net cash flow
-          </div>
-        </div>
+      <div className="mb-8 flex justify-center">
+        <button
+          type="button"
+          onClick={() => setShowMoreDetail(current => !current)}
+          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+          aria-expanded={showMoreDetail}
+        >
+          {showMoreDetail ? 'Less detail' : 'More detail'}
+          {showMoreDetail ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+        </button>
       </div>
 
-      <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} />
+      {showMoreDetail && (
+        <>
+          <CashFlowForecastCard
+            forecast={cashFlowForecast}
+            loading={loading && !cashFlowForecast}
+          />
 
-      <div className="mb-8">
-        <RecurringObligationsCard
-          report={recurringObligations}
-          loading={loading && !recurringObligations}
-          apiFetch={apiFetch}
-          onChanged={fetchData}
-        />
-      </div>
+          <HouseholdInsightsCard
+            insights={householdInsights}
+            loading={loading && !householdInsights}
+          />
+
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden mb-8">
+            <div className="flex items-center justify-between gap-3 mb-6">
+              <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
+              <div className="flex bg-slate-100 p-1 rounded-lg">
+                {(['6m', '12m', 'ytd'] as const).map((range) => (
+                  <button
+                    key={range}
+                    onClick={() => setTrendRange(range)}
+                    className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${
+                      trendRange === range
+                        ? 'bg-white shadow-sm text-slate-900'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {range}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <TrendChart data={trends} loading={loading && trends.length === 0} />
+            <div className="flex justify-center space-x-6 mt-4">
+              <div className="flex items-center text-sm text-slate-500">
+                <div className="w-3 h-3 bg-emerald-400 rounded-sm mr-2" />
+                Income
+              </div>
+              <div className="flex items-center text-sm text-slate-500">
+                <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
+                Spending
+              </div>
+              <div className="flex items-center text-sm text-slate-500">
+                <div className="w-4 h-0.5 bg-slate-900 mr-2" />
+                Net cash flow
+              </div>
+            </div>
+          </div>
+
+          <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} />
+
+          <div className="mb-8">
+            <RecurringObligationsCard
+              report={recurringObligations}
+              loading={loading && !recurringObligations}
+              apiFetch={apiFetch}
+              onChanged={fetchData}
+            />
+          </div>
+        </>
+      )}
+
       <div className="flex justify-end">
         <button
           type="button"

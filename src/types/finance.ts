@@ -417,6 +417,7 @@ export interface ScheduledCashEvent {
   accountId: string | null;
   accountName: string | null;
   affectsForecastBalance: boolean;
+  pendingTransactionId: string | null;
 }
 
 export interface DailyCashBalance {
@@ -478,6 +479,120 @@ export interface CategoryBreakdownResponse {
   merchants: CategoryBreakdownMerchant[];
 }
 
+export interface HouseholdPlan {
+  safeToSpendBuffer: number;
+  monthlySpendingTarget: number | null;
+}
+
+export type SpendingTargetVerdict = 'under' | 'on_track' | 'over';
+
+export interface SpendingTargetProgress {
+  month: string;
+  target: number;
+  spentToDate: number;
+  remaining: number;
+  expectedToDate: number;
+  paceDifference: number;
+  projectedMonthEndSpending: number;
+  projectedDifference: number;
+  projectionMaturity: 'early' | 'developing' | 'established';
+  verdict: SpendingTargetVerdict;
+}
+
+export type SafeToSpendStatus = 'ready' | 'unavailable';
+
+export type SafeToSpendBlocker =
+  | 'no_connected_cash'
+  | 'missing_cash_balance'
+  | 'stale_cash_balance'
+  | 'connection_needs_attention'
+  | 'mixed_currency';
+
+export type SafeToSpendDeductionKind = 'bill' | 'pending' | 'buffer';
+
+export interface SafeToSpendDeduction {
+  deductionId: string;
+  kind: SafeToSpendDeductionKind;
+  label: string;
+  amount: number;
+  date: string | null;
+  accountName: string | null;
+}
+
+export interface SafeToSpend {
+  status: SafeToSpendStatus;
+  asOfDate: string;
+  throughDate: string;
+  currency: string | null;
+  cashBasis: 'available' | 'current' | null;
+  cashOnHand: number | null;
+  cashAccountCount: number;
+  billsDue: number | null;
+  pendingOutflow: number | null;
+  buffer: number;
+  amount: number | null;
+  deductions: SafeToSpendDeduction[];
+  pendingReflectedInBalance: boolean;
+  blockers: SafeToSpendBlocker[];
+  warning: string | null;
+}
+
+export type VerdictTone = 'positive' | 'caution' | 'neutral';
+
+export interface MonthProgressVerdict {
+  month: string;
+  dayOfMonth: number;
+  daysInMonth: number;
+  spending: number;
+  income: number;
+  netCashFlow: number;
+  tone: VerdictTone;
+}
+
+export interface CompletedMonthVerdict {
+  month: string;
+  netCashFlow: number;
+  rank: 'best' | 'tightest' | 'middle';
+  comparedMonthCount: number;
+  previousMonth: string | null;
+  previousNetCashFlow: number | null;
+  difference: number | null;
+  tone: VerdictTone;
+}
+
+export interface PacingVerdict {
+  dayOfMonth: number;
+  daysInMonth: number;
+  previousMonthToDateSpending: number;
+  spendingDifference: number;
+  spendingPercentageChange: number | null;
+  direction: 'ahead' | 'behind' | 'level';
+  driver: { category: string; difference: number; share: number } | null;
+  tone: VerdictTone;
+}
+
+export interface CategoryDriverVerdict {
+  category: string;
+  currentSpending: number;
+  previousSpending: number;
+  difference: number;
+  percentageChange: number | null;
+  movement: 'new' | 'up' | 'down' | 'stopped';
+  tone: VerdictTone;
+}
+
+export interface OverviewVerdicts {
+  monthProgress: MonthProgressVerdict;
+  lastCompletedMonth: CompletedMonthVerdict | null;
+  pacing: PacingVerdict | null;
+  categoryDrivers: CategoryDriverVerdict[];
+  targetProgress: SpendingTargetProgress | null;
+}
+
+export interface HouseholdPlanResponse {
+  householdPlan: HouseholdPlan;
+}
+
 export interface DashboardOverviewResponse {
   summary: DashboardSummary;
   categories: DashboardCategory[];
@@ -488,6 +603,9 @@ export interface DashboardOverviewResponse {
   verification: DashboardVerificationResponse;
   accountBalances: AccountBalanceSummary;
   cashFlowForecast: CashFlowForecast;
+  householdPlan: HouseholdPlan;
+  safeToSpend: SafeToSpend;
+  verdicts: OverviewVerdicts;
 }
 
 export type WalmartInsightPeriod = 'last_12_months' | 'this_year' | 'all_time';

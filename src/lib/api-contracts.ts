@@ -24,6 +24,10 @@ import type {
   CategoryBreakdownMerchant,
   WalmartInsightsResponse,
   WalmartSourceStatus,
+  HouseholdPlan,
+  SafeToSpend,
+  SafeToSpendDeduction,
+  OverviewVerdicts,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -453,7 +457,8 @@ function isScheduledCashEvent(value: unknown): boolean {
     typeof value.amount === 'number' &&
     validNullableString(value.accountId) &&
     validNullableString(value.accountName) &&
-    typeof value.affectsForecastBalance === 'boolean'
+    typeof value.affectsForecastBalance === 'boolean' &&
+    validNullableString(value.pendingTransactionId)
   );
 }
 
@@ -623,6 +628,166 @@ export function normalizeOverviewPayloads(
   };
 }
 
+const SAFE_TO_SPEND_BLOCKERS = [
+  'no_connected_cash',
+  'missing_cash_balance',
+  'stale_cash_balance',
+  'connection_needs_attention',
+  'mixed_currency',
+];
+const VERDICT_TONES = ['positive', 'caution', 'neutral'];
+
+export function extractHouseholdPlan(data: unknown): HouseholdPlan {
+  const record = requireRecord(data, 'household plan');
+  const plan = isRecord(record.householdPlan) ? record.householdPlan : record;
+
+  if (
+    typeof plan.safeToSpendBuffer !== 'number' ||
+    !validNullableNumber(plan.monthlySpendingTarget)
+  ) {
+    throw new Error('Invalid household plan response.');
+  }
+
+  return {
+    safeToSpendBuffer: plan.safeToSpendBuffer,
+    monthlySpendingTarget: plan.monthlySpendingTarget as number | null,
+  };
+}
+
+function isSafeToSpendDeduction(value: unknown): value is SafeToSpendDeduction {
+  return (
+    isRecord(value) &&
+    typeof value.deductionId === 'string' &&
+    ['bill', 'pending', 'buffer'].includes(String(value.kind)) &&
+    typeof value.label === 'string' &&
+    typeof value.amount === 'number' &&
+    validNullableString(value.date) &&
+    validNullableString(value.accountName)
+  );
+}
+
+export function extractSafeToSpend(data: unknown): SafeToSpend {
+  const record = requireRecord(data, 'safe to spend');
+
+  if (
+    !['ready', 'unavailable'].includes(String(record.status)) ||
+    typeof record.asOfDate !== 'string' ||
+    typeof record.throughDate !== 'string' ||
+    !validNullableString(record.currency) ||
+    !['available', 'current', null].includes(record.cashBasis as 'available' | 'current' | null) ||
+    !validNullableNumber(record.cashOnHand) ||
+    typeof record.cashAccountCount !== 'number' ||
+    !validNullableNumber(record.billsDue) ||
+    !validNullableNumber(record.pendingOutflow) ||
+    typeof record.buffer !== 'number' ||
+    !validNullableNumber(record.amount) ||
+    !Array.isArray(record.deductions) ||
+    !record.deductions.every(isSafeToSpendDeduction) ||
+    typeof record.pendingReflectedInBalance !== 'boolean' ||
+    !Array.isArray(record.blockers) ||
+    !record.blockers.every(blocker => SAFE_TO_SPEND_BLOCKERS.includes(String(blocker))) ||
+    !validNullableString(record.warning)
+  ) {
+    throw new Error('Invalid safe to spend response.');
+  }
+
+  // A "ready" figure the server did not actually populate would render as a
+  // confident number built on nothing.
+  if (record.status === 'ready' && (record.amount === null || record.cashOnHand === null)) {
+    throw new Error('Invalid safe to spend response.');
+  }
+
+  return record as unknown as SafeToSpend;
+}
+
+function isSpendingTargetProgress(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.month === 'string' &&
+    typeof value.target === 'number' &&
+    typeof value.spentToDate === 'number' &&
+    typeof value.remaining === 'number' &&
+    typeof value.expectedToDate === 'number' &&
+    typeof value.paceDifference === 'number' &&
+    typeof value.projectedMonthEndSpending === 'number' &&
+    typeof value.projectedDifference === 'number' &&
+    ['early', 'developing', 'established'].includes(String(value.projectionMaturity)) &&
+    ['under', 'on_track', 'over'].includes(String(value.verdict))
+  );
+}
+
+export function extractOverviewVerdicts(data: unknown): OverviewVerdicts {
+  const record = requireRecord(data, 'overview verdicts');
+  const monthProgress = record.monthProgress;
+
+  if (
+    !isRecord(monthProgress) ||
+    typeof monthProgress.month !== 'string' ||
+    typeof monthProgress.dayOfMonth !== 'number' ||
+    typeof monthProgress.daysInMonth !== 'number' ||
+    typeof monthProgress.spending !== 'number' ||
+    typeof monthProgress.income !== 'number' ||
+    typeof monthProgress.netCashFlow !== 'number' ||
+    !VERDICT_TONES.includes(String(monthProgress.tone))
+  ) {
+    throw new Error('Invalid overview verdicts response.');
+  }
+
+  const lastCompletedMonth = record.lastCompletedMonth;
+  if (lastCompletedMonth !== null && !(
+    isRecord(lastCompletedMonth) &&
+    typeof lastCompletedMonth.month === 'string' &&
+    typeof lastCompletedMonth.netCashFlow === 'number' &&
+    ['best', 'tightest', 'middle'].includes(String(lastCompletedMonth.rank)) &&
+    typeof lastCompletedMonth.comparedMonthCount === 'number' &&
+    validNullableString(lastCompletedMonth.previousMonth) &&
+    validNullableNumber(lastCompletedMonth.previousNetCashFlow) &&
+    validNullableNumber(lastCompletedMonth.difference) &&
+    VERDICT_TONES.includes(String(lastCompletedMonth.tone))
+  )) {
+    throw new Error('Invalid overview verdicts response.');
+  }
+
+  const pacing = record.pacing;
+  if (pacing !== null && !(
+    isRecord(pacing) &&
+    typeof pacing.dayOfMonth === 'number' &&
+    typeof pacing.daysInMonth === 'number' &&
+    typeof pacing.previousMonthToDateSpending === 'number' &&
+    typeof pacing.spendingDifference === 'number' &&
+    validNullableNumber(pacing.spendingPercentageChange) &&
+    ['ahead', 'behind', 'level'].includes(String(pacing.direction)) &&
+    (pacing.driver === null || (
+      isRecord(pacing.driver) &&
+      typeof pacing.driver.category === 'string' &&
+      typeof pacing.driver.difference === 'number' &&
+      typeof pacing.driver.share === 'number'
+    )) &&
+    VERDICT_TONES.includes(String(pacing.tone))
+  )) {
+    throw new Error('Invalid overview verdicts response.');
+  }
+
+  if (
+    !Array.isArray(record.categoryDrivers) ||
+    !record.categoryDrivers.every(driver => (
+      isRecord(driver) &&
+      typeof driver.category === 'string' &&
+      typeof driver.currentSpending === 'number' &&
+      typeof driver.previousSpending === 'number' &&
+      typeof driver.difference === 'number' &&
+      validNullableNumber(driver.percentageChange) &&
+      ['new', 'up', 'down', 'stopped'].includes(String(driver.movement)) &&
+      VERDICT_TONES.includes(String(driver.tone))
+    )) ||
+    (record.targetProgress !== null && !isSpendingTargetProgress(record.targetProgress))
+  ) {
+    throw new Error('Invalid overview verdicts response.');
+  }
+
+  return record as unknown as OverviewVerdicts;
+}
+
 export function extractOverviewResponse(data: unknown): DashboardOverviewResponse {
   const record = requireRecord(data, 'dashboard overview');
   const normalized = normalizeOverviewPayloads({
@@ -641,5 +806,8 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
     ...normalized,
     accountBalances: extractAccountBalanceSummary(record.accountBalances),
     cashFlowForecast: extractCashFlowForecast(record.cashFlowForecast),
+    householdPlan: extractHouseholdPlan(record.householdPlan),
+    safeToSpend: extractSafeToSpend(record.safeToSpend),
+    verdicts: extractOverviewVerdicts(record.verdicts),
   };
 }

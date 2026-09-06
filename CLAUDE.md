@@ -95,7 +95,7 @@ src/lib/formatters.ts      Currency, percent, category/classification labels
 ```bash
 npm run lint      # tsc --noEmit
 npm run build     # vite build + esbuild server bundle
-npx vitest run    # 154 tests, 9 files
+npx vitest run    # 456 tests, 38 files
 npm run dev       # local server
 ```
 
@@ -123,12 +123,59 @@ All four tabs live: Overview, Transactions, Accounts, Settings. Running against 
 
 - **Dataset gaps in the acceptance harness.** `explicitRefund`, `cashWithdrawal`, and `incomingP2P` read NOT EXERCISED — the data never contained those shapes. Not code defects.
 - **Cached account balances.** Successful transaction syncs now call the free `/accounts/get` endpoint after the ledger cursor is safely committed. Current balance state and one dated snapshot per day are stored in Firestore; balances are never inferred from transactions. `/accounts/balance/get` is not called, so the display is explicitly sync-fresh rather than real-time.
-- **Developer Tools in Production.** `DeveloperVerification` and `SandboxAcceptance` still render in Settings behind an env flag. Sandbox-only actions should be hidden or inert in Production — worth confirming.
+- **Developer Tools in Production.** Both now sit behind a "Show developer tools" disclosure in Settings, collapsed by default, and `SandboxAcceptance` keeps its env flag on top of that. Sandbox-only actions are still not inert in Production — worth confirming.
 - **Access tokens unencrypted at the application layer.** Firestore encrypts at rest, but there is no field-level encryption. Considered acceptable for a single-user app; revisit if that changes.
+
+### Safe to spend
+
+`GET /api/dashboard/overview` returns a `safeToSpend` figure: cash on hand,
+less confirmed recurring charges falling due, less unposted pending charges,
+less the owner-set buffer. It is composition only — `server/lib/safe-to-spend.ts`
+reuses `scheduleBills` from `cash-flow-forecast.ts` rather than reimplementing
+bill scheduling, and no dollar moves.
+
+Rules it holds to, none of which should be relaxed:
+
+- The figure is **withheld entirely** (`status: 'unavailable'` with a named
+  blocker) when any cash account is stale, missing a balance, in a second
+  currency, or behind a connection needing attention. There is no partial or
+  best-effort number.
+- The coverage window runs to month end but never less than 14 days, so the
+  last days of a month don't read flush right before rent posts.
+- **Expected income inside the window is not added.** This counts money that
+  exists, not money forecast to arrive.
+- Deductions are itemized and shown, because a number the owner can't audit is
+  one they won't trust with a real decision.
+- A charge already scheduled as a bill is not counted again as a pending
+  transaction — `ScheduledCashEvent.pendingTransactionId` marks the overlap.
+
+### Verdicts and the household plan
+
+`server/lib/verdicts.ts` decides what the figures support (month result, rank
+against completed months, pacing direction and its driver). It emits **no
+prose** — sentences are assembled in `src/lib/verdict-language.ts` so currency
+formatting stays where it already lives. If you add a verdict, put the judgment
+on the server and the wording on the client.
+
+`server/lib/household-plan.ts` holds the two owner-set inputs: the
+safe-to-spend buffer and the monthly spending target, stored on the user doc
+under `householdPlan`. Neither is ever inferred. An unset target stays null so
+readers say "no target" rather than inventing a benchmark.
+
+### Overview layout
+
+The Overview answers four questions in order — safe to spend, how the month is
+going, what's still coming, where we stand — and everything else sits behind a
+"More detail" disclosure. Adding a fifth card to the top competes with the
+safe-to-spend figure for attention; put new detail behind the disclosure.
 
 ### Reasonable next work
 
-Budgets by category, recurring/subscription detection, month-over-month comparison, transaction detail view. All buildable on existing endpoints with no new financial logic.
+Per-category budgets on top of the household target, transaction detail view.
+Household access for two logins is a real architectural pass (household entity,
+membership, migrating existing data, deciding what happens to Plaid Items and
+the Sheet under shared ownership) — sharing the Google Sheet read-only delivers
+most of the visibility today at zero cost.
 
 Balance history begins with the first successful sync after the balance pass. Do not backfill it from transaction history. The Overview calls the total a connected-account position rather than net worth because unconnected assets and debts are outside its scope.
 

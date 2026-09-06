@@ -38,6 +38,7 @@ function forecast(overrides: Partial<CashFlowForecast> = {}): CashFlowForecast {
       accountId: 'checking-1',
       accountName: 'Checking ••••1234',
       affectsForecastBalance: true,
+      pendingTransactionId: null,
     }, {
       eventId: 'bill:streaming:2026-09-08',
       date: '2026-09-08',
@@ -48,6 +49,7 @@ function forecast(overrides: Partial<CashFlowForecast> = {}): CashFlowForecast {
       accountId: 'credit-1',
       accountName: 'Rewards Card ••••9876',
       affectsForecastBalance: false,
+      pendingTransactionId: null,
     }],
     scheduledEvents: [{
       eventId: 'paycheck:checking-1:SC123:2026-09-11',
@@ -59,6 +61,7 @@ function forecast(overrides: Partial<CashFlowForecast> = {}): CashFlowForecast {
       accountId: 'checking-1',
       accountName: 'Checking ••••1234',
       affectsForecastBalance: true,
+      pendingTransactionId: null,
     }],
     dailyBalances: [
       { date: '2026-09-04', balance: 2400 },

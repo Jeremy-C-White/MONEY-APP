@@ -16,6 +16,9 @@ import {
   extractHouseholdPlanningResponse,
   extractAccountBalanceSummary,
   extractCashFlowForecast,
+  extractHouseholdPlan,
+  extractSafeToSpend,
+  extractOverviewVerdicts,
   extractOverviewResponse,
   extractCategoryBreakdownResponse,
   extractWalmartInsightsResponse,
@@ -331,12 +334,85 @@ const cashFlowForecastPayload = {
     accountId: 'acc_1',
     accountName: 'Checking ••••1234',
     affectsForecastBalance: true,
+    pendingTransactionId: null,
   }],
   scheduledEvents: [],
   dailyBalances: [{ date: '2026-09-04', balance: 2400 }],
   minimumBalance: 2300,
   minimumBalanceDate: '2026-09-07',
   warning: null,
+};
+
+const householdPlanPayload = {
+  safeToSpendBuffer: 250,
+  monthlySpendingTarget: 5000,
+};
+
+const safeToSpendPayload = {
+  status: 'ready' as const,
+  asOfDate: '2026-09-06',
+  throughDate: '2026-09-30',
+  currency: 'USD',
+  cashBasis: 'available' as const,
+  cashOnHand: 4000,
+  cashAccountCount: 2,
+  billsDue: 2180,
+  pendingOutflow: 0,
+  buffer: 250,
+  amount: 1570,
+  deductions: [{
+    deductionId: 'bill:abc:2026-09-12',
+    kind: 'bill' as const,
+    label: 'Brookwood Preschool',
+    amount: 1800,
+    date: '2026-09-12',
+    accountName: 'Checking ••••1234',
+  }],
+  pendingReflectedInBalance: true,
+  blockers: [],
+  warning: null,
+};
+
+const verdictsPayload = {
+  monthProgress: {
+    month: '2026-09',
+    dayOfMonth: 6,
+    daysInMonth: 30,
+    spending: 2400,
+    income: 5000,
+    netCashFlow: 2600,
+    tone: 'positive' as const,
+  },
+  lastCompletedMonth: {
+    month: '2026-08',
+    netCashFlow: 5324,
+    rank: 'best' as const,
+    comparedMonthCount: 6,
+    previousMonth: '2026-07',
+    previousNetCashFlow: 1500,
+    difference: 3824,
+    tone: 'positive' as const,
+  },
+  pacing: {
+    dayOfMonth: 6,
+    daysInMonth: 30,
+    previousMonthToDateSpending: 2000,
+    spendingDifference: 400,
+    spendingPercentageChange: 20,
+    direction: 'ahead' as const,
+    driver: { category: 'HOME_IMPROVEMENT', difference: 340, share: 0.85 },
+    tone: 'caution' as const,
+  },
+  categoryDrivers: [{
+    category: 'HOME_IMPROVEMENT',
+    currentSpending: 6400,
+    previousSpending: 0,
+    difference: 6400,
+    percentageChange: null,
+    movement: 'new' as const,
+    tone: 'caution' as const,
+  }],
+  targetProgress: null,
 };
 
 describe('API response contracts', () => {
@@ -412,9 +488,14 @@ describe('API response contracts', () => {
     const result = extractCashFlowForecast(cashFlowForecastPayload);
     expect(result.paycheckStreams[0].source).toBe('Verizon payroll');
     expect(result.upcomingBills[0].affectsForecastBalance).toBe(true);
+    expect(result.upcomingBills[0].pendingTransactionId).toBeNull();
     expect(() => extractCashFlowForecast({
       ...cashFlowForecastPayload,
       balanceBasis: 'combined',
+    })).toThrow('Invalid cash flow forecast response.');
+    expect(() => extractCashFlowForecast({
+      ...cashFlowForecastPayload,
+      upcomingBills: [{ ...cashFlowForecastPayload.upcomingBills[0], pendingTransactionId: 7 }],
     })).toThrow('Invalid cash flow forecast response.');
   });
 
@@ -481,11 +562,88 @@ describe('API response contracts', () => {
       verification: verificationPayload,
       accountBalances: accountBalancesPayload,
       cashFlowForecast: cashFlowForecastPayload,
+      householdPlan: householdPlanPayload,
+      safeToSpend: safeToSpendPayload,
+      verdicts: verdictsPayload,
     });
 
     expect(result.accountBalances.connectedPosition).toBe(2000);
     expect(result.cashFlowForecast.minimumBalance).toBe(2300);
     expect(result.trends[0].month).toBe('2026-09');
+    expect(result.householdPlan.monthlySpendingTarget).toBe(5000);
+    expect(result.safeToSpend.amount).toBe(1570);
+    expect(result.verdicts.lastCompletedMonth?.rank).toBe('best');
+  });
+
+  it('validates the household plan contract', () => {
+    expect(extractHouseholdPlan(householdPlanPayload)).toEqual(householdPlanPayload);
+    expect(extractHouseholdPlan({ householdPlan: householdPlanPayload }))
+      .toEqual(householdPlanPayload);
+    expect(extractHouseholdPlan({ safeToSpendBuffer: 0, monthlySpendingTarget: null }))
+      .toEqual({ safeToSpendBuffer: 0, monthlySpendingTarget: null });
+    expect(() => extractHouseholdPlan({ safeToSpendBuffer: '250', monthlySpendingTarget: null }))
+      .toThrow('Invalid household plan response.');
+  });
+
+  it('validates the safe to spend contract', () => {
+    const result = extractSafeToSpend(safeToSpendPayload);
+    expect(result.amount).toBe(1570);
+    expect(result.deductions[0].label).toBe('Brookwood Preschool');
+
+    expect(() => extractSafeToSpend({ ...safeToSpendPayload, status: 'partial' }))
+      .toThrow('Invalid safe to spend response.');
+    expect(() => extractSafeToSpend({ ...safeToSpendPayload, blockers: ['made_up'] }))
+      .toThrow('Invalid safe to spend response.');
+    expect(() => extractSafeToSpend({
+      ...safeToSpendPayload,
+      deductions: [{ ...safeToSpendPayload.deductions[0], kind: 'guess' }],
+    })).toThrow('Invalid safe to spend response.');
+  });
+
+  it('rejects a ready safe to spend response with no figure in it', () => {
+    expect(() => extractSafeToSpend({ ...safeToSpendPayload, amount: null }))
+      .toThrow('Invalid safe to spend response.');
+    expect(() => extractSafeToSpend({ ...safeToSpendPayload, cashOnHand: null }))
+      .toThrow('Invalid safe to spend response.');
+  });
+
+  it('accepts an unavailable safe to spend response with no figure', () => {
+    const result = extractSafeToSpend({
+      ...safeToSpendPayload,
+      status: 'unavailable',
+      cashBasis: null,
+      cashOnHand: null,
+      billsDue: null,
+      pendingOutflow: null,
+      amount: null,
+      deductions: [],
+      blockers: ['stale_cash_balance'],
+      warning: 'Cash balances are older than a successful sync.',
+    });
+
+    expect(result.status).toBe('unavailable');
+    expect(result.amount).toBeNull();
+  });
+
+  it('validates the overview verdicts contract', () => {
+    const result = extractOverviewVerdicts(verdictsPayload);
+    expect(result.monthProgress.tone).toBe('positive');
+    expect(result.pacing?.driver?.category).toBe('HOME_IMPROVEMENT');
+
+    expect(extractOverviewVerdicts({
+      ...verdictsPayload,
+      lastCompletedMonth: null,
+      pacing: null,
+    }).pacing).toBeNull();
+
+    expect(() => extractOverviewVerdicts({ ...verdictsPayload, monthProgress: null }))
+      .toThrow('Invalid overview verdicts response.');
+    expect(() => extractOverviewVerdicts({
+      ...verdictsPayload,
+      categoryDrivers: [{ ...verdictsPayload.categoryDrivers[0], movement: 'sideways' }],
+    })).toThrow('Invalid overview verdicts response.');
+    expect(() => extractOverviewVerdicts({ ...verdictsPayload, targetProgress: { target: 5000 } }))
+      .toThrow('Invalid overview verdicts response.');
   });
 
   it('rejects a wrapper object where an array field is missing', () => {

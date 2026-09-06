@@ -11,6 +11,7 @@ import { AccountsPage } from './pages/AccountsPage';
 import { WalmartInsightsPage } from './pages/WalmartInsightsPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 import { ClassificationRulesCard } from './components/ClassificationRulesCard';
+import { HouseholdPlanCard } from './components/HouseholdPlanCard';
 import { extractStatusResponse } from './lib/api-contracts';
 import {
   STATUS_REFRESH_INTERVAL_MS,
@@ -37,6 +38,7 @@ export default function App() {
   
   const [message, setMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [showDeveloperTools, setShowDeveloperTools] = useState(false);
   const [transactionsInitialView, setTransactionsInitialView] =
     useState<TransactionsViewMode>('posted');
   const [refreshKey, setRefreshKey] = useState(0);
@@ -49,6 +51,15 @@ export default function App() {
   const openNeedsReview = () => {
     setTransactionsInitialView('needs_review');
     setActiveTab('transactions');
+  };
+
+  const openPlanSettings = () => {
+    setActiveTab('settings');
+    // The plan card sits below the connection list, so bring it into view
+    // once Settings has rendered.
+    requestAnimationFrame(() => {
+      document.getElementById('household-plan')?.scrollIntoView({ block: 'start' });
+    });
   };
   
   const showMessage = (text: string, type: 'info' | 'error' | 'success' = 'info') => {
@@ -492,6 +503,7 @@ export default function App() {
           refreshKey={refreshKey}
           onReviewTransactions={openNeedsReview}
           onViewTransactions={() => navigateToTab('transactions')}
+          onOpenPlanSettings={openPlanSettings}
         />
       )}
       
@@ -514,7 +526,7 @@ export default function App() {
       {activeTab === 'settings' && (
         <div className="max-w-5xl mx-auto w-full">
           <div className="mb-8 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <h2 className="text-2xl font-bold text-slate-900">Settings & Developer Tools</h2>
+            <h2 className="text-2xl font-bold text-slate-900">Settings</h2>
             <button
               onClick={logOut}
               className="flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-900 transition-colors"
@@ -725,11 +737,31 @@ export default function App() {
             </div>
           )}
           
+          <HouseholdPlanCard apiFetch={apiFetch} onSaved={() => setRefreshKey(key => key + 1)} />
           <ClassificationRulesCard apiFetch={apiFetch} />
-          <DeveloperVerification user={user} />
-          {(import.meta as any).env.VITE_ENABLE_SANDBOX_ACCEPTANCE === 'true' && (
-            <SandboxAcceptance user={user} plaidItems={plaidItems} />
-          )}
+
+          {/*
+            Diagnostics, not day-to-day tools. They stay reachable but out of
+            the way so normal use never lands on them.
+          */}
+          <section className="mb-8">
+            <button
+              type="button"
+              onClick={() => setShowDeveloperTools(current => !current)}
+              className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-colors hover:border-slate-300 hover:text-slate-900"
+              aria-expanded={showDeveloperTools}
+            >
+              {showDeveloperTools ? 'Hide developer tools' : 'Show developer tools'}
+            </button>
+            {showDeveloperTools && (
+              <div className="mt-6">
+                <DeveloperVerification user={user} />
+                {(import.meta as any).env.VITE_ENABLE_SANDBOX_ACCEPTANCE === 'true' && (
+                  <SandboxAcceptance user={user} plaidItems={plaidItems} />
+                )}
+              </div>
+            )}
+          </section>
         </div>
       )}
     </AppShell>
