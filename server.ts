@@ -52,6 +52,13 @@ import {
   type HouseholdPlan,
 } from "./server/lib/household-plan";
 import { buildOverviewVerdicts } from "./server/lib/verdicts";
+import {
+  SavingsDestinationRequestError,
+  buildSavingsContributions,
+  isSavingsDestinationId,
+  parseSavingsDestinationName,
+  parseStoredSavingsDestination,
+} from "./server/lib/savings-contributions";
 import { getDateForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth, getMonthForDateInTimezone } from "./server/lib/time";
 import {
   buildWalmartInsights,
@@ -2489,6 +2496,86 @@ app.put("/api/household-plan", requireAuth, async (req: express.Request, res: ex
       return res.status(error.status).json({ error: error.message });
     }
     console.error("Household Plan Write Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+async function loadSavingsDestinationNames(uid: string): Promise<Map<string, string>> {
+  const snapshot = await db.collection('users').doc(uid)
+    .collection('savings_destinations').get();
+  const names = new Map<string, string>();
+  for (const document of snapshot.docs) {
+    const stored = parseStoredSavingsDestination(document.data());
+    if (stored) names.set(stored.key, stored.displayName);
+  }
+  return names;
+}
+
+app.get("/api/savings/contributions", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const [txs, displayNames] = await Promise.all([
+      fetchNormalizedTransactions(uid),
+      loadSavingsDestinationNames(uid),
+    ]);
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+
+    res.json(buildSavingsContributions({
+      transactions: txs,
+      displayNames,
+      asOfDate: getDateForDateInTimezone(new Date(), financeTz),
+    }));
+  } catch (error: any) {
+    console.error("Savings Contributions Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/savings/destinations/:destinationId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const destinationId = req.params.destinationId;
+    if (!isSavingsDestinationId(destinationId)) {
+      return res.status(400).json({ error: 'Invalid savings destination ID.' });
+    }
+    const displayName = parseSavingsDestinationName(req.body);
+
+    // Name only a destination the owner's own contributions actually produced,
+    // so a rename cannot create a row for a destination that does not exist.
+    const [txs, displayNames] = await Promise.all([
+      fetchNormalizedTransactions(uid),
+      loadSavingsDestinationNames(uid),
+    ]);
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const report = buildSavingsContributions({
+      transactions: txs,
+      displayNames,
+      asOfDate: getDateForDateInTimezone(new Date(), financeTz),
+    });
+    const destination = report.destinations.find(item => item.destinationId === destinationId);
+    if (!destination) {
+      return res.status(404).json({ error: 'Savings destination not found.' });
+    }
+
+    const destinationRef = db.collection('users').doc(uid)
+      .collection('savings_destinations').doc(destinationId);
+    const existing = await destinationRef.get();
+    await destinationRef.set({
+      key: destination.key,
+      displayName,
+      // Preserved across renames: this records when the owner first named the
+      // destination, not when they last edited the name.
+      createdAt: existing.data()?.createdAt || Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    }, { merge: true });
+    dashboardCache.invalidate(uid);
+
+    res.json({ destinationId, key: destination.key, displayName });
+  } catch (error: any) {
+    if (error instanceof SavingsDestinationRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Savings Destination Rename Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

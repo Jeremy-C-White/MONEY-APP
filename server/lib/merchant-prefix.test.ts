@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildMerchantKeyForTransaction, deriveMerchantPrefix, normalizeMerchantKey } from './merchant-prefix';
+import {
+  buildMerchantKeyForTransaction,
+  deriveContributionKey,
+  deriveMerchantPrefix,
+  extractContributionReferenceTokens,
+  normalizeMerchantKey,
+} from './merchant-prefix';
 
 describe('deriveMerchantPrefix', () => {
   it('truncates a Plaid ACH description at the first reference-number token', () => {
@@ -61,5 +67,72 @@ describe('buildMerchantKeyForTransaction', () => {
 
   it('returns null when neither a merchant name nor a stable derivation exists', () => {
     expect(buildMerchantKeyForTransaction({ name: 'SQ *A1 208402', normalizedMerchant: '' })).toBeNull();
+  });
+});
+
+describe('deriveContributionKey', () => {
+  it('groups ACH transfers that differ only by trace number and date', () => {
+    const first = deriveContributionKey(
+      '2400 FSAGGTR03 INVESTMENT 260706 000000002088697 JEREMY WHITE'
+    );
+    const second = deriveContributionKey(
+      '2400 FSAGGTR03 INVESTMENT 260806 000000002102387 JEREMY WHITE'
+    );
+
+    expect(first).toBe('2400 fsaggtr03 investment');
+    expect(second).toBe(first);
+  });
+
+  it('keeps the originator code that deriveMerchantPrefix discards', () => {
+    const description = '2400 FSAGGTR03 INVESTMENT 260706 000000002088697 JEREMY WHITE';
+    expect(deriveMerchantPrefix(description)).toBeNull();
+    expect(deriveContributionKey(description)).toBe('2400 fsaggtr03 investment');
+  });
+
+  it('stops at a month name so a SoFi transfer does not carry its date', () => {
+    const june = deriveContributionKey('SOFI SECURITIES ACH Jun 09 20260605726664 JEREMY WHITE');
+    const july = deriveContributionKey('SOFI SECURITIES ACH Jul 23 20260723726664 JEREMY WHITE');
+
+    expect(june).toBe('sofi securities ach');
+    expect(july).toBe(june);
+  });
+
+  it('keeps two different originator codes apart', () => {
+    expect(deriveContributionKey('2400 FSAGTR1213 INVESTMENT 241201 000000001234567 JEREMY WHITE'))
+      .toBe('2400 fsagtr1213 investment');
+    expect(deriveContributionKey('2400 FSAGGTR03 INVESTMENT 260706 000000002088697 JEREMY WHITE'))
+      .not.toBe('2400 fsagtr1213 investment');
+  });
+
+  it('stops at an embedded long reference in a DES/ID description', () => {
+    expect(deriveContributionKey('Uphold Inc DES:UPHOLD ID:1234567890 INDN:JEREMY WHITE'))
+      .toBe('uphold inc des:uphold');
+  });
+
+  it('returns null when nothing stable precedes the reference noise', () => {
+    expect(deriveContributionKey('000000002088697 JEREMY WHITE')).toBeNull();
+    expect(deriveContributionKey('')).toBeNull();
+    expect(deriveContributionKey('AB 20260605726664')).toBeNull();
+  });
+});
+
+describe('extractContributionReferenceTokens', () => {
+  it('returns the long reference tokens that follow the stable key', () => {
+    expect(extractContributionReferenceTokens(
+      '2400 FSAGGTR03 INVESTMENT 260706 000000002088697 JEREMY WHITE'
+    )).toEqual(['000000002088697']);
+  });
+
+  it('excludes the bare ACH settlement date so a shared date is not read as a stream', () => {
+    expect(extractContributionReferenceTokens(
+      '2400 FSAGGTR03 INVESTMENT 260706 000000002102387 JEREMY WHITE'
+    )).toEqual(['000000002102387']);
+    expect(extractContributionReferenceTokens(
+      'SOFI SECURITIES ACH Jun 09 20260605726664 JEREMY WHITE'
+    )).toEqual(['20260605726664']);
+  });
+
+  it('returns nothing when the description carries no reference tokens', () => {
+    expect(extractContributionReferenceTokens('Vanguard Buy')).toEqual([]);
   });
 });
