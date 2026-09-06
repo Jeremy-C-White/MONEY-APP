@@ -19,6 +19,7 @@ import {
   extractHouseholdPlan,
   extractSafeToSpend,
   extractOverviewVerdicts,
+  extractSavingsContributions,
   extractOverviewResponse,
   extractCategoryBreakdownResponse,
   extractWalmartInsightsResponse,
@@ -415,6 +416,48 @@ const verdictsPayload = {
   targetProgress: null,
 };
 
+const savingsContributionsPayload = {
+  asOfDate: '2026-09-06',
+  destinations: [{
+    key: '2400 fsaggtr03 investment',
+    destinationId: 'a'.repeat(24),
+    displayName: 'College Savings',
+    isNamed: true,
+    totalContributed: 18_400,
+    contributionCount: 40,
+    firstContribution: '2024-09-06',
+    lastContribution: '2026-09-04',
+    monthlyAverage: 760,
+    currentMonthlyRate: 500,
+    cadence: 'twice_monthly' as const,
+    status: 'active' as const,
+    monthlyHistory: [{ month: '2026-08', amount: 500, count: 2 }],
+    rateChange: { previousAmount: 600, currentAmount: 250, changedOnMonth: '2026-07' },
+    mergedStreamCount: 1,
+    streams: [{
+      streamKey: '2400 fsaggtr03 investment',
+      reference: null,
+      totalContributed: 18_400,
+      contributionCount: 40,
+      firstContribution: '2024-09-06',
+      lastContribution: '2026-09-04',
+      typicalAmount: 250,
+      currentMonthlyRate: 500,
+      cadence: 'twice_monthly' as const,
+      status: 'active' as const,
+    }],
+  }],
+  totals: {
+    totalContributed: 52_725,
+    contributionCount: 118,
+    monthlyAverage: 900,
+    currentMonthlyRate: 1150,
+    savingsRateOfIncome: 0.12,
+    incomeConsidered: 57_500,
+    incomeFromMonth: '2026-04',
+  },
+};
+
 describe('API response contracts', () => {
   it('validates the application status response', () => {
     const status = extractStatusResponse({
@@ -644,6 +687,54 @@ describe('API response contracts', () => {
     })).toThrow('Invalid overview verdicts response.');
     expect(() => extractOverviewVerdicts({ ...verdictsPayload, targetProgress: { target: 5000 } }))
       .toThrow('Invalid overview verdicts response.');
+  });
+
+  it('validates the savings contributions contract', () => {
+    const result = extractSavingsContributions(savingsContributionsPayload);
+    expect(result.destinations[0].displayName).toBe('College Savings');
+    expect(result.destinations[0].rateChange?.changedOnMonth).toBe('2026-07');
+    expect(result.totals.savingsRateOfIncome).toBe(0.12);
+  });
+
+  it('accepts a savings report with no rate and no known income', () => {
+    const result = extractSavingsContributions({
+      ...savingsContributionsPayload,
+      destinations: [{
+        ...savingsContributionsPayload.destinations[0],
+        currentMonthlyRate: null,
+        rateChange: null,
+        status: 'ended' as const,
+      }],
+      totals: {
+        ...savingsContributionsPayload.totals,
+        currentMonthlyRate: null,
+        savingsRateOfIncome: null,
+        incomeConsidered: null,
+        incomeFromMonth: null,
+      },
+    });
+
+    expect(result.totals.savingsRateOfIncome).toBeNull();
+    expect(result.destinations[0].status).toBe('ended');
+  });
+
+  it('rejects a savings report with an unknown cadence or status', () => {
+    expect(() => extractSavingsContributions({
+      ...savingsContributionsPayload,
+      destinations: [{ ...savingsContributionsPayload.destinations[0], cadence: 'fortnightly' }],
+    })).toThrow('Invalid savings contributions response.');
+
+    expect(() => extractSavingsContributions({
+      ...savingsContributionsPayload,
+      destinations: [{ ...savingsContributionsPayload.destinations[0], status: 'dormant' }],
+    })).toThrow('Invalid savings contributions response.');
+  });
+
+  it('rejects a savings report whose rate is a string', () => {
+    expect(() => extractSavingsContributions({
+      ...savingsContributionsPayload,
+      totals: { ...savingsContributionsPayload.totals, currentMonthlyRate: '1150' },
+    })).toThrow('Invalid savings contributions response.');
   });
 
   it('rejects a wrapper object where an array field is missing', () => {

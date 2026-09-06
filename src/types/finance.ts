@@ -593,6 +593,73 @@ export interface HouseholdPlanResponse {
   householdPlan: HouseholdPlan;
 }
 
+export type ContributionCadence =
+  | 'weekly'
+  | 'biweekly'
+  | 'twice_monthly'
+  | 'monthly'
+  | 'irregular';
+
+export type ContributionStatus = 'active' | 'paused' | 'ended';
+
+export interface MonthlyContribution {
+  month: string;
+  amount: number;
+  count: number;
+}
+
+export interface ContributionStream {
+  streamKey: string;
+  reference: string | null;
+  totalContributed: number;
+  contributionCount: number;
+  firstContribution: string;
+  lastContribution: string;
+  typicalAmount: number;
+  currentMonthlyRate: number | null;
+  cadence: ContributionCadence;
+  status: ContributionStatus;
+}
+
+export interface ContributionRateChange {
+  previousAmount: number;
+  currentAmount: number;
+  changedOnMonth: string;
+}
+
+export interface SavingsDestination {
+  key: string;
+  destinationId: string;
+  displayName: string;
+  isNamed: boolean;
+  totalContributed: number;
+  contributionCount: number;
+  firstContribution: string;
+  lastContribution: string;
+  monthlyAverage: number;
+  currentMonthlyRate: number | null;
+  cadence: ContributionCadence;
+  status: ContributionStatus;
+  monthlyHistory: MonthlyContribution[];
+  rateChange: ContributionRateChange | null;
+  mergedStreamCount: number;
+  streams: ContributionStream[];
+}
+
+export interface SavingsContributionsResponse {
+  asOfDate: string;
+  destinations: SavingsDestination[];
+  totals: {
+    totalContributed: number;
+    contributionCount: number;
+    monthlyAverage: number;
+    currentMonthlyRate: number | null;
+    savingsRateOfIncome: number | null;
+    incomeConsidered: number | null;
+    incomeFromMonth: string | null;
+  };
+}
+
 export interface DashboardOverviewResponse {
   summary: DashboardSummary;
   categories: DashboardCategory[];

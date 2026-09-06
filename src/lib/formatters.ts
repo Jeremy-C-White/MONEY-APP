@@ -223,3 +223,14 @@ export function getDetailedCategoryLabel(categoryDetailed: string, categoryPrima
     : categoryDetailed;
   return getCategoryLabel(withoutPrefix || categoryDetailed);
 }
+
+export function getContributionCadenceLabel(cadence: string | undefined): string {
+  switch (cadence) {
+    case 'weekly': return 'weekly';
+    case 'biweekly': return 'every two weeks';
+    case 'twice_monthly': return 'twice monthly';
+    case 'monthly': return 'monthly';
+    case 'irregular': return 'irregular';
+    default: return 'unknown cadence';
+  }
+}

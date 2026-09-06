@@ -9,6 +9,7 @@ import { CategoryBreakdownCard } from '../components/CategoryBreakdownCard';
 import { SafeToSpendCard } from '../components/SafeToSpendCard';
 import { MonthVerdictCard } from '../components/MonthVerdictCard';
 import { UpcomingCommitmentsCard } from '../components/UpcomingCommitmentsCard';
+import { SavingsContributionsCard } from '../components/SavingsContributionsCard';
 import {
   formatCurrency,
   formatPercentagePoints,
@@ -295,6 +296,8 @@ export function OverviewPage({
           </div>
 
           <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} />
+
+          <SavingsContributionsCard apiFetch={apiFetch} refreshKey={refreshKey} />
 
           <div className="mb-8">
             <RecurringObligationsCard

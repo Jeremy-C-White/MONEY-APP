@@ -28,6 +28,9 @@ import type {
   SafeToSpend,
   SafeToSpendDeduction,
   OverviewVerdicts,
+  SavingsContributionsResponse,
+  SavingsDestination,
+  ContributionStream,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -786,6 +789,82 @@ export function extractOverviewVerdicts(data: unknown): OverviewVerdicts {
   }
 
   return record as unknown as OverviewVerdicts;
+}
+
+const CONTRIBUTION_CADENCES = ['weekly', 'biweekly', 'twice_monthly', 'monthly', 'irregular'];
+const CONTRIBUTION_STATUSES = ['active', 'paused', 'ended'];
+
+function isContributionStream(value: unknown): value is ContributionStream {
+  return (
+    isRecord(value) &&
+    typeof value.streamKey === 'string' &&
+    validNullableString(value.reference) &&
+    typeof value.totalContributed === 'number' &&
+    typeof value.contributionCount === 'number' &&
+    typeof value.firstContribution === 'string' &&
+    typeof value.lastContribution === 'string' &&
+    typeof value.typicalAmount === 'number' &&
+    validNullableNumber(value.currentMonthlyRate) &&
+    CONTRIBUTION_CADENCES.includes(String(value.cadence)) &&
+    CONTRIBUTION_STATUSES.includes(String(value.status))
+  );
+}
+
+function isSavingsDestination(value: unknown): value is SavingsDestination {
+  return (
+    isRecord(value) &&
+    typeof value.key === 'string' &&
+    typeof value.destinationId === 'string' &&
+    typeof value.displayName === 'string' &&
+    typeof value.isNamed === 'boolean' &&
+    typeof value.totalContributed === 'number' &&
+    typeof value.contributionCount === 'number' &&
+    typeof value.firstContribution === 'string' &&
+    typeof value.lastContribution === 'string' &&
+    typeof value.monthlyAverage === 'number' &&
+    validNullableNumber(value.currentMonthlyRate) &&
+    CONTRIBUTION_CADENCES.includes(String(value.cadence)) &&
+    CONTRIBUTION_STATUSES.includes(String(value.status)) &&
+    Array.isArray(value.monthlyHistory) &&
+    value.monthlyHistory.every(point => (
+      isRecord(point) &&
+      typeof point.month === 'string' &&
+      typeof point.amount === 'number' &&
+      typeof point.count === 'number'
+    )) &&
+    (value.rateChange === null || (
+      isRecord(value.rateChange) &&
+      typeof value.rateChange.previousAmount === 'number' &&
+      typeof value.rateChange.currentAmount === 'number' &&
+      typeof value.rateChange.changedOnMonth === 'string'
+    )) &&
+    typeof value.mergedStreamCount === 'number' &&
+    Array.isArray(value.streams) &&
+    value.streams.every(isContributionStream)
+  );
+}
+
+export function extractSavingsContributions(data: unknown): SavingsContributionsResponse {
+  const record = requireRecord(data, 'savings contributions');
+  const totals = record.totals;
+
+  if (
+    typeof record.asOfDate !== 'string' ||
+    !Array.isArray(record.destinations) ||
+    !record.destinations.every(isSavingsDestination) ||
+    !isRecord(totals) ||
+    typeof totals.totalContributed !== 'number' ||
+    typeof totals.contributionCount !== 'number' ||
+    typeof totals.monthlyAverage !== 'number' ||
+    !validNullableNumber(totals.currentMonthlyRate) ||
+    !validNullableNumber(totals.savingsRateOfIncome) ||
+    !validNullableNumber(totals.incomeConsidered) ||
+    !validNullableString(totals.incomeFromMonth)
+  ) {
+    throw new Error('Invalid savings contributions response.');
+  }
+
+  return record as unknown as SavingsContributionsResponse;
 }
 
 export function extractOverviewResponse(data: unknown): DashboardOverviewResponse {

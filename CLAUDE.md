@@ -95,7 +95,7 @@ src/lib/formatters.ts      Currency, percent, category/classification labels
 ```bash
 npm run lint      # tsc --noEmit
 npm run build     # vite build + esbuild server bundle
-npx vitest run    # 456 tests, 38 files
+npx vitest run    # 508 tests, 40 files
 npm run dev       # local server
 ```
 
@@ -161,6 +161,54 @@ on the server and the wording on the client.
 safe-to-spend buffer and the monthly spending target, stored on the user doc
 under `householdPlan`. Neither is ever inferred. An unset target stays null so
 readers say "no target" rather than inventing a benchmark.
+
+### Savings contributions
+
+`GET /api/savings/contributions` groups transactions already classified as
+`investment_transfer` into the destinations they fund. It classifies nothing
+and feeds no bridge figure — only outflows count, since an incoming
+`investment_transfer` is a withdrawal.
+
+**`deriveMerchantPrefix` does not group ACH savings descriptions.** An
+originator code mixes letters and digits, which it reads as reference noise, so
+`2400 FSAGGTR03 INVESTMENT ...` derives to `null`; and the ACH settlement date
+sits before the trace number, so `SOFI SECURITIES ACH Jun 09 ...` derives a
+prefix that changes every month. `deriveContributionKey` in the same module
+handles these instead — it stops at long digit runs, date-like tokens and month
+names, and keeps short digit suffixes. **Do not "fix" `deriveMerchantPrefix` to
+cover this case**: stored classification rules are keyed by its output and would
+be orphaned.
+
+Grouping is by prefix, so two ACH streams sharing an originator collapse into
+one destination. That merge is reported, never hidden: `mergedStreamCount` and a
+per-stream breakdown come back on the destination. A reference token recurring
+across contributions is taken as the stream identifier; one appearing once is
+not.
+
+Other rules that should hold:
+
+- `currentMonthlyRate` is a **median** of recent contributions, never a mean —
+  a single large transfer must not present itself as the ongoing rate. It is
+  null for an ended stream.
+- Twice-monthly and biweekly are separated by month occupancy, not gap size: a
+  14-day cycle overflows to three contributions in some months, twice-monthly
+  never does.
+- `savingsRateOfIncome` is null when income is zero or unknown, and the UI omits
+  the percentage entirely rather than rendering 0%.
+- A contribution whose key cannot be derived falls back to its full normalized
+  description rather than being dropped.
+
+The naming table is `users/{uid}/savings_destinations/{destinationId}`, keyed by
+a hash of the contribution key (prefixes carry spaces and punctuation and could
+carry a slash — unsafe as a Firestore doc id or route param). Each destination
+carries both `key` and `destinationId`.
+
+### Month bucketing
+
+`server/lib/time.ts` has `getMonthForCivilDate`, `daysBetweenCivilDates`,
+`isCivilDate` and `addMonthsToMonth` for `YYYY-MM-DD` values. Use them.
+`new Date('2026-09-01')` parses as UTC midnight and can render as August 31 in
+the finance timezone, moving a row into the previous month.
 
 ### Overview layout
 
