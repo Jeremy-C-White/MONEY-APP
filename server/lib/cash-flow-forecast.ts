@@ -25,6 +25,11 @@ export type ScheduledCashEvent = {
   accountId: string | null;
   accountName: string | null;
   affectsForecastBalance: boolean;
+  /**
+   * Set when this scheduled charge is already visible as a pending transaction,
+   * so a second reader can recognize the overlap instead of counting both.
+   */
+  pendingTransactionId: string | null;
 };
 
 export type DailyCashBalance = {
@@ -66,7 +71,7 @@ function dateToMs(date: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   const value = dateToMs(date);
   if (value == null) throw new Error(`Invalid date: ${date}`);
   return new Date(value + days * DAY_MS).toISOString().slice(0, 10);
@@ -221,7 +226,7 @@ function accountLabel(account: AccountBalanceRecord | undefined): string | null 
     : account.accountName;
 }
 
-function scheduleBills(input: {
+export function scheduleBills(input: {
   transactions: NormalizedTransaction[];
   obligations: ReviewedRecurringObligation[];
   accounts: AccountBalanceRecord[];
@@ -288,6 +293,7 @@ function scheduleBills(input: {
             accountId === input.forecastAccountId &&
             account?.accountType === 'depository'
           ),
+          pendingTransactionId: pendingMatch?.transactionId || null,
         });
       }
     }
@@ -358,6 +364,7 @@ export function buildCashFlowForecast(input: {
         accountId: stream.accountId,
         accountName: accountLabel(input.accountBalances.accounts.find(item => item.accountId === stream.accountId)),
         affectsForecastBalance: stream.accountId === account?.accountId,
+        pendingTransactionId: null,
       });
     }
     return events;

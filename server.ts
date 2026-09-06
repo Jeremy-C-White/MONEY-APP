@@ -43,7 +43,16 @@ import {
 } from "./server/lib/recurring-obligation-decisions";
 import { buildHouseholdInsights } from "./server/lib/household-insights";
 import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
-import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
+import { buildSafeToSpend } from "./server/lib/safe-to-spend";
+import {
+  HouseholdPlanRequestError,
+  buildSpendingTargetProgress,
+  parseHouseholdPlanInput,
+  parseStoredHouseholdPlan,
+  type HouseholdPlan,
+} from "./server/lib/household-plan";
+import { buildOverviewVerdicts } from "./server/lib/verdicts";
+import { getDateForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth, getMonthForDateInTimezone } from "./server/lib/time";
 import {
   buildWalmartInsights,
   extractGoogleSpreadsheetId,
@@ -2285,10 +2294,16 @@ app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: 
   }
 });
 
+async function loadHouseholdPlan(uid: string): Promise<HouseholdPlan> {
+  const userDoc = await db.collection('users').doc(uid).get();
+  return parseStoredHouseholdPlan(userDoc.data()?.householdPlan);
+}
+
 async function loadRecurringPlanning(uid: string) {
-  const [txs, snapshot] = await Promise.all([
+  const [txs, snapshot, householdPlan] = await Promise.all([
     fetchNormalizedTransactions(uid),
     db.collection('users').doc(uid).collection('recurring_obligations').get(),
+    loadHouseholdPlan(uid),
   ]);
   const decisions = new Map<string, StoredRecurringObligationDecision>();
   for (const document of snapshot.docs) {
@@ -2303,7 +2318,7 @@ async function loadRecurringPlanning(uid: string) {
     decisions,
     currentMonth
   );
-  return { txs, recurringObligations, financeTz, now };
+  return { txs, recurringObligations, householdPlan, financeTz, now };
 }
 
 async function loadAccountBalanceSummary(uid: string, now = new Date()) {
@@ -2329,31 +2344,57 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
     }
 
     const uid = (req as any).user.uid;
-    const [{ txs, recurringObligations, financeTz, now }, accountBalances] = await Promise.all([
+    const [{ txs, recurringObligations, householdPlan, financeTz, now }, accountBalances] = await Promise.all([
       loadRecurringPlanning(uid),
       loadAccountBalanceSummary(uid),
     ]);
     const verification = buildVerificationReport(txs, financeTz);
     const asOfDate = getDateForDateInTimezone(now, financeTz);
+    const trends = aggregateTrends(txs, rangeParam, financeTz);
+    const householdInsights = buildHouseholdInsights(
+      txs,
+      recurringObligations.obligations,
+      asOfDate
+    );
+    const targetProgress = buildSpendingTargetProgress({
+      plan: householdPlan,
+      month: householdInsights.forecast.month,
+      daysElapsed: getDayOfMonthInTimezone(now, financeTz),
+      daysInMonth: getDaysInMonth(householdInsights.forecast.month),
+      spentToDate: verification.summary.currentMonth.spending,
+      projectedMonthEndSpending: householdInsights.forecast.projectedMonthEndSpending,
+      projectionMaturity: householdInsights.forecast.maturity,
+    });
 
     res.json({
       summary: verification.summary,
       categories: verification.categories,
       merchants: verification.merchants.slice(0, 50),
-      trends: aggregateTrends(txs, rangeParam, financeTz),
+      trends,
       recurringObligations,
-      householdInsights: buildHouseholdInsights(
-        txs,
-        recurringObligations.obligations,
-        asOfDate
-      ),
+      householdInsights,
       verification,
       accountBalances,
+      householdPlan,
       cashFlowForecast: buildCashFlowForecast({
         transactions: txs,
         recurringObligations: recurringObligations.obligations,
         accountBalances,
         asOfDate,
+      }),
+      safeToSpend: buildSafeToSpend({
+        transactions: txs,
+        recurringObligations: recurringObligations.obligations,
+        accountBalances,
+        plan: householdPlan,
+        asOfDate,
+      }),
+      verdicts: buildOverviewVerdicts({
+        currentMonth: verification.summary.currentMonth,
+        pacing: verification.summary.pacing,
+        trends,
+        categoryChanges: householdInsights.monthly.categoryChanges,
+        targetProgress,
       }),
     });
   } catch (error: any) {
@@ -2422,6 +2463,32 @@ app.delete("/api/recurring-obligations/:obligationId", requireAuth, async (req: 
       return res.status(error.status).json({ error: error.message });
     }
     console.error("Recurring Obligation Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/household-plan", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    res.json({ householdPlan: await loadHouseholdPlan(uid) });
+  } catch (error: any) {
+    console.error("Household Plan Read Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/household-plan", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const current = await loadHouseholdPlan(uid);
+    const householdPlan = parseHouseholdPlanInput(req.body, current);
+    await db.collection('users').doc(uid).set({ householdPlan }, { merge: true });
+    res.json({ householdPlan });
+  } catch (error: any) {
+    if (error instanceof HouseholdPlanRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Household Plan Write Error:", error);
     res.status(500).json({ error: error.message });
   }
 });
