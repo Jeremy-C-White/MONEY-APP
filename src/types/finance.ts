@@ -34,6 +34,7 @@ export interface AppStatusResponse {
   trialItemsUnresolved: number;
   googleConnected: boolean;
   migrationRan: boolean;
+  deploymentRevision: string | null;
 }
 
 export interface DashboardSummary {

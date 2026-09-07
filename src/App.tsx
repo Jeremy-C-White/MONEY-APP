@@ -36,6 +36,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
   const [statusUnavailable, setStatusUnavailable] = useState(false);
+  const [deploymentRevision, setDeploymentRevision] = useState<string | null>(null);
   
   const [message, setMessage] = useState<{ text: string, type: 'info' | 'error' | 'success' } | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -89,6 +90,7 @@ export default function App() {
         setGoogleConnected(false);
         setHasLoadedStatus(false);
         setStatusUnavailable(false);
+        setDeploymentRevision(null);
         lastStatusAttemptAtRef.current = null;
       }
     });
@@ -175,6 +177,7 @@ export default function App() {
       setTrialItemsConfirmed(data.trialItemsConfirmed);
       setTrialItemsUnresolved(data.trialItemsUnresolved);
       setGoogleConnected(data.googleConnected);
+      setDeploymentRevision(data.deploymentRevision);
       setHasLoadedStatus(true);
       setStatusUnavailable(false);
     } catch (error) {
@@ -744,17 +747,22 @@ export default function App() {
           <section className="mb-8 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <h3 className="text-sm font-semibold text-slate-800">App version</h3>
+                <h3 className="text-sm font-semibold text-slate-800">Deployment version</h3>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  Confirm this matches the commit expected after each deployment.
+                  {BUILD_COMMIT_SHA
+                    ? 'Build commit. Confirm it matches the commit expected after each deployment.'
+                    : 'Running App Hosting revision. Match it to the current rollout in Firebase.'}
                 </p>
               </div>
               <code
                 className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700"
-                data-build-commit={BUILD_COMMIT_SHA || 'unavailable'}
-                title={BUILD_COMMIT_SHA || 'Build commit was not injected'}
+                data-build-commit={BUILD_COMMIT_SHA || undefined}
+                data-deployment-revision={deploymentRevision || undefined}
+                title={BUILD_COMMIT_SHA || deploymentRevision || 'Deployment version is unavailable'}
               >
-                {shortBuildCommit(BUILD_COMMIT_SHA)}
+                {BUILD_COMMIT_SHA
+                  ? shortBuildCommit(BUILD_COMMIT_SHA)
+                  : deploymentRevision || 'Unavailable'}
               </code>
             </div>
           </section>

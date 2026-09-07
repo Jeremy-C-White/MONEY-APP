@@ -468,10 +468,19 @@ describe('API response contracts', () => {
       trialItemsUnresolved: 0,
       googleConnected: true,
       migrationRan: false,
+      deploymentRevision: 'finsync-00042-abc',
     });
 
     expect(status.trialItemsConfirmed).toBe(4);
     expect(status.googleConnected).toBe(true);
+    expect(status.deploymentRevision).toBe('finsync-00042-abc');
+    expect(extractStatusResponse({
+      items: [],
+      trialItemsConfirmed: 4,
+      trialItemsUnresolved: 0,
+      googleConnected: true,
+      migrationRan: false,
+    }).deploymentRevision).toBeNull();
     expect(() => extractStatusResponse({ error: 'Status check failed' })).toThrow(
       'Invalid status response.'
     );

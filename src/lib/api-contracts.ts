@@ -515,12 +515,23 @@ export function extractStatusResponse(data: unknown): AppStatusResponse {
     typeof record.trialItemsConfirmed !== 'number' ||
     typeof record.trialItemsUnresolved !== 'number' ||
     typeof record.googleConnected !== 'boolean' ||
-    typeof record.migrationRan !== 'boolean'
+    typeof record.migrationRan !== 'boolean' ||
+    (
+      record.deploymentRevision !== undefined &&
+      record.deploymentRevision !== null &&
+      typeof record.deploymentRevision !== 'string'
+    )
   ) {
     throw new Error('Invalid status response.');
   }
 
-  return record as unknown as AppStatusResponse;
+  return {
+    ...(record as unknown as Omit<AppStatusResponse, 'deploymentRevision'>),
+    // Keep rolling deploys compatible with the previous server response.
+    deploymentRevision: typeof record.deploymentRevision === 'string'
+      ? record.deploymentRevision
+      : null,
+  };
 }
 
 function isHouseholdInsightPeriod(value: unknown): value is HouseholdInsightPeriod {

@@ -488,7 +488,10 @@ async function startServer() {
         trialItemsConfirmed: confirmedTrialItems,
         trialItemsUnresolved: unresolvedTrialItems,
         googleConnected: !!userData.google_refresh_token,
-        migrationRan
+        migrationRan,
+        // App Hosting runs the server on Cloud Run, which supplies K_REVISION
+        // at runtime even though its source build does not include .git.
+        deploymentRevision: process.env.K_REVISION || null
       });
     } catch (error) {
       console.error(error);
