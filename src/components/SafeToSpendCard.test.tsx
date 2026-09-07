@@ -14,6 +14,8 @@ function safeToSpend(overrides: Partial<SafeToSpend> = {}): SafeToSpend {
     cashBasis: 'available',
     cashOnHand: 4000,
     cashAccountCount: 2,
+    excludedCashAccountCount: 1,
+    unassignedCashAccountCount: 0,
     billsDue: 2180,
     pendingOutflow: 250,
     buffer: 0,
@@ -76,6 +78,7 @@ describe('SafeToSpendCard', () => {
       'From $4,000.00 in cash, after $2,180.00 in bills due by Sep 30 and $250.00 pending.'
     );
     expect(container.textContent).toContain('Expected income before Sep 30 is not counted.');
+    expect(container.textContent).toContain('Uses 2 operating accounts. 1 non-operating cash account is excluded.');
   });
 
   it('keeps the itemized deductions behind a disclosure until asked', () => {
@@ -88,7 +91,7 @@ describe('SafeToSpendCard', () => {
     expect(container.textContent).toContain('Brookwood Preschool');
     expect(container.textContent).toContain('Bill due · Sep 12 · Checking ••••1234');
     expect(container.textContent).toContain('Pending charge · Sep 5 · Rewards Card ••••9876');
-    expect(container.textContent).toContain('Cash across 2 accounts$4,000.00');
+    expect(container.textContent).toContain('Cash across 2 operating accounts$4,000.00');
     expect(container.textContent).toContain('−$1,800.00');
   });
 
@@ -152,5 +155,13 @@ describe('SafeToSpendCard', () => {
     })} />));
 
     expect(container.textContent).toContain('already withholds pending');
+  });
+
+  it('surfaces cash accounts whose roles are unresolved', () => {
+    act(() => root.render(<SafeToSpendCard safeToSpend={safeToSpend({
+      unassignedCashAccountCount: 1,
+    })} />));
+
+    expect(container.textContent).toContain('1 cash account needs a confirmed role and is not included.');
   });
 });

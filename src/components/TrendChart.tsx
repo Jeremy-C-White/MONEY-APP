@@ -47,7 +47,7 @@ function CashFlowTooltip({ active, payload, label }: any) {
   const labels: Record<string, string> = {
     income: 'Income',
     spending: 'Spending',
-    netCashFlow: 'Net cash flow',
+    netCashFlow: 'Income minus spending',
   };
 
   return (
@@ -97,7 +97,7 @@ export function TrendChart({ data, loading }: { data: TrendPoint[]; loading?: bo
       <div
         className="h-full w-full"
         role="img"
-        aria-label="Monthly income, spending, and net cash flow chart"
+        aria-label="Monthly income, spending, and income minus spending chart"
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
@@ -135,7 +135,7 @@ export function TrendChart({ data, loading }: { data: TrendPoint[]; loading?: bo
           <Line
             type="monotone"
             dataKey="netCashFlow"
-            name="Net cash flow"
+            name="Income minus spending"
             stroke="#0f172a"
             strokeWidth={2.5}
             dot={{ r: 3, fill: '#0f172a', strokeWidth: 0 }}
@@ -148,7 +148,7 @@ export function TrendChart({ data, loading }: { data: TrendPoint[]; loading?: bo
       <table className="sr-only">
         <caption>Monthly cash flow values</caption>
         <thead>
-          <tr><th>Month</th><th>Income</th><th>Spending</th><th>Net cash flow</th></tr>
+          <tr><th>Month</th><th>Income</th><th>Spending</th><th>Income minus spending</th></tr>
         </thead>
         <tbody>
           {data.map(point => (

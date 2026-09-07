@@ -72,16 +72,23 @@ export function AccountPositionCards({
         </div>
       </div>
 
+      <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 sm:p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
+          Connected position
+        </p>
+        <p className="mt-1 text-2xl font-bold text-indigo-950">
+          {formatCurrency(balances?.connectedPosition)}
+        </p>
+        <p className="mt-1 text-xs text-indigo-700">
+          Connected cash and investments, less connected card and loan balances. This is not net worth.
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          title="Cash in accounts"
+          title="Checking and savings"
           value={formatCurrency(balances?.cashCurrent)}
-          subtitle={
-            <div className="space-y-1">
-              <div>Available now: {formatCurrency(balances?.cashAvailable)}</div>
-              <div>Connected position: {formatCurrency(balances?.connectedPosition)}</div>
-            </div>
-          }
+          subtitle={`Available across connected deposit accounts: ${formatCurrency(balances?.cashAvailable)}`}
           loading={loading && !balances}
           highlight
         />

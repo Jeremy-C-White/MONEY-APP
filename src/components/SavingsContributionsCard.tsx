@@ -245,7 +245,7 @@ export function SavingsContributionsCard({
   if (error && !report) {
     return (
       <section className="mb-8 rounded-2xl border border-rose-100 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-medium text-slate-900">Savings</h3>
+        <h3 className="text-lg font-medium text-slate-900">Investment transfers</h3>
         <p className="mt-2 text-sm text-slate-500">{error}</p>
         <button
           type="button"
@@ -266,12 +266,12 @@ export function SavingsContributionsCard({
     <section className="mb-8 rounded-2xl border border-slate-100 bg-white p-6 shadow-sm">
       <div className="flex items-center gap-2">
         <PiggyBank className="h-5 w-5 text-slate-400" />
-        <h3 className="text-lg font-medium text-slate-900">Savings</h3>
+        <h3 className="text-lg font-medium text-slate-900">Investment transfers</h3>
       </div>
 
       {destinations.length === 0 ? (
         <p className="mt-3 text-sm text-slate-500">
-          No transfers to savings or investment accounts have been recorded yet.
+          No bank-to-investment transfers have been recorded yet.
         </p>
       ) : (
         <>
@@ -281,18 +281,22 @@ export function SavingsContributionsCard({
               : formatCurrency(totals.currentMonthlyRate)}
             <span className="ml-1 text-base font-medium text-slate-500">/ month</span>
             {/*
-              The percentage appears only when income is known. A null savings
-              rate renders as nothing, never as 0%.
+              The percentage appears only when recognized income is known. A
+              null investment-funding rate renders as nothing, never as 0%.
             */}
-            {totals.savingsRateOfIncome != null && (
+            {totals.investmentFundingRateOfIncome != null && (
               <span className="ml-2 text-base font-medium text-emerald-600">
-                {formatPercentage(totals.savingsRateOfIncome)} of income
+                {formatPercentage(totals.investmentFundingRateOfIncome)} of recognized income
               </span>
             )}
           </p>
           <p className="mt-1 text-sm text-slate-500">
             {formatCurrency(totals.totalContributed)} across {totals.contributionCount}{' '}
             {totals.contributionCount === 1 ? 'transfer' : 'transfers'}
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Includes bank outflows identified as investment funding. Payroll 401k contributions
+            and ordinary transfers between checking and savings are not included.
           </p>
 
           <ul className="mt-4">

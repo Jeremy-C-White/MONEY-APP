@@ -52,7 +52,7 @@ function report(overrides: Partial<SavingsContributionsResponse> = {}): SavingsC
       contributionCount: 118,
       monthlyAverage: 900,
       currentMonthlyRate: 1150,
-      savingsRateOfIncome: 0.12,
+      investmentFundingRateOfIncome: 0.12,
       incomeConsidered: 57_500,
       incomeFromMonth: '2026-04',
     },
@@ -93,20 +93,21 @@ describe('SavingsContributionsCard', () => {
     return fetcher;
   }
 
-  it('leads with the monthly total and the savings rate', async () => {
+  it('leads with the monthly total and the investment-funding rate', async () => {
     await render();
+    expect(container.textContent).toContain('Investment transfers');
     expect(container.textContent).toContain('$1,150.00');
     expect(container.textContent).toContain('/ month');
-    expect(container.textContent).toContain('12% of income');
+    expect(container.textContent).toContain('12% of recognized income');
   });
 
-  it('omits the percentage entirely when the savings rate is unknown', async () => {
+  it('omits the percentage entirely when the investment-funding rate is unknown', async () => {
     await render(report({
-      totals: { ...report().totals, savingsRateOfIncome: null },
+      totals: { ...report().totals, investmentFundingRateOfIncome: null },
     }));
 
     expect(container.textContent).toContain('$1,150.00');
-    expect(container.textContent).not.toContain('of income');
+    expect(container.textContent).not.toContain('of recognized income');
     expect(container.textContent).not.toContain('0%');
   });
 
@@ -241,14 +242,14 @@ describe('SavingsContributionsCard', () => {
         contributionCount: 0,
         monthlyAverage: 0,
         currentMonthlyRate: null,
-        savingsRateOfIncome: null,
+        investmentFundingRateOfIncome: null,
         incomeConsidered: null,
         incomeFromMonth: null,
       },
     }));
 
     expect(container.textContent).toContain(
-      'No transfers to savings or investment accounts have been recorded yet.'
+      'No bank-to-investment transfers have been recorded yet.'
     );
   });
 });

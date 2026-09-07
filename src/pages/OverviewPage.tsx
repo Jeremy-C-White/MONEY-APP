@@ -290,7 +290,7 @@ export function OverviewPage({
               </div>
               <div className="flex items-center text-sm text-slate-500">
                 <div className="w-4 h-0.5 bg-slate-900 mr-2" />
-                Net cash flow
+                Income minus spending
               </div>
             </div>
           </div>

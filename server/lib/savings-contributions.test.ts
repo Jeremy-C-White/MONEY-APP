@@ -283,7 +283,7 @@ describe('buildSavingsContributions', () => {
     const report = build(biweekly('2026-04-06', 8).map((date, index) => sofi(index, date, 200)));
 
     expect(report.totals.currentMonthlyRate).toBe(433.33);
-    expect(report.totals.savingsRateOfIncome).toBeNull();
+    expect(report.totals.investmentFundingRateOfIncome).toBeNull();
     expect(report.totals.incomeConsidered).toBe(0);
   });
 
@@ -295,7 +295,7 @@ describe('buildSavingsContributions', () => {
     const report = build([...contributions, ...paychecks]);
 
     // 433.33 per month against 30000 / 6 = 5000 per month.
-    expect(report.totals.savingsRateOfIncome).toBeCloseTo(0.0867, 4);
+    expect(report.totals.investmentFundingRateOfIncome).toBeCloseTo(0.0867, 4);
     expect(report.totals.incomeConsidered).toBe(30_000);
   });
 
@@ -384,7 +384,7 @@ describe('buildSavingsContributions', () => {
     expect(report.destinations).toEqual([]);
     expect(report.totals.totalContributed).toBe(0);
     expect(report.totals.currentMonthlyRate).toBeNull();
-    expect(report.totals.savingsRateOfIncome).toBeNull();
+    expect(report.totals.investmentFundingRateOfIncome).toBeNull();
   });
 
   it('rejects an invalid as-of date', () => {

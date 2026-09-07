@@ -95,11 +95,15 @@ src/lib/formatters.ts      Currency, percent, category/classification labels
 ```bash
 npm run lint      # tsc --noEmit
 npm run build     # vite build + esbuild server bundle
-npx vitest run    # 508 tests, 40 files
+npx vitest run    # full regression suite
 npm run dev       # local server
 ```
 
 All four must pass before committing. There is no `test` script in package.json — use `npx vitest run` directly.
+
+CI runs the same lint, Vitest, and production-build gates. After every push,
+confirm that Settings shows the expected commit SHA before treating the deployed
+app as current.
 
 **Do not weaken or delete a test to make the suite green.** If a test fails after a refactor, the refactor is wrong until proven otherwise.
 
@@ -128,18 +132,29 @@ All four tabs live: Overview, Transactions, Accounts, Settings. Running against 
 
 ### Safe to spend
 
-`GET /api/dashboard/overview` returns a `safeToSpend` figure: cash on hand,
+`GET /api/dashboard/overview` returns a `safeToSpend` figure: operating cash on hand,
 less confirmed recurring charges falling due, less unposted pending charges,
 less the owner-set buffer. It is composition only — `server/lib/safe-to-spend.ts`
 reuses `scheduleBills` from `cash-flow-forecast.ts` rather than reimplementing
 bill scheduling, and no dollar moves.
 
+`server/lib/account-roles.ts` is the single source for subtype-derived default
+roles. Checking/payroll defaults to Operating; savings, money market, and CDs
+default to Reserve. HSA, retirement, investment, and debt accounts stay outside
+day-to-day cash. Cash-management accounts suggest Operating but require owner
+confirmation. PayPal, prepaid, EBT, and missing or unfamiliar subtypes remain
+Unassigned until the owner confirms their role.
+
 Rules it holds to, none of which should be relaxed:
 
 - The figure is **withheld entirely** (`status: 'unavailable'` with a named
-  blocker) when any cash account is stale, missing a balance, in a second
-  currency, or behind a connection needing attention. There is no partial or
-  best-effort number.
+  blocker) when any included Operating account is stale, missing a balance, in
+  a second currency, or behind a connection needing attention. There is no
+  partial or best-effort number.
+- Deliberately excluded non-operating cash accounts and unresolved Unassigned
+  accounts have separate counts. Unassigned accounts never silently enter the
+  figure; if none of the connected cash accounts can be identified as
+  Operating, Safe to Spend is withheld and asks for role confirmation.
 - The coverage window runs to month end but never less than 14 days, so the
   last days of a month don't read flush right before rent posts.
 - **Expected income inside the window is not added.** This counts money that
@@ -162,12 +177,18 @@ safe-to-spend buffer and the monthly spending target, stored on the user doc
 under `householdPlan`. Neither is ever inferred. An unset target stays null so
 readers say "no target" rather than inventing a benchmark.
 
-### Savings contributions
+### Investment transfers
 
 `GET /api/savings/contributions` groups transactions already classified as
 `investment_transfer` into the destinations they fund. It classifies nothing
 and feeds no bridge figure — only outflows count, since an incoming
 `investment_transfer` is a withdrawal.
+
+The public route and `users/{uid}/savings_destinations` collection deliberately
+retain their legacy names to avoid a live-data migration. The response field and
+UI use `investmentFundingRateOfIncome`, because ordinary checking-to-savings
+transfers and payroll-deducted retirement contributions are not visible to this
+dataset.
 
 **`deriveMerchantPrefix` does not group ACH savings descriptions.** An
 originator code mixes letters and digits, which it reads as reference noise, so
@@ -193,7 +214,7 @@ Other rules that should hold:
 - Twice-monthly and biweekly are separated by month occupancy, not gap size: a
   14-day cycle overflows to three contributions in some months, twice-monthly
   never does.
-- `savingsRateOfIncome` is null when income is zero or unknown, and the UI omits
+- `investmentFundingRateOfIncome` is null when income is zero or unknown, and the UI omits
   the percentage entirely rather than rendering 0%.
 - A contribution whose key cannot be derived falls back to its full normalized
   description rather than being dropped.

@@ -48,6 +48,13 @@ export function SafeToSpendCard({
               Safe to spend is unavailable
             </h3>
             <p className="mt-1 text-sm text-amber-800">{explanation}</p>
+            {safeToSpend.unassignedCashAccountCount > 0 && (
+              <p className="mt-2 text-xs font-medium text-amber-800">
+                {safeToSpend.unassignedCashAccountCount}{' '}
+                {safeToSpend.unassignedCashAccountCount === 1 ? 'cash account needs' : 'cash accounts need'}{' '}
+                a confirmed role before this figure can be shown.
+              </p>
+            )}
           </div>
         </div>
       </section>
@@ -92,6 +99,21 @@ export function SafeToSpendCard({
           Expected income before {describeThroughDate(safeToSpend.throughDate)} is not counted.
         </p>
 
+        <p className="mt-2 text-xs text-slate-500">
+          Uses {safeToSpend.cashAccountCount}{' '}
+          {safeToSpend.cashAccountCount === 1 ? 'operating account' : 'operating accounts'}.
+          {safeToSpend.excludedCashAccountCount > 0
+            ? ` ${safeToSpend.excludedCashAccountCount} non-operating cash ${safeToSpend.excludedCashAccountCount === 1 ? 'account is' : 'accounts are'} excluded.`
+            : ''}
+        </p>
+        {safeToSpend.unassignedCashAccountCount > 0 && (
+          <p className="mt-1 text-xs font-medium text-amber-700">
+            {safeToSpend.unassignedCashAccountCount}{' '}
+            {safeToSpend.unassignedCashAccountCount === 1 ? 'cash account needs' : 'cash accounts need'}{' '}
+            a confirmed role and is not included.
+          </p>
+        )}
+
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             type="button"
@@ -124,7 +146,7 @@ export function SafeToSpendCard({
             <div className="flex items-center justify-between">
               <dt className="text-slate-600">
                 Cash across {safeToSpend.cashAccountCount}{' '}
-                {safeToSpend.cashAccountCount === 1 ? 'account' : 'accounts'}
+                {safeToSpend.cashAccountCount === 1 ? 'operating account' : 'operating accounts'}
               </dt>
               <dd className="font-semibold text-slate-900">
                 {formatCurrency(safeToSpend.cashOnHand)}

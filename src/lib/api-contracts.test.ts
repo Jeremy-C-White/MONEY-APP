@@ -357,6 +357,8 @@ const safeToSpendPayload = {
   cashBasis: 'available' as const,
   cashOnHand: 4000,
   cashAccountCount: 2,
+  excludedCashAccountCount: 1,
+  unassignedCashAccountCount: 0,
   billsDue: 2180,
   pendingOutflow: 0,
   buffer: 250,
@@ -452,7 +454,7 @@ const savingsContributionsPayload = {
     contributionCount: 118,
     monthlyAverage: 900,
     currentMonthlyRate: 1150,
-    savingsRateOfIncome: 0.12,
+    investmentFundingRateOfIncome: 0.12,
     incomeConsidered: 57_500,
     incomeFromMonth: '2026-04',
   },
@@ -631,6 +633,7 @@ describe('API response contracts', () => {
   it('validates the safe to spend contract', () => {
     const result = extractSafeToSpend(safeToSpendPayload);
     expect(result.amount).toBe(1570);
+    expect(result.excludedCashAccountCount).toBe(1);
     expect(result.deductions[0].label).toBe('Brookwood Preschool');
 
     expect(() => extractSafeToSpend({ ...safeToSpendPayload, status: 'partial' }))
@@ -693,7 +696,7 @@ describe('API response contracts', () => {
     const result = extractSavingsContributions(savingsContributionsPayload);
     expect(result.destinations[0].displayName).toBe('College Savings');
     expect(result.destinations[0].rateChange?.changedOnMonth).toBe('2026-07');
-    expect(result.totals.savingsRateOfIncome).toBe(0.12);
+    expect(result.totals.investmentFundingRateOfIncome).toBe(0.12);
   });
 
   it('accepts a savings report with no rate and no known income', () => {
@@ -708,13 +711,13 @@ describe('API response contracts', () => {
       totals: {
         ...savingsContributionsPayload.totals,
         currentMonthlyRate: null,
-        savingsRateOfIncome: null,
+        investmentFundingRateOfIncome: null,
         incomeConsidered: null,
         incomeFromMonth: null,
       },
     });
 
-    expect(result.totals.savingsRateOfIncome).toBeNull();
+    expect(result.totals.investmentFundingRateOfIncome).toBeNull();
     expect(result.destinations[0].status).toBe('ended');
   });
 

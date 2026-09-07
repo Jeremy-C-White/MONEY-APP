@@ -14,6 +14,8 @@ function safeToSpend(overrides: Partial<SafeToSpend> = {}): SafeToSpend {
     cashBasis: 'available',
     cashOnHand: 4000,
     cashAccountCount: 1,
+    excludedCashAccountCount: 0,
+    unassignedCashAccountCount: 0,
     billsDue: 2180,
     pendingOutflow: 0,
     buffer: 250,

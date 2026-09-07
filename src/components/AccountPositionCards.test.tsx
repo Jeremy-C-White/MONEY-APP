@@ -59,10 +59,11 @@ describe('AccountPositionCards', () => {
       );
     });
 
-    expect(container.textContent).toContain('Cash in accounts');
+    expect(container.textContent).toContain('Checking and savings');
     expect(container.textContent).toContain('$2,500.00');
-    expect(container.textContent).toContain('Available now: $2,400.00');
-    expect(container.textContent).toContain('Connected position: $2,000.00');
+    expect(container.textContent).toContain('Available across connected deposit accounts: $2,400.00');
+    expect(container.textContent).toContain('Connected position');
+    expect(container.textContent).toContain('This is not net worth.');
     expect(container.textContent).toContain('Card balances owed');
     expect(container.textContent).toContain('$500.00');
     expect(container.textContent).toContain('Spending this month');
@@ -98,7 +99,7 @@ describe('AccountPositionCards', () => {
     });
 
     expect(container.textContent).toContain('Account balances will appear after your next successful sync.');
-    expect(container.textContent).toContain('Cash in accounts—');
+    expect(container.textContent).toContain('Checking and savings—');
     expect(container.textContent).toContain('Card balances owed—');
   });
 

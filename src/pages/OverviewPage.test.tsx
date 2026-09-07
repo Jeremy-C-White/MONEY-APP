@@ -115,6 +115,8 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       cashBasis: 'available',
       cashOnHand: 4000,
       cashAccountCount: 1,
+      excludedCashAccountCount: 0,
+      unassignedCashAccountCount: 0,
       billsDue: 1800,
       pendingOutflow: 0,
       buffer: 0,

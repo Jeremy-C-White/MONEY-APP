@@ -1,4 +1,5 @@
 import type { AccountBalanceRecord, AccountBalanceSummary } from './account-balances';
+import { deriveDefaultRole } from './account-roles';
 import { addDays, scheduleBills } from './cash-flow-forecast';
 import type { NormalizedTransaction } from './financial';
 import type { HouseholdPlan } from './household-plan';
@@ -18,6 +19,8 @@ export type SafeToSpendStatus = 'ready' | 'unavailable';
 
 export type SafeToSpendBlocker =
   | 'no_connected_cash'
+  | 'no_operating_cash'
+  | 'operating_account_unresolved'
   | 'missing_cash_balance'
   | 'stale_cash_balance'
   | 'connection_needs_attention'
@@ -41,7 +44,12 @@ export type SafeToSpend = {
   currency: string | null;
   cashBasis: 'available' | 'current' | null;
   cashOnHand: number | null;
+  /** Accounts included in the figure after role derivation. */
   cashAccountCount: number;
+  /** Deliberately non-operating depository accounts, such as savings. */
+  excludedCashAccountCount: number;
+  /** Depository accounts omitted because their role needs owner confirmation. */
+  unassignedCashAccountCount: number;
   billsDue: number | null;
   pendingOutflow: number | null;
   buffer: number;
@@ -90,6 +98,8 @@ function unavailable(input: {
   throughDate: string;
   currency: string | null;
   cashAccountCount: number;
+  excludedCashAccountCount: number;
+  unassignedCashAccountCount: number;
   buffer: number;
   blockers: SafeToSpendBlocker[];
   warning: string;
@@ -102,6 +112,8 @@ function unavailable(input: {
     cashBasis: null,
     cashOnHand: null,
     cashAccountCount: input.cashAccountCount,
+    excludedCashAccountCount: input.excludedCashAccountCount,
+    unassignedCashAccountCount: input.unassignedCashAccountCount,
     billsDue: null,
     pendingOutflow: null,
     buffer: input.buffer,
@@ -134,19 +146,37 @@ export function buildSafeToSpend(input: {
 
   const buffer = roundCurrency(Math.max(0, input.plan.safeToSpendBuffer));
   const throughDate = coverageThroughDate(input.asOfDate);
-  const currency = input.accountBalances.currency;
-  const cashAccounts = input.accountBalances.accounts.filter(
+  const connectedCashAccounts = input.accountBalances.accounts.filter(
     account => account.accountType === CASH_ACCOUNT_TYPE
   );
+  const accountsWithRoles = connectedCashAccounts.map(account => ({
+    account,
+    role: deriveDefaultRole(account.accountType, account.accountSubtype).role,
+  }));
+  const cashAccounts = accountsWithRoles
+    .filter(item => item.role === 'operating')
+    .map(item => item.account);
+  const unassignedCashAccounts = accountsWithRoles
+    .filter(item => item.role === 'unassigned')
+    .map(item => item.account);
+  const excludedCashAccounts = accountsWithRoles
+    .filter(item => item.role !== 'operating' && item.role !== 'unassigned')
+    .map(item => item.account);
+  const operatingCurrencies = new Set(cashAccounts.flatMap(account => (
+    account.isoCurrencyCode ? [account.isoCurrencyCode] : []
+  )));
+  const currency = operatingCurrencies.size === 1 ? [...operatingCurrencies][0] : null;
   const base = {
     asOfDate: input.asOfDate,
     throughDate,
     currency,
     cashAccountCount: cashAccounts.length,
+    excludedCashAccountCount: excludedCashAccounts.length,
+    unassignedCashAccountCount: unassignedCashAccounts.length,
     buffer,
   };
 
-  if (!cashAccounts.length) {
+  if (!connectedCashAccounts.length) {
     return unavailable({
       ...base,
       blockers: ['no_connected_cash'],
@@ -154,16 +184,25 @@ export function buildSafeToSpend(input: {
     });
   }
 
+  if (!cashAccounts.length) {
+    const unresolved = unassignedCashAccounts.length > 0;
+    return unavailable({
+      ...base,
+      blockers: [unresolved ? 'operating_account_unresolved' : 'no_operating_cash'],
+      warning: unresolved
+        ? 'No operating account can be identified yet. Review the connected cash accounts and confirm their roles.'
+        : 'No connected checking or payroll account is available for Safe to Spend.',
+    });
+  }
+
   // Mirrors how the balance summary picks a single reporting currency: mixing
   // currencies would make the total a number that means nothing.
-  const foreignCashAccounts = cashAccounts.filter(
-    account => account.isoCurrencyCode !== currency
-  );
-  if (currency === null || foreignCashAccounts.length) {
+  const operatingAccountMissingCurrency = cashAccounts.some(account => !account.isoCurrencyCode);
+  if (currency === null || operatingAccountMissingCurrency || operatingCurrencies.size !== 1) {
     return unavailable({
       ...base,
       blockers: ['mixed_currency'],
-      warning: 'Connected cash accounts report more than one currency, so they cannot be totalled.',
+      warning: 'Operating cash accounts report more than one currency, so they cannot be totalled.',
     });
   }
 
@@ -185,10 +224,10 @@ export function buildSafeToSpend(input: {
       ...base,
       blockers,
       warning: blockers.includes('connection_needs_attention')
-        ? 'A cash account needs to be reconnected before a safe-to-spend figure can be trusted.'
+        ? 'An operating cash account needs to be reconnected before a safe-to-spend figure can be trusted.'
         : blockers.includes('missing_cash_balance')
-          ? 'At least one cash account has not reported a balance yet.'
-          : 'Cash balances are older than a successful sync, so this figure is withheld.',
+          ? 'At least one operating cash account has not reported a balance yet.'
+          : 'Operating cash balances are older than a successful sync, so this figure is withheld.',
     });
   }
 
@@ -284,6 +323,8 @@ export function buildSafeToSpend(input: {
     cashBasis,
     cashOnHand,
     cashAccountCount: cashAccounts.length,
+    excludedCashAccountCount: excludedCashAccounts.length,
+    unassignedCashAccountCount: unassignedCashAccounts.length,
     billsDue,
     pendingOutflow,
     buffer,

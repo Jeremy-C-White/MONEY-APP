@@ -82,7 +82,7 @@ export type SavingsContributionsReport = {
     contributionCount: number;
     monthlyAverage: number;
     currentMonthlyRate: number | null;
-    savingsRateOfIncome: number | null;
+    investmentFundingRateOfIncome: number | null;
     incomeConsidered: number | null;
     incomeFromMonth: string | null;
   };
@@ -480,7 +480,7 @@ export function buildSavingsContributions(input: {
       monthlyAverage: activeMonths ? roundCurrency(totalContributed / activeMonths) : 0,
       currentMonthlyRate: currentRateTotal,
       // Null, never zero: an unknown savings rate must render as nothing.
-      savingsRateOfIncome: monthlyIncome && monthlyIncome > 0 && currentRateTotal != null
+      investmentFundingRateOfIncome: monthlyIncome && monthlyIncome > 0 && currentRateTotal != null
         ? Math.round((currentRateTotal / monthlyIncome) * 10_000) / 10_000
         : null,
       incomeConsidered,
@@ -489,6 +489,9 @@ export function buildSavingsContributions(input: {
   };
 }
 
+// The public route and Firestore collection intentionally retain their legacy
+// "savings" names. Renaming live storage would require a migration; the
+// response field and UI use the narrower investment-funding meaning instead.
 export const MAX_DESTINATION_NAME_LENGTH = 60;
 
 export class SavingsDestinationRequestError extends Error {

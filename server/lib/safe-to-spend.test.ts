@@ -329,16 +329,141 @@ describe('buildSafeToSpend', () => {
     expect(result.amount).toBe(4000);
   });
 
-  it('sums every connected cash account', () => {
+  it('excludes reserve balances from cash on hand', () => {
     const result = build({
       accountBalances: balances([
         account(),
-        account({ accountId: 'savings-1', accountName: 'Savings', current: 1200, available: 1200 }),
+        account({
+          accountId: 'savings-1',
+          accountName: 'Savings',
+          accountSubtype: 'savings',
+          current: 1200,
+          available: 1200,
+        }),
       ]),
     });
 
-    expect(result.cashAccountCount).toBe(2);
-    expect(result.cashOnHand).toBe(5200);
+    expect(result.cashAccountCount).toBe(1);
+    expect(result.excludedCashAccountCount).toBe(1);
+    expect(result.cashOnHand).toBe(4000);
+    expect(result.amount).toBe(4000);
+  });
+
+  it('does not move when a reserve balance changes', () => {
+    const buildWithReserve = (value: number) => build({
+      accountBalances: balances([
+        account(),
+        account({
+          accountId: 'savings-1',
+          accountName: 'Savings',
+          accountSubtype: 'savings',
+          current: value,
+          available: value,
+        }),
+      ]),
+    });
+
+    expect(buildWithReserve(1200).amount).toBe(buildWithReserve(50_000).amount);
+  });
+
+  it('does not move when a retirement balance changes', () => {
+    const buildWithRetirement = (value: number) => build({
+      accountBalances: balances([
+        account(),
+        account({
+          accountId: 'retirement-1',
+          accountName: '401k',
+          accountType: 'investment',
+          accountSubtype: '401k',
+          current: value,
+          available: null,
+        }),
+      ]),
+    });
+
+    expect(buildWithRetirement(10_000).amount).toBe(buildWithRetirement(500_000).amount);
+  });
+
+  it('moves when an operating balance changes', () => {
+    const starting = build().amount;
+    const changed = build({
+      accountBalances: balances([account({ current: 4750, available: 4750 })]),
+    }).amount;
+
+    expect(starting).toBe(4000);
+    expect(changed).toBe(4750);
+  });
+
+  it('surfaces unassigned cash separately without including it', () => {
+    const result = build({
+      accountBalances: balances([
+        account(),
+        account({
+          accountId: 'unknown-1',
+          accountName: 'Unclear cash account',
+          accountSubtype: '',
+          current: 900,
+          available: 900,
+        }),
+      ]),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.cashOnHand).toBe(4000);
+    expect(result.cashAccountCount).toBe(1);
+    expect(result.excludedCashAccountCount).toBe(0);
+    expect(result.unassignedCashAccountCount).toBe(1);
+  });
+
+  it('does not let a stale excluded reserve block operating cash', () => {
+    const result = build({
+      accountBalances: balances([
+        account(),
+        account({
+          accountId: 'savings-1',
+          accountName: 'Savings',
+          accountSubtype: 'savings',
+          current: 1200,
+          available: 1200,
+          balanceStatus: 'stale',
+        }),
+      ]),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.amount).toBe(4000);
+  });
+
+  it('withholds the figure when only an unresolved cash account exists', () => {
+    const result = build({
+      accountBalances: balances([account({ accountSubtype: '' })]),
+    });
+
+    expect(result.status).toBe('unavailable');
+    expect(result.amount).toBeNull();
+    expect(result.cashOnHand).toBeNull();
+    expect(result.unassignedCashAccountCount).toBe(1);
+    expect(result.blockers).toEqual(['operating_account_unresolved']);
+    expect(result.warning).toMatch(/confirm their roles/i);
+  });
+
+  it('requires confirmation before treating cash management as operating cash', () => {
+    const result = build({
+      accountBalances: balances([account({ accountSubtype: 'cash management' })]),
+    });
+
+    expect(result.status).toBe('unavailable');
+    expect(result.blockers).toEqual(['operating_account_unresolved']);
+  });
+
+  it('withholds the figure when connected cash contains only reserves', () => {
+    const result = build({
+      accountBalances: balances([account({ accountSubtype: 'savings' })]),
+    });
+
+    expect(result.status).toBe('unavailable');
+    expect(result.blockers).toEqual(['no_operating_cash']);
+    expect(result.excludedCashAccountCount).toBe(1);
   });
 
   it('withholds a figure when a cash balance is stale', () => {

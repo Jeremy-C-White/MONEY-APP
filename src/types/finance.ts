@@ -503,6 +503,8 @@ export type SafeToSpendStatus = 'ready' | 'unavailable';
 
 export type SafeToSpendBlocker =
   | 'no_connected_cash'
+  | 'no_operating_cash'
+  | 'operating_account_unresolved'
   | 'missing_cash_balance'
   | 'stale_cash_balance'
   | 'connection_needs_attention'
@@ -527,6 +529,8 @@ export interface SafeToSpend {
   cashBasis: 'available' | 'current' | null;
   cashOnHand: number | null;
   cashAccountCount: number;
+  excludedCashAccountCount: number;
+  unassignedCashAccountCount: number;
   billsDue: number | null;
   pendingOutflow: number | null;
   buffer: number;
@@ -654,7 +658,7 @@ export interface SavingsContributionsResponse {
     contributionCount: number;
     monthlyAverage: number;
     currentMonthlyRate: number | null;
-    savingsRateOfIncome: number | null;
+    investmentFundingRateOfIncome: number | null;
     incomeConsidered: number | null;
     incomeFromMonth: string | null;
   };

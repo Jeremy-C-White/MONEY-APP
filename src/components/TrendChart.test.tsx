@@ -46,7 +46,7 @@ describe('TrendChart', () => {
     });
 
     expect(container.getAttribute('role')).toBeNull();
-    expect(container.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('net cash flow');
+    expect(container.querySelector('[role="img"]')?.getAttribute('aria-label')).toContain('income minus spending');
     expect(container.textContent).toContain('August 2026');
     expect(container.textContent).toContain('$5,000.00');
     expect(container.textContent).toContain('$3,200.00');

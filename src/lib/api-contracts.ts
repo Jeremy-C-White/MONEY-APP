@@ -633,6 +633,8 @@ export function normalizeOverviewPayloads(
 
 const SAFE_TO_SPEND_BLOCKERS = [
   'no_connected_cash',
+  'no_operating_cash',
+  'operating_account_unresolved',
   'missing_cash_balance',
   'stale_cash_balance',
   'connection_needs_attention',
@@ -680,6 +682,8 @@ export function extractSafeToSpend(data: unknown): SafeToSpend {
     !['available', 'current', null].includes(record.cashBasis as 'available' | 'current' | null) ||
     !validNullableNumber(record.cashOnHand) ||
     typeof record.cashAccountCount !== 'number' ||
+    typeof record.excludedCashAccountCount !== 'number' ||
+    typeof record.unassignedCashAccountCount !== 'number' ||
     !validNullableNumber(record.billsDue) ||
     !validNullableNumber(record.pendingOutflow) ||
     typeof record.buffer !== 'number' ||
@@ -857,7 +861,7 @@ export function extractSavingsContributions(data: unknown): SavingsContributions
     typeof totals.contributionCount !== 'number' ||
     typeof totals.monthlyAverage !== 'number' ||
     !validNullableNumber(totals.currentMonthlyRate) ||
-    !validNullableNumber(totals.savingsRateOfIncome) ||
+    !validNullableNumber(totals.investmentFundingRateOfIncome) ||
     !validNullableNumber(totals.incomeConsidered) ||
     !validNullableString(totals.incomeFromMonth)
   ) {
