@@ -264,7 +264,7 @@ export function RecurringObligationsCard({
                     <span className="ml-1 text-xs font-normal text-slate-400">/ month</span>
                   </p>
                   <p className="mt-0.5 text-xs text-slate-500">
-                    {cadenceLabels[obligation.cadence]} · typical charge{' '}
+                    {obligation.amountBehavior === 'variable' ? 'Variable monthly utility' : cadenceLabels[obligation.cadence]} · typical charge{' '}
                     {formatCurrency(obligation.typicalCharge)}
                   </p>
                   {obligation.status === 'seasonal' && obligation.seasonStartMonth && obligation.seasonEndMonth && (

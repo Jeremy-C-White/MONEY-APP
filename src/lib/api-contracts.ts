@@ -8,6 +8,8 @@ import type {
   TrendPoint,
   AccountSummary,
   ConnectedAccount,
+  ConnectedAccountsResponse,
+  AccountRole,
   TransactionOverrideRecord,
   ClassificationRuleRecord,
   RecurringObligationsResponse,
@@ -180,6 +182,22 @@ export function extractVerificationResponse(
   if (!isRecord(record.reconciliation)) {
     throw new Error('Invalid dashboard verification response.');
   }
+  if (record.transferCoverage !== undefined) {
+    const coverage = record.transferCoverage;
+    if (
+      !isRecord(coverage) ||
+      ![
+        'totalInternalTransferRows', 'outgoingRows', 'incomingRows', 'matchedPairs',
+        'ambiguousOutgoingRows', 'unmatchedOutgoingRows', 'outgoingAmount',
+        'matchedOutgoingAmount',
+      ].every(field => typeof coverage[field] === 'number') ||
+      !validNullableNumber(coverage.rowCoverage) ||
+      !validNullableNumber(coverage.amountCoverage) ||
+      !['strong', 'partial', 'insufficient'].includes(String(coverage.readiness))
+    ) {
+      throw new Error('Invalid dashboard verification response.');
+    }
+  }
 
   return record as unknown as DashboardVerificationResponse;
 }
@@ -220,8 +238,13 @@ export function extractAccountsResponse(data: unknown): AccountSummary[] {
   return data as AccountSummary[];
 }
 
-export function extractConnectedAccountsResponse(data: unknown): ConnectedAccount[] {
-  if (!Array.isArray(data)) {
+const ACCOUNT_ROLES: AccountRole[] = [
+  'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
+];
+
+export function extractConnectedAccountsResponse(data: unknown): ConnectedAccountsResponse {
+  const response = requireRecord(data, 'connected accounts');
+  if (!Array.isArray(response.accounts) || !isRecord(response.summary)) {
     throw new Error('Invalid connected accounts response.');
   }
 
@@ -235,13 +258,40 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
     'health',
   ];
 
-  if (data.some(account => (
-    !isRecord(account) || requiredFields.some(field => typeof account[field] !== 'string')
+  if (response.accounts.some(account => (
+    !isRecord(account) ||
+    requiredFields.some(field => typeof account[field] !== 'string') ||
+    !ACCOUNT_ROLES.includes(account.role as AccountRole) ||
+    !['default', 'owner'].includes(String(account.roleSource)) ||
+    !ACCOUNT_ROLES.includes(account.defaultRole as AccountRole) ||
+    !(account.suggestedRole === null || ACCOUNT_ROLES.includes(account.suggestedRole as AccountRole)) ||
+    typeof account.requiresRoleConfirmation !== 'boolean' ||
+    !validNullableNumber(account.current) ||
+    !validNullableNumber(account.available) ||
+    !validNullableString(account.isoCurrencyCode) ||
+    !validNullableString(account.fetchedAt) ||
+    !['fresh', 'stale', 'missing'].includes(String(account.balanceStatus))
   ))) {
     throw new Error('Invalid connected accounts response.');
   }
 
-  return data as ConnectedAccount[];
+  const summary = response.summary;
+  if (!validNullableString(summary.currency) || !isRecord(summary.buckets)) {
+    throw new Error('Invalid connected accounts response.');
+  }
+  for (const role of ACCOUNT_ROLES) {
+    const bucket = summary.buckets[role];
+    if (
+      !isRecord(bucket) ||
+      typeof bucket.accountCount !== 'number' ||
+      typeof bucket.knownBalanceCount !== 'number' ||
+      !validNullableNumber(bucket.total)
+    ) {
+      throw new Error('Invalid connected accounts response.');
+    }
+  }
+
+  return response as unknown as ConnectedAccountsResponse;
 }
 
 function validNullableNumber(value: unknown): boolean {

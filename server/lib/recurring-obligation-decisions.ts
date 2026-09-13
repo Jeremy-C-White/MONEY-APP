@@ -1,5 +1,6 @@
 import type {
   LikelyRecurringObligation,
+  RecurringAmountBehavior,
   RecurringCadence,
   RecurringConfidence,
   RecurringObligationsReport,
@@ -28,6 +29,7 @@ export type StoredRecurringObligationDecision = RecurringObligationDecision & {
   category: string;
   cadence: RecurringCadence;
   confidence: RecurringConfidence;
+  amountBehavior: RecurringAmountBehavior;
   typicalCharge: number;
   detectedMonthlyAmount: number;
   occurrenceCount: number;
@@ -83,6 +85,10 @@ function isCadence(value: unknown): value is RecurringCadence {
 
 function isConfidence(value: unknown): value is RecurringConfidence {
   return value === 'high' || value === 'medium';
+}
+
+function isAmountBehavior(value: unknown): value is RecurringAmountBehavior {
+  return value === 'stable' || value === 'variable';
 }
 
 function parseMonth(value: unknown, field: string): number {
@@ -161,6 +167,7 @@ export function parseStoredRecurringDecision(
       category: value.category,
       cadence: value.cadence,
       confidence: value.confidence,
+      amountBehavior: isAmountBehavior(value.amountBehavior) ? value.amountBehavior : 'stable',
       typicalCharge: value.typicalCharge,
       detectedMonthlyAmount: value.detectedMonthlyAmount,
       occurrenceCount: value.occurrenceCount,
@@ -231,6 +238,7 @@ export function buildRecurringPlanningReport(
       category: decision.category,
       cadence: decision.cadence,
       confidence: decision.confidence,
+      amountBehavior: decision.amountBehavior,
       typicalCharge: decision.typicalCharge,
       estimatedMonthlyAmount: decision.detectedMonthlyAmount,
       occurrenceCount: decision.occurrenceCount,
@@ -316,6 +324,7 @@ export async function saveRecurringDecision(
     category: candidate.category,
     cadence: candidate.cadence,
     confidence: candidate.confidence,
+    amountBehavior: candidate.amountBehavior,
     typicalCharge: candidate.typicalCharge,
     detectedMonthlyAmount: candidate.estimatedMonthlyAmount,
     occurrenceCount: candidate.occurrenceCount,

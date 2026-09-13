@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 
 export type RecurringCadence = 'weekly' | 'biweekly' | 'monthly';
 export type RecurringConfidence = 'high' | 'medium';
+export type RecurringAmountBehavior = 'stable' | 'variable';
 
 export type LikelyRecurringObligation = {
   obligationId: string;
@@ -10,6 +11,7 @@ export type LikelyRecurringObligation = {
   category: string;
   cadence: RecurringCadence;
   confidence: RecurringConfidence;
+  amountBehavior: RecurringAmountBehavior;
   typicalCharge: number;
   estimatedMonthlyAmount: number;
   occurrenceCount: number;
@@ -104,6 +106,10 @@ function mostCommonCategory(transactions: NormalizedTransaction[]): string {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || 'UNCATEGORIZED';
 }
 
+function hasOwnerConfirmedUtilityIdentity(merchant: string): boolean {
+  return /^city of fountain inn\b/i.test(merchant.trim());
+}
+
 function findCadence(
   intervals: number[],
   occurrenceCount: number
@@ -146,6 +152,9 @@ function buildCandidate(
     daysSinceLastCharge > cadence.definition.recentWithinDays
   ) return null;
 
+  const category = hasOwnerConfirmedUtilityIdentity(candidate.merchant)
+    ? 'RENT_AND_UTILITIES'
+    : mostCommonCategory(transactions);
   const amounts = transactions
     .map(transaction => transaction.spendingAdjustment)
     .filter(amount => Number.isFinite(amount) && amount > 0);
@@ -162,11 +171,16 @@ function buildCandidate(
     Math.abs(amount - typicalCharge) <= amountTolerance
   )).length / amounts.length;
 
-  // Timing alone can make an often-visited retailer look recurring. Require
-  // reasonably stable charges before surfacing a merchant as an obligation.
-  if (relativeDeviation > 0.2 || stableAmountRatio < 0.6) return null;
+  const amountsAreStable = relativeDeviation <= 0.2 && stableAmountRatio >= 0.6;
+  const variableUtility = !amountsAreStable &&
+    cadence.definition.cadence === 'monthly' &&
+    category === 'RENT_AND_UTILITIES';
+  // Timing alone can make an often-visited retailer look recurring. Variable
+  // monthly utilities are the deliberate exception: their category and monthly
+  // timing establish the obligation even when usage changes the amount.
+  if (!amountsAreStable && !variableUtility) return null;
 
-  const confidence: RecurringConfidence = (
+  const confidence: RecurringConfidence = !variableUtility && (
     cadence.matchRatio >= 0.75 &&
     relativeDeviation <= 0.1 &&
     uniqueDates.length >= cadence.definition.minimumOccurrences + 1
@@ -175,9 +189,10 @@ function buildCandidate(
   return {
     obligationId: buildRecurringObligationId(candidate.merchant),
     merchant: candidate.merchant,
-    category: mostCommonCategory(transactions),
+    category,
     cadence: cadence.definition.cadence,
     confidence,
+    amountBehavior: variableUtility ? 'variable' : 'stable',
     typicalCharge: roundCurrency(typicalCharge),
     estimatedMonthlyAmount: roundCurrency(
       typicalCharge * cadence.definition.monthlyMultiplier

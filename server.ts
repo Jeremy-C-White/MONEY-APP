@@ -6,7 +6,6 @@ import { Configuration, PlaidApi, PlaidEnvironments } from "plaid";
 import { initializeApp, applicationDefault } from "firebase-admin/app";
 import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
 import { getAuth as getAdminAuth } from "firebase-admin/auth";
-import { google } from "googleapis";
 import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
@@ -15,6 +14,14 @@ import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTre
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
+import { buildAccountRoleView } from "./server/lib/account-role-view";
+import {
+  AccountRoleRequestError,
+  buildAccountRoleDocumentId,
+  parseAccountRoleInput,
+  parseStoredAccountRoleOverride,
+  type AccountRole,
+} from "./server/lib/account-roles";
 import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
 import {
@@ -44,6 +51,7 @@ import {
 import { buildHouseholdInsights } from "./server/lib/household-insights";
 import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
 import { buildSafeToSpend } from "./server/lib/safe-to-spend";
+import { analyzeTransferCoverage } from "./server/lib/transfer-coverage";
 import {
   HouseholdPlanRequestError,
   buildSpendingTargetProgress,
@@ -176,12 +184,19 @@ const getOauth2Client = () => {
     throw err;
   }
   const redirectUri = process.env.APP_URL ? `${process.env.APP_URL}/api/auth/google/callback` : 'http://localhost:3000/api/auth/google/callback';
-  return new google.auth.OAuth2(
+  return new OAuth2Client(
     clientId,
     clientSecret,
     redirectUri
   );
 };
+
+async function createGoogleSheetsClient(oauth2Client: OAuth2Client) {
+  const { google } = await import("googleapis");
+  // googleapis carries its own compatible google-auth-library copy, so its
+  // declaration identity can differ even though the OAuth client API matches.
+  return google.sheets({ version: 'v4', auth: oauth2Client as any });
+}
 
 const CURRENT_MIGRATION_VERSION = 2;
 
@@ -1487,7 +1502,7 @@ async function startServer() {
       try {
         const oauth2Client = getOauth2Client();
         oauth2Client.setCredentials({ refresh_token: refreshToken });
-        const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+        const sheets = await createGoogleSheetsClient(oauth2Client);
 
         const createWorkbook = async () => {
           const createRes = await withGoogleAuth(uid, () => sheets.spreadsheets.create({
@@ -1890,7 +1905,7 @@ async function fetchNormalizedTransactions(
 
     const oauth2Client = getOauth2Client();
     oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
-    const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+    const sheets = await createGoogleSheetsClient(oauth2Client);
 
     const fetchRows = () => sheets.spreadsheets.values.get({
       spreadsheetId: userData.spreadsheetId,
@@ -2004,7 +2019,7 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
 
   const oauth2Client = getOauth2Client();
   oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
-  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+  const sheets = await createGoogleSheetsClient(oauth2Client);
   
   const getRes = await withGoogleAuth(uid, () => sheets.spreadsheets.values.get({ 
     spreadsheetId: userData.spreadsheetId, 
@@ -2055,7 +2070,7 @@ async function getGoogleSheetsClientForUser(uid: string) {
 
   const oauth2Client = getOauth2Client();
   oauth2Client.setCredentials({ refresh_token: userData.google_refresh_token });
-  return google.sheets({ version: 'v4', auth: oauth2Client });
+  return createGoogleSheetsClient(oauth2Client);
 }
 
 async function readWalmartWorkbook(uid: string, spreadsheetId: string) {
@@ -2345,6 +2360,14 @@ async function loadAccountBalanceSummary(uid: string, now = new Date()) {
   }), now.toISOString());
 }
 
+async function loadAccountRoleOverrides(uid: string): Promise<Map<string, AccountRole>> {
+  const snapshot = await db.collection('users').doc(uid).collection('account_roles').get();
+  return new Map(snapshot.docs.flatMap(document => {
+    const parsed = parseStoredAccountRoleOverride(document.data());
+    return parsed ? [[parsed.accountId, parsed.role] as const] : [];
+  }));
+}
+
 app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const validRanges = ['6m', '12m', 'ytd'];
@@ -2354,9 +2377,14 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
     }
 
     const uid = (req as any).user.uid;
-    const [{ txs, recurringObligations, householdPlan, financeTz, now }, accountBalances] = await Promise.all([
+    const [
+      { txs, recurringObligations, householdPlan, financeTz, now },
+      accountBalances,
+      accountRoleOverrides,
+    ] = await Promise.all([
       loadRecurringPlanning(uid),
       loadAccountBalanceSummary(uid),
+      loadAccountRoleOverrides(uid),
     ]);
     const verification = buildVerificationReport(txs, financeTz);
     const asOfDate = getDateForDateInTimezone(now, financeTz);
@@ -2396,6 +2424,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
         transactions: txs,
         recurringObligations: recurringObligations.obligations,
         accountBalances,
+        accountRoleOverrides,
         plan: householdPlan,
         asOfDate,
       }),
@@ -2588,7 +2617,7 @@ app.get("/api/dashboard/verification", requireAuth, async (req: express.Request,
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
     const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
     const report = buildVerificationReport(txs, financeTz);
-    res.json(report);
+    res.json({ ...report, transferCoverage: analyzeTransferCoverage(txs) });
   } catch (error: any) {
     console.error("Verification Report Error:", error);
     res.status(500).json({ error: error.message });
@@ -2708,20 +2737,64 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
 app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;
-    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    const accounts = buildConnectedAccounts(plaidItemsSnap.docs.map(doc => {
+    const [plaidItemsSnap, overrides] = await Promise.all([
+      db.collection("plaid_items").where("userId", "==", uid).get(),
+      loadAccountRoleOverrides(uid),
+    ]);
+    const itemRecords = plaidItemsSnap.docs.map(doc => {
       const item = doc.data();
       return {
+        itemId: doc.id,
         institutionName: item.institution_name,
         health: normalizeItemHealth(item),
-        accounts: item.accounts
+        accounts: item.accounts,
+        balanceSnapshot: item.balance_snapshot,
       };
-    }));
+    });
+    const accounts = buildConnectedAccounts(itemRecords);
+    const balances = buildAccountBalanceSummary(itemRecords, new Date().toISOString());
 
-    res.json(accounts);
+    res.json(buildAccountRoleView({
+      connectedAccounts: accounts,
+      balanceAccounts: balances.accounts,
+      overrides,
+    }));
   } catch (error: any) {
     console.error("Connected Accounts Error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/account-roles/:accountId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const accountId = String(req.params.accountId || '').trim();
+    if (!accountId || accountId.length > 200) {
+      return res.status(400).json({ error: 'A valid account is required.' });
+    }
+    const role = parseAccountRoleInput(req.body?.role);
+    const plaidItemsSnap = await db.collection('plaid_items').where('userId', '==', uid).get();
+    const accountExists = plaidItemsSnap.docs.some(document => {
+      const accounts = document.data().accounts;
+      return Array.isArray(accounts) && accounts.some(account => account?.id === accountId);
+    });
+    if (!accountExists) return res.status(404).json({ error: 'Account not found.' });
+
+    const roleRef = db.collection('users').doc(uid)
+      .collection('account_roles').doc(buildAccountRoleDocumentId(accountId));
+    if (role === null) {
+      await roleRef.delete();
+    } else {
+      await roleRef.set({ accountId, role, updatedAt: FieldValue.serverTimestamp() });
+    }
+    dashboardCache.invalidate(uid);
+    res.json({ accountId, role });
+  } catch (error: any) {
+    if (error instanceof AccountRoleRequestError) {
+      return res.status(400).json({ error: error.message });
+    }
+    console.error("Account Role Error:", error);
+    res.status(500).json({ error: 'Unable to save the account role.' });
   }
 });
 

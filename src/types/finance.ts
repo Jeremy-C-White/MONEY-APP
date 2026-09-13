@@ -119,6 +119,7 @@ export interface LikelyRecurringObligation {
   category: string;
   cadence: RecurringCadence;
   confidence: RecurringConfidence;
+  amountBehavior: 'stable' | 'variable';
   typicalCharge: number;
   estimatedMonthlyAmount: number;
   occurrenceCount: number;
@@ -268,6 +269,19 @@ export interface DashboardVerificationResponse {
   merchants: DashboardMerchant[];
   trends: TrendPoint[];
   reconciliation: DashboardVerificationReconciliation;
+  transferCoverage?: {
+    totalInternalTransferRows: number;
+    outgoingRows: number;
+    incomingRows: number;
+    matchedPairs: number;
+    ambiguousOutgoingRows: number;
+    unmatchedOutgoingRows: number;
+    outgoingAmount: number;
+    matchedOutgoingAmount: number;
+    rowCoverage: number | null;
+    amountCoverage: number | null;
+    readiness: 'strong' | 'partial' | 'insufficient';
+  };
 }
 
 export interface Transaction {
@@ -355,7 +369,41 @@ export interface AccountSummary {
   health: string;
 }
 
-export type ConnectedAccount = AccountSummary;
+export type AccountRole =
+  | 'operating'
+  | 'reserve'
+  | 'retirement'
+  | 'investment'
+  | 'health_savings'
+  | 'debt'
+  | 'unassigned';
+
+export interface ConnectedAccount extends AccountSummary {
+  role: AccountRole;
+  roleSource: 'default' | 'owner';
+  defaultRole: AccountRole;
+  suggestedRole: AccountRole | null;
+  requiresRoleConfirmation: boolean;
+  current: number | null;
+  available: number | null;
+  isoCurrencyCode: string | null;
+  fetchedAt: string | null;
+  balanceStatus: 'fresh' | 'stale' | 'missing';
+}
+
+export interface AccountRoleBucket {
+  accountCount: number;
+  knownBalanceCount: number;
+  total: number | null;
+}
+
+export interface ConnectedAccountsResponse {
+  accounts: ConnectedAccount[];
+  summary: {
+    currency: string | null;
+    buckets: Record<AccountRole, AccountRoleBucket>;
+  };
+}
 
 export type AccountBalanceStatus = 'fresh' | 'stale' | 'missing';
 

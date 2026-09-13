@@ -119,6 +119,7 @@ interface ParsedItem {
 interface CleanedItem extends ParsedItem {
   copies: number;
   fuel: boolean;
+  productIdentity: string;
 }
 
 const REQUIRED_ORDER_HEADERS = [
@@ -290,10 +291,17 @@ function normalizedProductName(productName: string): string {
     .replace(/\bgallons?\b/g, 'gal')
     .replace(/\bounces?\b/g, 'oz')
     .replace(/\bfluid\s+oz\b/g, 'fl oz')
+    .replace(/([a-z])(\d)/g, '$1 $2')
+    .replace(/(\d)([a-z])/g, '$1 $2')
     .replace(/[^a-z0-9]+/g, ' ')
     .trim()
     .replace(/\s+/g, ' ');
-  return normalized.split(' ').sort().join(' ');
+  const tokens = normalized.split(' ');
+  const words = tokens.filter(token => /^[a-z]+$/.test(token)).sort();
+  let wordIndex = 0;
+  return tokens.map(token => (
+    /^[a-z]+$/.test(token) ? words[wordIndex++] : token
+  )).join(' ');
 }
 
 export function getWalmartProductIdentity(productName: string, productUrl: string | null): string {
@@ -301,11 +309,35 @@ export function getWalmartProductIdentity(productName: string, productUrl: strin
   return productId ? `item:${productId}` : `name:${normalizedProductName(productName)}`;
 }
 
+type ProductIdentityInput = { productName: string; productUrl: string | null };
+
+export function buildWalmartProductIdentityResolver(items: readonly ProductIdentityInput[]) {
+  const idsByName = new Map<string, Set<string>>();
+  for (const item of items) {
+    const productId = walmartProductId(item.productUrl);
+    if (!productId) continue;
+    const name = normalizedProductName(item.productName);
+    const ids = idsByName.get(name) || new Set<string>();
+    ids.add(productId);
+    idsByName.set(name, ids);
+  }
+  return (item: ProductIdentityInput): string => {
+    const directId = walmartProductId(item.productUrl);
+    if (directId) return `item:${directId}`;
+    const name = normalizedProductName(item.productName);
+    const knownIds = idsByName.get(name);
+    return knownIds?.size === 1 ? `item:${[...knownIds][0]}` : `name:${name}`;
+  };
+}
+
 export function isFuelProduct(productName: string): boolean {
   return /\b(?:gasoline|unleaded|diesel)\b/i.test(productName);
 }
 
-function cleanItems(items: ParsedItem[]): {
+function cleanItems(
+  items: ParsedItem[],
+  resolveIdentity = buildWalmartProductIdentityResolver(items)
+): {
   items: CleanedItem[];
   canceledRows: number;
   statusDuplicateRows: number;
@@ -314,7 +346,7 @@ function cleanItems(items: ParsedItem[]): {
   for (const item of items) {
     const key = [
       item.orderNumber,
-      getWalmartProductIdentity(item.productName, item.productUrl),
+      resolveIdentity(item),
       item.quantity,
       item.price,
       item.orderType,
@@ -344,6 +376,7 @@ function cleanItems(items: ParsedItem[]): {
       ...active[0],
       copies,
       fuel: isFuelProduct(active[0].productName),
+      productIdentity: resolveIdentity(active[0]),
     });
   }
 
@@ -383,6 +416,7 @@ export function buildWalmartInsights(
   const endDate = now.toISOString().slice(0, 10);
   const { orders: allOrders, incomplete } = parseOrders(orderRows);
   const parsedItems = parseItems(itemRows);
+  const resolveProductIdentity = buildWalmartProductIdentityResolver(parsedItems);
 
   const inPeriod = (date: string) => (!startDate || date >= startDate) && date <= endDate;
   const datedOrders = allOrders.filter(order => inPeriod(order.date));
@@ -394,7 +428,7 @@ export function buildWalmartInsights(
     items: cleanedItems,
     canceledRows,
     statusDuplicateRows,
-  } = cleanItems(parsedItems.filter(item => inPeriod(item.date)));
+  } = cleanItems(parsedItems.filter(item => inPeriod(item.date)), resolveProductIdentity);
   const items = cleanedItems.filter(item => orderNumbers.has(item.orderNumber));
   const itemsByOrder = new Map<string, CleanedItem[]>();
   for (const item of items) {
@@ -434,7 +468,7 @@ export function buildWalmartInsights(
     lastPurchased: string;
   }>();
   for (const item of items.filter(candidate => !candidate.fuel)) {
-    const key = getWalmartProductIdentity(item.productName, item.productUrl);
+    const key = item.productIdentity;
     const aggregate = itemAggregates.get(key) || {
       name: item.productName,
       productUrl: item.productUrl,
@@ -478,7 +512,7 @@ export function buildWalmartInsights(
     }>;
   }>();
   for (const item of items.filter(candidate => !candidate.fuel && candidate.price > 0 && candidate.quantity > 0)) {
-    const key = getWalmartProductIdentity(item.productName, item.productUrl);
+    const key = item.productIdentity;
     const product = priceProducts.get(key) || {
       name: item.productName,
       productUrl: item.productUrl,

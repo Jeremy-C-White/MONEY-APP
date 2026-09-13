@@ -74,6 +74,7 @@ describe('detectLikelyRecurringObligations', () => {
       merchant: 'Verizon',
       cadence: 'monthly',
       confidence: 'high',
+      amountBehavior: 'stable',
       typicalCharge: 120,
       estimatedMonthlyAmount: 120,
       occurrenceCount: 5,
@@ -110,6 +111,31 @@ describe('detectLikelyRecurringObligations', () => {
     ));
 
     expect(detectLikelyRecurringObligations(transactions).obligations).toEqual([]);
+  });
+
+  it('detects City of Fountain Inn as a variable monthly utility', () => {
+    const amounts = [42.18, 97.44, 61.03, 135.27, 54.88];
+    const transactions = amounts.map((amount, index) => (
+      spendingTransaction(
+        `gas-${index}`,
+        'City Of Fountain Inn',
+        ['2026-04-08', '2026-05-09', '2026-06-08', '2026-07-10', '2026-08-08'][index],
+        amount,
+        { normalizedCategory: 'GOVERNMENT_AND_NON_PROFIT' }
+      )
+    ));
+    transactions.push(spendingTransaction('latest', 'Grocer', '2026-09-01', 10));
+
+    const result = detectLikelyRecurringObligations(transactions).obligations[0];
+    expect(result).toMatchObject({
+      merchant: 'City Of Fountain Inn',
+      category: 'RENT_AND_UTILITIES',
+      cadence: 'monthly',
+      amountBehavior: 'variable',
+      confidence: 'medium',
+      typicalCharge: 61.03,
+      estimatedMonthlyAmount: 61.03,
+    });
   });
 
   it('excludes transfers, pending rows, removed rows, and refunds', () => {

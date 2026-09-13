@@ -107,6 +107,7 @@ const recurringObligationsPayload = {
     category: 'RENT_AND_UTILITIES',
     cadence: 'monthly' as const,
     confidence: 'high' as const,
+    amountBehavior: 'stable' as const,
     typicalCharge: 120,
     estimatedMonthlyAmount: 120,
     occurrenceCount: 5,
@@ -917,18 +918,42 @@ describe('extractConnectedAccountsResponse', () => {
     accountType: 'depository',
     accountSubtype: 'checking',
     health: 'healthy',
+    role: 'operating',
+    roleSource: 'default',
+    defaultRole: 'operating',
+    suggestedRole: null,
+    requiresRoleConfirmation: false,
+    current: 1000,
+    available: 900,
+    isoCurrencyCode: 'USD',
+    fetchedAt: '2026-09-07T12:00:00.000Z',
+    balanceStatus: 'fresh',
   };
 
-  it('accepts the connected-account top-level array contract', () => {
-    expect(extractConnectedAccountsResponse([connectedAccount])).toEqual([connectedAccount]);
-    expect(extractConnectedAccountsResponse([])).toEqual([]);
+  const buckets = Object.fromEntries([
+    'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
+  ].map(role => [role, {
+    accountCount: role === 'operating' ? 1 : 0,
+    knownBalanceCount: role === 'operating' ? 1 : 0,
+    total: role === 'operating' ? 1000 : null,
+  }]));
+
+  it('accepts the role-aware connected-account contract', () => {
+    const response = { accounts: [connectedAccount], summary: { currency: 'USD', buckets } };
+    expect(extractConnectedAccountsResponse(response)).toEqual(response);
   });
 
-  it('rejects wrappers and malformed account records', () => {
+  it('rejects legacy arrays and malformed account records', () => {
+    expect(() => extractConnectedAccountsResponse([connectedAccount])).toThrow(
+      'Invalid connected accounts response.'
+    );
     expect(() => extractConnectedAccountsResponse({ accounts: [] })).toThrow(
       'Invalid connected accounts response.'
     );
-    expect(() => extractConnectedAccountsResponse([{ ...connectedAccount, accountName: null }])).toThrow(
+    expect(() => extractConnectedAccountsResponse({
+      accounts: [{ ...connectedAccount, accountName: null }],
+      summary: { currency: 'USD', buckets },
+    })).toThrow(
       'Invalid connected accounts response.'
     );
   });

@@ -8,7 +8,8 @@ import {
   WalletCards,
 } from 'lucide-react';
 import { extractConnectedAccountsResponse } from '../lib/api-contracts';
-import type { ConnectedAccount } from '../types/finance';
+import { formatCurrency } from '../lib/formatters';
+import type { AccountRole, ConnectedAccount, ConnectedAccountsResponse } from '../types/finance';
 
 export const NEEDS_ATTENTION = new Set([
   'login_required',
@@ -24,6 +25,20 @@ const FILTERS: Array<{ id: AccountFilter; label: string }> = [
   { id: 'connected', label: 'Connected' },
   { id: 'attention', label: 'Needs Attention' },
   { id: 'disconnected', label: 'Disconnected' },
+];
+
+const ROLE_LABELS: Record<AccountRole, string> = {
+  operating: 'Operating',
+  reserve: 'Reserve',
+  retirement: 'Retirement',
+  investment: 'Investment',
+  health_savings: 'Health savings',
+  debt: 'Debt',
+  unassigned: 'Unassigned',
+};
+
+const OWNER_ROLE_OPTIONS: AccountRole[] = [
+  'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
 ];
 
 const TYPE_LABELS: Record<string, string> = {
@@ -125,6 +140,13 @@ function sortAccounts(a: ConnectedAccount, b: ConnectedAccount): number {
   return a.accountMask.localeCompare(b.accountMask);
 }
 
+function describeBalanceFreshness(account: ConnectedAccount): string {
+  if (account.balanceStatus === 'missing' || !account.fetchedAt) return 'Balance not reported';
+  const date = new Date(account.fetchedAt);
+  const when = Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString();
+  return account.balanceStatus === 'fresh' ? `Updated ${when}` : `Stale · last updated ${when}`;
+}
+
 function LoadingState() {
   return (
     <div aria-label="Loading accounts" className="space-y-6 animate-pulse">
@@ -153,10 +175,13 @@ export function AccountsPage({
   setActiveTab: (tab: string) => void;
 }) {
   const [accounts, setAccounts] = useState<ConnectedAccount[] | null>(null);
+  const [roleSummary, setRoleSummary] = useState<ConnectedAccountsResponse['summary'] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [filter, setFilter] = useState<AccountFilter>('all');
+  const [savingRoleFor, setSavingRoleFor] = useState<string | null>(null);
+  const [roleError, setRoleError] = useState<string | null>(null);
   const accountsRef = useRef<ConnectedAccount[] | null>(null);
 
   const loadAccounts = async () => {
@@ -175,8 +200,9 @@ export function AccountsPage({
       }
 
       const parsed = extractConnectedAccountsResponse(await response.json());
-      accountsRef.current = parsed;
-      setAccounts(parsed);
+      accountsRef.current = parsed.accounts;
+      setAccounts(parsed.accounts);
+      setRoleSummary(parsed.summary);
       setError(null);
     } catch (err: unknown) {
       if (hasPreviousData) {
@@ -186,6 +212,26 @@ export function AccountsPage({
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveRole = async (account: ConnectedAccount, value: string) => {
+    setSavingRoleFor(account.accountId);
+    setRoleError(null);
+    try {
+      const response = await apiFetch(`/api/account-roles/${encodeURIComponent(account.accountId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ role: value === 'automatic' ? null : value }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Unable to save this account role.');
+      }
+      await loadAccounts();
+    } catch (err: unknown) {
+      setRoleError(err instanceof Error ? err.message : 'Unable to save this account role.');
+    } finally {
+      setSavingRoleFor(null);
     }
   };
 
@@ -321,6 +367,12 @@ export function AccountsPage({
         </div>
       )}
 
+      {roleError && (
+        <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">
+          {roleError}
+        </div>
+      )}
+
       <section aria-label="Account summary" className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
         <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
           <p className="text-[11px] sm:text-sm font-medium text-slate-500 leading-tight">Known accounts</p>
@@ -341,6 +393,42 @@ export function AccountsPage({
           </p>
         </div>
       </section>
+
+      {roleSummary && (
+        <section aria-label="Money by purpose" className="mb-7">
+          <div className="mb-3 px-1">
+            <h2 className="font-bold text-slate-900">Money by purpose</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Retirement and investment balances are reference information and never enter Safe to Spend.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+            {(['operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt'] as AccountRole[])
+              .map(role => {
+                const bucket = roleSummary.buckets[role];
+                return (
+                  <div key={role} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+                    <p className="truncate text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      {ROLE_LABELS[role]}
+                    </p>
+                    <p className="mt-1 truncate text-lg font-bold text-slate-900">
+                      {formatCurrency(bucket.total)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {bucket.knownBalanceCount}/{bucket.accountCount} balances
+                    </p>
+                  </div>
+                );
+              })}
+          </div>
+          {roleSummary.buckets.unassigned.accountCount > 0 && (
+            <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              {roleSummary.buckets.unassigned.accountCount}{' '}
+              {roleSummary.buckets.unassigned.accountCount === 1 ? 'account needs' : 'accounts need'} a confirmed purpose.
+            </p>
+          )}
+        </section>
+      )}
 
       <div
         role="group"
@@ -438,6 +526,46 @@ export function AccountsPage({
                         <span className="font-mono text-slate-500 whitespace-nowrap">
                           {account.accountMask ? `••••${account.accountMask}` : 'Number unavailable'}
                         </span>
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs font-medium text-slate-500">
+                            {account.role === 'retirement' ? 'Reference balance' : 'Current balance'}
+                          </p>
+                          <p className="mt-1 text-lg font-bold text-slate-900">
+                            {formatCurrency(account.current)}
+                          </p>
+                          <p className={`mt-1 text-xs ${account.balanceStatus === 'stale' ? 'font-medium text-amber-700' : 'text-slate-500'}`}>
+                            {describeBalanceFreshness(account)}
+                          </p>
+                        </div>
+                        <label className="block text-xs font-medium text-slate-600">
+                          Purpose
+                          <select
+                            aria-label={`Purpose for ${account.accountName}`}
+                            value={account.roleSource === 'owner' ? account.role : 'automatic'}
+                            disabled={savingRoleFor === account.accountId}
+                            onChange={event => void saveRole(account, event.target.value)}
+                            className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
+                          >
+                            <option value="automatic">
+                              {account.requiresRoleConfirmation
+                                ? `Needs confirmation${account.suggestedRole ? ` · suggest ${ROLE_LABELS[account.suggestedRole]}` : ''}`
+                                : `Automatic · ${ROLE_LABELS[account.defaultRole]}`}
+                            </option>
+                            {OWNER_ROLE_OPTIONS.map(role => (
+                              <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                            ))}
+                          </select>
+                          <span className="mt-1 block text-[11px] text-slate-400">
+                            {savingRoleFor === account.accountId
+                              ? 'Saving…'
+                              : account.roleSource === 'owner'
+                                ? 'You assigned this purpose.'
+                                : 'Assigned from the account subtype.'}
+                          </span>
+                        </label>
                       </div>
 
                       {isAttention && (

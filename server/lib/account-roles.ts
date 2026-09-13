@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 export type AccountRole =
   | 'operating'
   | 'reserve'
@@ -26,6 +28,28 @@ export type DefaultAccountRole = {
   requiresConfirmation: boolean;
   reason: AccountRoleReason;
 };
+
+export type AccountRoleSource = 'default' | 'owner';
+
+export type ResolvedAccountRole = DefaultAccountRole & {
+  source: AccountRoleSource;
+  defaultRole: AccountRole;
+};
+
+export type StoredAccountRoleOverride = {
+  accountId: string;
+  role: AccountRole;
+};
+
+export const ACCOUNT_ROLES: readonly AccountRole[] = [
+  'operating',
+  'reserve',
+  'retirement',
+  'investment',
+  'health_savings',
+  'debt',
+  'unassigned',
+];
 
 const RETIREMENT_SUBTYPES = new Set([
   '401a',
@@ -156,4 +180,54 @@ export function deriveDefaultRole(
     requiresConfirmation: true,
     reason: 'unknown_account',
   };
+}
+
+export function isAccountRole(value: unknown): value is AccountRole {
+  return typeof value === 'string' && ACCOUNT_ROLES.includes(value as AccountRole);
+}
+
+export function parseStoredAccountRoleOverride(value: unknown): StoredAccountRoleOverride | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.accountId !== 'string' || !record.accountId.trim() || !isAccountRole(record.role)) {
+    return null;
+  }
+  return { accountId: record.accountId.trim(), role: record.role };
+}
+
+export function resolveAccountRole(
+  accountType: string | null | undefined,
+  accountSubtype: string | null | undefined,
+  ownerRole?: AccountRole | null
+): ResolvedAccountRole {
+  const derived = deriveDefaultRole(accountType, accountSubtype);
+  if (ownerRole && isAccountRole(ownerRole)) {
+    return {
+      role: ownerRole,
+      source: 'owner',
+      defaultRole: derived.role,
+      suggestedRole: derived.suggestedRole,
+      requiresConfirmation: false,
+      reason: derived.reason,
+    };
+  }
+  return {
+    ...derived,
+    source: 'default',
+    defaultRole: derived.role,
+  };
+}
+
+export function buildAccountRoleDocumentId(accountId: string): string {
+  return createHash('sha256').update(accountId).digest('hex').slice(0, 24);
+}
+
+export class AccountRoleRequestError extends Error {}
+
+export function parseAccountRoleInput(value: unknown): AccountRole | null {
+  if (value === null) return null;
+  if (!isAccountRole(value)) {
+    throw new AccountRoleRequestError('Choose a valid account role or restore the automatic role.');
+  }
+  return value;
 }

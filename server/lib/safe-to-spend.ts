@@ -1,5 +1,5 @@
 import type { AccountBalanceRecord, AccountBalanceSummary } from './account-balances';
-import { deriveDefaultRole } from './account-roles';
+import { resolveAccountRole, type AccountRole } from './account-roles';
 import { addDays, scheduleBills } from './cash-flow-forecast';
 import type { NormalizedTransaction } from './financial';
 import type { HouseholdPlan } from './household-plan';
@@ -137,6 +137,7 @@ export function buildSafeToSpend(input: {
   transactions: NormalizedTransaction[];
   recurringObligations: ReviewedRecurringObligation[];
   accountBalances: AccountBalanceSummary;
+  accountRoleOverrides?: ReadonlyMap<string, AccountRole>;
   plan: HouseholdPlan;
   asOfDate: string;
 }): SafeToSpend {
@@ -151,7 +152,11 @@ export function buildSafeToSpend(input: {
   );
   const accountsWithRoles = connectedCashAccounts.map(account => ({
     account,
-    role: deriveDefaultRole(account.accountType, account.accountSubtype).role,
+    role: resolveAccountRole(
+      account.accountType,
+      account.accountSubtype,
+      input.accountRoleOverrides?.get(account.accountId)
+    ).role,
   }));
   const cashAccounts = accountsWithRoles
     .filter(item => item.role === 'operating')

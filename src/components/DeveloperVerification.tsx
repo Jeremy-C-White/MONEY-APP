@@ -154,9 +154,31 @@ export function DeveloperVerification({ user }: { user: any }) {
             )}
           </section>
 
+          {data.transferCoverage && (
+            <section>
+              <h3 className="font-bold text-lg mb-2 text-slate-800">3. Reserve Transfer Coverage</h3>
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-4 font-mono text-xs text-slate-700">
+                <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                  <div>Outgoing rows: {data.transferCoverage.outgoingRows}</div>
+                  <div>Visible inbound rows: {data.transferCoverage.incomingRows}</div>
+                  <div>Matched pairs: {data.transferCoverage.matchedPairs}</div>
+                  <div>Ambiguous: {data.transferCoverage.ambiguousOutgoingRows}</div>
+                  <div>Unmatched: {data.transferCoverage.unmatchedOutgoingRows}</div>
+                  <div>Row coverage: {data.transferCoverage.rowCoverage == null ? 'N/A' : `${(data.transferCoverage.rowCoverage * 100).toFixed(1)}%`}</div>
+                  <div>Amount coverage: {data.transferCoverage.amountCoverage == null ? 'N/A' : `${(data.transferCoverage.amountCoverage * 100).toFixed(1)}%`}</div>
+                  <div className="font-bold uppercase">Readiness: {data.transferCoverage.readiness}</div>
+                </div>
+                <p className="mt-3 border-t border-slate-200 pt-3 font-sans text-xs leading-relaxed text-slate-500">
+                  Exact opposite amounts are paired across different connected accounts within three days.
+                  Collisions remain ambiguous. Build reserve-contribution UI only if this coverage is useful.
+                </p>
+              </div>
+            </section>
+          )}
+
           <div className="grid md:grid-cols-2 gap-8">
             <section>
-              <h3 className="font-bold text-lg mb-2 text-slate-800">3. Top Categories (Net)</h3>
+              <h3 className="font-bold text-lg mb-2 text-slate-800">4. Top Categories (Net)</h3>
               <div className="bg-slate-50 rounded-lg p-1">
                 <table className="w-full text-left font-mono text-xs">
                   <thead>
@@ -180,7 +202,7 @@ export function DeveloperVerification({ user }: { user: any }) {
             </section>
 
             <section>
-              <h3 className="font-bold text-lg mb-2 text-slate-800">4. Top Merchants</h3>
+              <h3 className="font-bold text-lg mb-2 text-slate-800">5. Top Merchants</h3>
               <div className="bg-slate-50 rounded-lg p-1">
                 <table className="w-full text-left font-mono text-xs">
                   <thead>
@@ -205,7 +227,7 @@ export function DeveloperVerification({ user }: { user: any }) {
           </div>
 
           <section>
-            <h3 className="font-bold text-lg mb-2 text-slate-800">5. Monthly Trends (Civil Date)</h3>
+            <h3 className="font-bold text-lg mb-2 text-slate-800">6. Monthly Trends (Civil Date)</h3>
             <div className="flex gap-4 overflow-x-auto pb-4">
               {data.trends.map((t: any) => (
                 <div key={t.month} className="min-w-[140px] p-4 bg-slate-50 rounded-xl font-mono text-xs text-center border border-slate-100 shadow-sm">

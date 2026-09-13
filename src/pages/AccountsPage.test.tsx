@@ -6,6 +6,19 @@ import { AppShell } from '../components/AppShell';
 import { AccountsPage } from './AccountsPage';
 import type { ConnectedAccount } from '../types/finance';
 
+const roleFields = {
+  role: 'operating' as const,
+  roleSource: 'default' as const,
+  defaultRole: 'operating' as const,
+  suggestedRole: null,
+  requiresRoleConfirmation: false,
+  current: 1200,
+  available: 1100,
+  isoCurrencyCode: 'USD',
+  fetchedAt: '2026-09-07T12:00:00.000Z',
+  balanceStatus: 'fresh' as const,
+};
+
 const connectedAccounts: ConnectedAccount[] = [
   {
     accountId: 'healthy-1',
@@ -15,6 +28,7 @@ const connectedAccounts: ConnectedAccount[] = [
     accountType: 'depository',
     accountSubtype: 'checking',
     health: 'healthy',
+    ...roleFields,
   },
   {
     accountId: 'attention-1',
@@ -24,6 +38,10 @@ const connectedAccounts: ConnectedAccount[] = [
     accountType: 'credit',
     accountSubtype: 'credit card',
     health: 'login_required',
+    ...roleFields,
+    role: 'debt',
+    defaultRole: 'debt',
+    current: 500,
   },
   {
     accountId: 'pending-1',
@@ -33,6 +51,11 @@ const connectedAccounts: ConnectedAccount[] = [
     accountType: 'depository',
     accountSubtype: 'savings',
     health: 'pending_disconnect',
+    ...roleFields,
+    role: 'reserve',
+    defaultRole: 'reserve',
+    current: 5000,
+    available: 5000,
   },
   {
     accountId: 'disconnected-1',
@@ -42,8 +65,30 @@ const connectedAccounts: ConnectedAccount[] = [
     accountType: 'depository',
     accountSubtype: 'checking',
     health: 'disconnected',
+    ...roleFields,
+    current: null,
+    available: null,
+    isoCurrencyCode: null,
+    fetchedAt: null,
+    balanceStatus: 'missing',
   },
 ];
+
+const connectedAccountsResponse = {
+  accounts: connectedAccounts,
+  summary: {
+    currency: 'USD',
+    buckets: {
+      operating: { accountCount: 2, knownBalanceCount: 1, total: 1200 },
+      reserve: { accountCount: 1, knownBalanceCount: 1, total: 5000 },
+      retirement: { accountCount: 0, knownBalanceCount: 0, total: null },
+      investment: { accountCount: 0, knownBalanceCount: 0, total: null },
+      health_savings: { accountCount: 0, knownBalanceCount: 0, total: null },
+      debt: { accountCount: 1, knownBalanceCount: 1, total: 500 },
+      unassigned: { accountCount: 0, knownBalanceCount: 0, total: null },
+    },
+  },
+};
 
 function apiResponse(data: unknown, ok = true): Response {
   return {
@@ -70,7 +115,7 @@ describe('AccountsPage', () => {
   });
 
   async function renderAccounts(
-    data: unknown = connectedAccounts,
+    data: unknown = connectedAccountsResponse,
     setActiveTab = vi.fn()
   ) {
     const apiFetch = vi.fn(async () => apiResponse(data));
@@ -88,7 +133,7 @@ describe('AccountsPage', () => {
     return { apiFetch, setActiveTab };
   }
 
-  it('renders account identity, institution, mask, type, subtype, and health without balances', async () => {
+  it('renders account identity, health, roles, balances, and freshness', async () => {
     const { apiFetch } = await renderAccounts();
 
     await vi.waitFor(() => {
@@ -104,6 +149,9 @@ describe('AccountsPage', () => {
     expect(container.textContent).toContain('Action needed soon');
     expect(container.textContent).toContain('Disconnected');
     expect(container.textContent).toContain('Old Checking');
+    expect(container.textContent).toContain('Money by purpose');
+    expect(container.textContent).toContain('$1,200.00');
+    expect(container.textContent).toContain('Updated');
 
     expect(container.querySelector('[data-testid="known-accounts-count"]')?.textContent).toBe('4');
     expect(container.querySelector('[data-testid="institutions-count"]')?.textContent).toBe('3');
@@ -111,12 +159,20 @@ describe('AccountsPage', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/api/connected-accounts');
     expect(apiFetch).not.toHaveBeenCalledWith('/api/accounts');
-    expect(container.textContent).not.toMatch(/Current balance|Available balance|Credit limit|Net worth|\$/i);
+    expect(container.textContent).not.toContain('Net worth');
   });
 
   it('treats an empty array as a successful empty state and links to Settings', async () => {
     const setActiveTab = vi.fn();
-    await renderAccounts([], setActiveTab);
+    await renderAccounts({
+      accounts: [],
+      summary: {
+        currency: null,
+        buckets: Object.fromEntries([
+          'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
+        ].map(role => [role, { accountCount: 0, knownBalanceCount: 0, total: null }])),
+      },
+    }, setActiveTab);
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain('No accounts found');
@@ -147,7 +203,7 @@ describe('AccountsPage', () => {
 
   it('navigates to Settings from Manage connections', async () => {
     const setActiveTab = vi.fn();
-    await renderAccounts(connectedAccounts, setActiveTab);
+    await renderAccounts(connectedAccountsResponse, setActiveTab);
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain('Manage connections');
@@ -207,12 +263,12 @@ describe('AccountsPage', () => {
         accountName: 'First Checking',
       },
     ];
-    await renderAccounts(unsorted);
+    await renderAccounts({ ...connectedAccountsResponse, accounts: unsorted });
     await vi.waitFor(() => expect(container.textContent).toContain('Zeta Bank'));
 
-    const institutionHeadings = Array.from(container.querySelectorAll('section h2')).map(
-      heading => heading.textContent
-    );
+    const institutionHeadings = Array.from(container.querySelectorAll('section[aria-label] h2'))
+      .map(heading => heading.textContent)
+      .filter(heading => heading !== 'Money by purpose');
     expect(institutionHeadings).toEqual(['Alpha Bank', 'Zeta Bank']);
 
     const cards = Array.from(container.querySelectorAll('[data-account-name]')).map(
@@ -223,7 +279,7 @@ describe('AccountsPage', () => {
 
   it('preserves previously loaded cards when a refresh fails', async () => {
     const apiFetch = vi.fn()
-      .mockResolvedValueOnce(apiResponse(connectedAccounts))
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse))
       .mockRejectedValueOnce(new Error('network unavailable'));
     const setActiveTab = vi.fn();
 
@@ -242,6 +298,32 @@ describe('AccountsPage', () => {
       );
     });
     expect(container.textContent).toContain('Everyday Checking');
+  });
+
+  it('saves an owner role and reloads the account summary', async () => {
+    const apiFetch = vi.fn()
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse))
+      .mockResolvedValueOnce(apiResponse({ accountId: 'healthy-1', role: 'reserve' }))
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse));
+
+    await act(async () => {
+      root.render(<AccountsPage apiFetch={apiFetch} refreshKey={0} setActiveTab={vi.fn()} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Everyday Checking'));
+
+    const select = container.querySelector(
+      'select[aria-label="Purpose for Everyday Checking"]'
+    ) as HTMLSelectElement;
+    await act(async () => {
+      select.value = 'reserve';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      '/api/account-roles/healthy-1',
+      expect.objectContaining({ method: 'PUT', body: JSON.stringify({ role: 'reserve' }) })
+    ));
+    expect(apiFetch).toHaveBeenCalledTimes(3);
   });
 });
 

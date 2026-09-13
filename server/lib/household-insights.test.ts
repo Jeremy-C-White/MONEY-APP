@@ -48,6 +48,7 @@ function obligation(
     category: 'RENT_AND_UTILITIES',
     cadence: 'monthly',
     confidence: 'high',
+    amountBehavior: 'stable',
     typicalCharge: 120,
     estimatedMonthlyAmount: 120,
     occurrenceCount: 6,

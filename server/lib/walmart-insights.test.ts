@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildWalmartInsights,
+  buildWalmartProductIdentityResolver,
   extractGoogleSpreadsheetId,
   getWalmartProductIdentity,
   isFuelProduct,
@@ -193,5 +194,29 @@ describe('Walmart source helpers', () => {
       'Great Value Milk Whole, 1 gal',
       null
     ));
+  });
+
+  it('lets a name-only in-store row inherit the unique online item id', () => {
+    const resolve = buildWalmartProductIdentityResolver([
+      {
+        productName: 'Great Value Whole Milk, 1 Gallon',
+        productUrl: 'https://www.walmart.com/ip/Great-Value-Whole-Milk/123456789',
+      },
+      { productName: 'Great Value Whole Milk, 1 Gallon', productUrl: null },
+    ]);
+
+    expect(resolve({
+      productName: 'Great Value Whole Milk, 1 Gallon',
+      productUrl: null,
+    })).toBe('item:123456789');
+  });
+
+  it('does not merge products whose pack-size numbers appear in a different order', () => {
+    expect(getWalmartProductIdentity('Coca-Cola 12 oz 24 Pack', null)).not.toBe(
+      getWalmartProductIdentity('Coca-Cola 24 oz 12 Pack', null)
+    );
+    expect(getWalmartProductIdentity('Great Value Whole Milk, 1 Gallon', null)).toBe(
+      getWalmartProductIdentity('Great Value Milk Whole, 1 gal', null)
+    );
   });
 });

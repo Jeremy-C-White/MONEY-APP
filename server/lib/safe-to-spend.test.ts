@@ -52,6 +52,7 @@ function obligation(
     category: 'RENT_AND_UTILITIES',
     cadence: 'monthly',
     confidence: 'high',
+    amountBehavior: 'stable',
     typicalCharge: 100,
     estimatedMonthlyAmount: 100,
     occurrenceCount: 6,
@@ -454,6 +455,17 @@ describe('buildSafeToSpend', () => {
 
     expect(result.status).toBe('unavailable');
     expect(result.blockers).toEqual(['operating_account_unresolved']);
+  });
+
+  it('uses an owner-confirmed operating override for cash management', () => {
+    const result = build({
+      accountBalances: balances([account({ accountSubtype: 'cash management' })]),
+      accountRoleOverrides: new Map([['checking-1', 'operating']]),
+    });
+
+    expect(result.status).toBe('ready');
+    expect(result.cashOnHand).toBe(4000);
+    expect(result.unassignedCashAccountCount).toBe(0);
   });
 
   it('withholds the figure when connected cash contains only reserves', () => {
