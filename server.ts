@@ -52,6 +52,7 @@ import { buildHouseholdInsights } from "./server/lib/household-insights";
 import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
 import { buildSafeToSpend } from "./server/lib/safe-to-spend";
 import { analyzeTransferCoverage } from "./server/lib/transfer-coverage";
+import { applyMerchantFamilies } from "./server/lib/merchant-families";
 import {
   HouseholdPlanRequestError,
   buildSpendingTargetProgress,
@@ -2291,7 +2292,7 @@ app.get("/api/dashboard/category-breakdown", requireAuth, async (req: express.Re
       return res.status(400).json({ error: `Invalid period parameter. Allowed: ${CATEGORY_PERIODS.join(', ')}` });
     }
 
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const txs = applyMerchantFamilies(await fetchNormalizedTransactions((req as any).user.uid));
     const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
     const report = aggregatePeriodCategoryBreakdown(txs, periodParam as CategoryPeriod, financeTz);
     res.json(report);

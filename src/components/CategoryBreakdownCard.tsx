@@ -165,7 +165,12 @@ export function CategoryBreakdownCard({
   return (
     <section className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 mb-8">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h3 className="text-lg font-medium text-slate-900">Spending Breakdown</h3>
+        <div>
+          <h3 className="text-lg font-medium text-slate-900">Where your money went</h3>
+          <p className="mt-1 text-xs text-slate-500">
+            Merchants show where you spent. Categories are estimates and may be broad for mixed purchases.
+          </p>
+        </div>
         <div className="flex flex-wrap bg-slate-100 p-1 rounded-lg gap-1">
           {PERIOD_OPTIONS.map(option => (
             <button
@@ -192,33 +197,6 @@ export function CategoryBreakdownCard({
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div>
-          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
-            Top Categories <span className="normal-case font-normal">· {activeLabel}</span>
-          </h4>
-          {loading && categories.length === 0 ? (
-            <div className="space-y-4">
-              {[1, 2, 3, 4, 5].map(item => (
-                <div key={item} className="h-10 bg-slate-100 rounded-lg animate-pulse" />
-              ))}
-            </div>
-          ) : categories.length === 0 ? (
-            <div className="text-sm text-slate-500 text-center py-8">No categories found</div>
-          ) : (
-            <div className="space-y-5">
-              {categories.slice(0, 8).map(category => (
-                <React.Fragment key={category.category}>
-                  <CategoryRow
-                    category={category}
-                    expanded={expandedCategories.has(category.category)}
-                    onToggle={() => toggleCategory(category.category)}
-                  />
-                </React.Fragment>
-              ))}
-            </div>
-          )}
-        </div>
-
         <div>
           <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
             Top Merchants <span className="normal-case font-normal">· {activeLabel}</span>
@@ -251,6 +229,33 @@ export function CategoryBreakdownCard({
                     {formatCurrency(merchant.netSpending)}
                   </div>
                 </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-4">
+            Estimated Categories <span className="normal-case font-normal">· {activeLabel}</span>
+          </h4>
+          {loading && categories.length === 0 ? (
+            <div className="space-y-4">
+              {[1, 2, 3, 4, 5].map(item => (
+                <div key={item} className="h-10 bg-slate-100 rounded-lg animate-pulse" />
+              ))}
+            </div>
+          ) : categories.length === 0 ? (
+            <div className="text-sm text-slate-500 text-center py-8">No categories found</div>
+          ) : (
+            <div className="space-y-5">
+              {categories.slice(0, 8).map(category => (
+                <React.Fragment key={category.category}>
+                  <CategoryRow
+                    category={category}
+                    expanded={expandedCategories.has(category.category)}
+                    onToggle={() => toggleCategory(category.category)}
+                  />
+                </React.Fragment>
               ))}
             </div>
           )}

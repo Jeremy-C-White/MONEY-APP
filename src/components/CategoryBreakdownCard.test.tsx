@@ -79,6 +79,15 @@ describe('CategoryBreakdownCard', () => {
 
     await vi.waitFor(() => expect(container.textContent).toContain('Food & dining'));
     expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/category-breakdown?period=this_month');
+    expect(container.textContent).toContain('Where your money went');
+    expect(container.textContent).toContain('Estimated Categories');
+    expect(container.textContent).toContain('Categories are estimates');
+    const breakdownHeadings = Array.from(container.querySelectorAll('h4')).map(
+      heading => heading.textContent || ''
+    );
+    expect(breakdownHeadings.findIndex(heading => heading.includes('Top Merchants'))).toBeLessThan(
+      breakdownHeadings.findIndex(heading => heading.includes('Estimated Categories'))
+    );
     expect(container.textContent).toContain('$85.00');
     expect(container.textContent).toContain('up from $0.00');
     expect(container.textContent).not.toContain('Groceries');
