@@ -84,7 +84,7 @@ export function formatFinancialContext(input: FinancialContextInput): string {
     if (sts.status === 'ready' && sts.amount !== null) {
       const totalDeductions = (sts.billsDue ?? 0) + (sts.pendingOutflow ?? 0) + sts.buffer;
       sections.push(
-        `### Safe to Spend\n- Status: Ready\n- Safe to Spend Amount: ${sts.amount.toFixed(2)}\n- Cash on Hand (Operating accounts): ${(sts.cashOnHand ?? 0).toFixed(2)}\n- Scheduled Bills: ${(sts.billsDue ?? 0).toFixed(2)}\n- Buffer: ${sts.buffer.toFixed(2)}\n- Total Deductions: ${totalDeductions.toFixed(2)}\n- Coverage Window: ${sts.asOfDate} through ${sts.throughDate}`
+        `### Safe to Spend\n- Status: Ready\n- Safe to Spend Amount: $${sts.amount.toFixed(2)}\n- Cash on Hand (Operating accounts): ${(sts.cashOnHand ?? 0).toFixed(2)}\n- Scheduled Bills: ${(sts.billsDue ?? 0).toFixed(2)}\n- Buffer: ${sts.buffer.toFixed(2)}\n- Total Deductions: ${totalDeductions.toFixed(2)}\n- Coverage Window: ${sts.asOfDate} through ${sts.throughDate}`
       );
     } else {
       sections.push(
