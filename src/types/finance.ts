@@ -830,3 +830,14 @@ export interface WalmartInsightsResponse {
     incompleteOrderStubsExcluded: number;
   };
 }
+
+export interface AiChatMessageItem {
+  id: string;
+  role: 'user' | 'model';
+  content: string;
+  createdAt: string;
+}
+
+export interface AiChatResponse {
+  response: string;
+}

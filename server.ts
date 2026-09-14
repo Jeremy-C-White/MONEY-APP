@@ -77,6 +77,11 @@ import {
   type WalmartInsights,
   type WalmartSheetRow,
 } from "./server/lib/walmart-insights";
+import {
+  generateAiFinancialResponse,
+  parseAiChatRequest,
+  AiChatRequestError,
+} from "./server/lib/ai-assistant";
 
 // Environment config check (log warnings gracefully without crashing startup)
 const requiredEnv = ['PLAID_CLIENT_ID', 'PLAID_SECRET', 'PLAID_ENV', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'];
@@ -2949,6 +2954,78 @@ app.get("/api/walmart/insights", requireAuth, async (req: express.Request, res: 
     const status = error?.code === 'GOOGLE_SHEETS_NOT_CONNECTED' ? 409 : 500;
     console.error("Walmart Insights Error:", error);
     res.status(status).json({ code: error?.code || 'WALMART_INSIGHTS_ERROR', error: error.message });
+  }
+});
+
+// AI Financial Chat - Strictly Read-Only Assistant Endpoint
+app.post("/api/ai/chat", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const { messages } = parseAiChatRequest(req.body);
+
+    // Fetch read-only financial data context
+    const [planningData, accountBalances, accountRoleOverrides] = await Promise.all([
+      loadRecurringPlanning(uid).catch((err) => {
+        console.warn("AI context warning loading recurring planning:", err);
+        return null;
+      }),
+      loadAccountBalanceSummary(uid).catch((err) => {
+        console.warn("AI context warning loading balances:", err);
+        return null;
+      }),
+      loadAccountRoleOverrides(uid).catch((err) => {
+        console.warn("AI context warning loading role overrides:", err);
+        return new Map<string, AccountRole>();
+      }),
+    ]);
+
+    const txs = planningData?.txs || [];
+    const recurringObligations = planningData?.recurringObligations?.obligations || [];
+    const householdPlan = planningData?.householdPlan || null;
+    const financeTz = planningData?.financeTz || process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const now = planningData?.now || new Date();
+    const asOfDate = getMonthForDateInTimezone(now, financeTz).slice(0, 7) + `-${String(now.getDate()).padStart(2, '0')}`;
+
+    let safeToSpendResult = null;
+    try {
+      if (accountBalances) {
+        safeToSpendResult = buildSafeToSpend({
+          transactions: txs,
+          recurringObligations,
+          accountBalances,
+          accountRoleOverrides,
+          plan: householdPlan,
+          asOfDate,
+        });
+      }
+    } catch (err) {
+      console.warn("AI context warning calculating safe to spend:", err);
+    }
+
+    const aiResponse = await generateAiFinancialResponse(
+      messages,
+      {
+        asOfDate,
+        timezone: financeTz,
+        accountBalances,
+        accountRoleOverrides,
+        safeToSpend: safeToSpendResult,
+        recurringObligations,
+        householdPlan,
+        transactions: txs,
+      }
+    );
+
+    res.json({ response: aiResponse });
+  } catch (error: any) {
+    if (error instanceof AiChatRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("AI Financial Chat Error:", error);
+    if (error?.message?.includes("GEMINI_API_KEY")) {
+      return res.status(503).json({ error: "Gemini AI is not configured on this server." });
+    }
+    res.status(500).json({ error: error?.message || "Failed to process chat query." });
   }
 });
   if (process.env.NODE_ENV !== "production") {

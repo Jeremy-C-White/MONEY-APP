@@ -955,3 +955,11 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
     verdicts: extractOverviewVerdicts(record.verdicts),
   };
 }
+
+export function parseAiChatApiResponse(data: unknown): { response: string } {
+  const record = requireRecord(data, 'AI chat');
+  if (typeof record.response !== 'string' || !record.response.trim()) {
+    throw new Error('Invalid AI chat response: missing response text');
+  }
+  return { response: record.response };
+}

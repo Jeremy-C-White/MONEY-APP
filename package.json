@@ -12,6 +12,7 @@
     "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^2.22.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "clsx": "^2.1.1",
@@ -28,6 +29,7 @@
     "plaid": "^46.0.0",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
+    "react-markdown": "^10.1.0",
     "react-plaid-link": "^5.0.0",
     "recharts": "^3.1.2",
     "tailwind-merge": "^3.6.0",

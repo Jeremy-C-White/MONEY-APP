@@ -9,6 +9,7 @@ import { OverviewPage } from './pages/OverviewPage';
 import { TransactionsPage, type TransactionsViewMode } from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { WalmartInsightsPage } from './pages/WalmartInsightsPage';
+import { AiAssistantPage } from './pages/AiAssistantPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 import { ClassificationRulesCard } from './components/ClassificationRulesCard';
 import { HouseholdPlanCard } from './components/HouseholdPlanCard';
@@ -521,6 +522,10 @@ export default function App() {
 
       {activeTab === 'walmart' && (
         <WalmartInsightsPage apiFetch={apiFetch} />
+      )}
+
+      {activeTab === 'chat' && (
+        <AiAssistantPage apiFetch={apiFetch} />
       )}
 
       {activeTab === 'accounts' && (
