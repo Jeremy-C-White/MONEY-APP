@@ -378,6 +378,8 @@ export type AccountRole =
   | 'debt'
   | 'unassigned';
 
+export type ManualAccountKind = 'savings' | 'retirement' | 'investment';
+
 export interface ConnectedAccount extends AccountSummary {
   role: AccountRole;
   roleSource: 'default' | 'owner';
@@ -389,6 +391,11 @@ export interface ConnectedAccount extends AccountSummary {
   isoCurrencyCode: string | null;
   fetchedAt: string | null;
   balanceStatus: 'fresh' | 'stale' | 'missing';
+  source: 'linked' | 'manual';
+  manualKind: ManualAccountKind | null;
+  includeInCash: boolean;
+  includeInNetWorth: boolean;
+  duplicateOfAccountId: string | null;
 }
 
 export interface AccountRoleBucket {
@@ -402,6 +409,32 @@ export interface ConnectedAccountsResponse {
   summary: {
     currency: string | null;
     buckets: Record<AccountRole, AccountRoleBucket>;
+  };
+  financialPosition: FinancialPosition;
+}
+
+export interface FinancialPosition {
+  currency: string | null;
+  mixedCurrency: boolean;
+  liquidCash: number | null;
+  liquidSavings: number | null;
+  estimatedNetWorth: number | null;
+  includedAccountCount: number;
+  knownBalanceCount: number;
+  excludedDuplicateCount: number;
+  retirement: {
+    total: number | null;
+    accountCount: number;
+    knownBalanceCount: number;
+    shareOfNetWorth: number | null;
+    history: Array<{ date: string; total: number }>;
+    trend: {
+      startDate: string;
+      endDate: string;
+      change: number;
+      percentageChange: number | null;
+    } | null;
+    contributionDataAvailable: false;
   };
 }
 
@@ -722,6 +755,7 @@ export interface DashboardOverviewResponse {
   householdInsights: HouseholdInsights;
   verification: DashboardVerificationResponse;
   accountBalances: AccountBalanceSummary;
+  financialPosition: FinancialPosition;
   cashFlowForecast: CashFlowForecast;
   householdPlan: HouseholdPlan;
   safeToSpend: SafeToSpend;

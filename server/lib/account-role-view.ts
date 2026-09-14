@@ -43,6 +43,7 @@ export function buildAccountRoleView(input: {
   connectedAccounts: readonly ConnectedAccountRecord[];
   balanceAccounts: readonly AccountBalanceRecord[];
   overrides: ReadonlyMap<string, AccountRole>;
+  excludeAccountIdsFromSummary?: ReadonlySet<string>;
 }): { accounts: AccountRoleView[]; summary: AccountRoleSummary } {
   const balancesById = new Map(input.balanceAccounts.map(account => [account.accountId, account]));
   const accounts = input.connectedAccounts.map(account => {
@@ -73,6 +74,7 @@ export function buildAccountRoleView(input: {
   const currency = currencies.size === 1 ? [...currencies][0] : null;
   const buckets = emptyBuckets();
   for (const account of accounts) {
+    if (input.excludeAccountIdsFromSummary?.has(account.accountId)) continue;
     const bucket = buckets[account.role];
     bucket.accountCount += 1;
     if (currency && account.isoCurrencyCode === currency && account.current !== null) {

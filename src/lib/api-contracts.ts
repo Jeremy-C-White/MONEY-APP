@@ -33,6 +33,7 @@ import type {
   SavingsContributionsResponse,
   SavingsDestination,
   ContributionStream,
+  FinancialPosition,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -270,7 +271,12 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
     !validNullableNumber(account.available) ||
     !validNullableString(account.isoCurrencyCode) ||
     !validNullableString(account.fetchedAt) ||
-    !['fresh', 'stale', 'missing'].includes(String(account.balanceStatus))
+    !['fresh', 'stale', 'missing'].includes(String(account.balanceStatus)) ||
+    !['linked', 'manual'].includes(String(account.source)) ||
+    !(account.manualKind === null || ['savings', 'retirement', 'investment'].includes(String(account.manualKind))) ||
+    typeof account.includeInCash !== 'boolean' ||
+    typeof account.includeInNetWorth !== 'boolean' ||
+    !validNullableString(account.duplicateOfAccountId)
   ))) {
     throw new Error('Invalid connected accounts response.');
   }
@@ -291,7 +297,44 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
     }
   }
 
+  extractFinancialPosition(response.financialPosition);
+
   return response as unknown as ConnectedAccountsResponse;
+}
+
+export function extractFinancialPosition(data: unknown): FinancialPosition {
+  const record = requireRecord(data, 'financial position');
+  const retirement = record.retirement;
+  if (
+    !validNullableString(record.currency) ||
+    typeof record.mixedCurrency !== 'boolean' ||
+    !validNullableNumber(record.liquidCash) ||
+    !validNullableNumber(record.liquidSavings) ||
+    !validNullableNumber(record.estimatedNetWorth) ||
+    typeof record.includedAccountCount !== 'number' ||
+    typeof record.knownBalanceCount !== 'number' ||
+    typeof record.excludedDuplicateCount !== 'number' ||
+    !isRecord(retirement) ||
+    !validNullableNumber(retirement.total) ||
+    typeof retirement.accountCount !== 'number' ||
+    typeof retirement.knownBalanceCount !== 'number' ||
+    !validNullableNumber(retirement.shareOfNetWorth) ||
+    retirement.contributionDataAvailable !== false ||
+    !Array.isArray(retirement.history) ||
+    retirement.history.some(point => (
+      !isRecord(point) || typeof point.date !== 'string' || typeof point.total !== 'number'
+    )) ||
+    !(retirement.trend === null || (
+      isRecord(retirement.trend) &&
+      typeof retirement.trend.startDate === 'string' &&
+      typeof retirement.trend.endDate === 'string' &&
+      typeof retirement.trend.change === 'number' &&
+      validNullableNumber(retirement.trend.percentageChange)
+    ))
+  ) {
+    throw new Error('Invalid financial position response.');
+  }
+  return record as unknown as FinancialPosition;
 }
 
 function validNullableNumber(value: unknown): boolean {
@@ -949,6 +992,7 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
   return {
     ...normalized,
     accountBalances: extractAccountBalanceSummary(record.accountBalances),
+    financialPosition: extractFinancialPosition(record.financialPosition),
     cashFlowForecast: extractCashFlowForecast(record.cashFlowForecast),
     householdPlan: extractHouseholdPlan(record.householdPlan),
     safeToSpend: extractSafeToSpend(record.safeToSpend),

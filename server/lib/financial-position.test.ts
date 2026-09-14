@@ -1,0 +1,78 @@
+import { describe, expect, it } from 'vitest';
+import { buildFinancialPosition } from './financial-position';
+import type { UnifiedAccount } from './unified-accounts';
+
+function account(overrides: Partial<UnifiedAccount> = {}): UnifiedAccount {
+  return {
+    accountId: 'checking', institutionName: 'Bank', accountName: 'Checking', accountMask: '',
+    accountType: 'depository', accountSubtype: 'checking', health: 'healthy',
+    role: 'operating', roleSource: 'default', defaultRole: 'operating', suggestedRole: null,
+    requiresRoleConfirmation: false, current: 1000, available: 900, isoCurrencyCode: 'USD',
+    fetchedAt: '2026-09-14T12:00:00.000Z', balanceStatus: 'fresh', source: 'linked',
+    manualKind: null, includeInCash: true, includeInNetWorth: true, duplicateOfAccountId: null,
+    ...overrides,
+  };
+}
+
+describe('buildFinancialPosition', () => {
+  it('includes manual savings in cash, savings, and net worth once', () => {
+    const result = buildFinancialPosition({ accounts: [
+      account(),
+      account({
+        accountId: 'apple', accountName: 'Apple Savings', role: 'reserve', defaultRole: 'reserve',
+        current: 5000, available: null, source: 'manual', manualKind: 'savings',
+      }),
+      account({
+        accountId: 'duplicate', accountName: 'Apple Savings copy', role: 'reserve', defaultRole: 'reserve',
+        current: 5000, available: null, source: 'manual', manualKind: 'savings', duplicateOfAccountId: 'apple',
+      }),
+    ] });
+
+    expect(result.liquidCash).toBe(6000);
+    expect(result.liquidSavings).toBe(5000);
+    expect(result.estimatedNetWorth).toBe(6000);
+    expect(result.excludedDuplicateCount).toBe(1);
+  });
+
+  it('separates retirement from liquid savings and computes context from complete snapshots', () => {
+    const retirement = account({
+      accountId: '401k', accountName: '401(k)', accountType: 'investment', accountSubtype: '401k',
+      role: 'retirement', defaultRole: 'retirement', current: 3000, available: null,
+      includeInCash: false,
+    });
+    const result = buildFinancialPosition({
+      accounts: [account({ current: 7000 }), retirement],
+      balanceSnapshots: [
+        { date: '2026-08-01', items: { item: { accounts: [{ accountId: '401k', current: 2500, isoCurrencyCode: 'USD' }] } } },
+        { date: '2026-09-01', items: { item: { accounts: [{ accountId: '401k', current: 3000, isoCurrencyCode: 'USD' }] } } },
+      ],
+    });
+
+    expect(result.liquidCash).toBe(7000);
+    expect(result.liquidSavings).toBeNull();
+    expect(result.estimatedNetWorth).toBe(10000);
+    expect(result.retirement.total).toBe(3000);
+    expect(result.retirement.shareOfNetWorth).toBe(0.3);
+    expect(result.retirement.trend).toMatchObject({ change: 500, percentageChange: 0.2 });
+    expect(result.retirement.contributionDataAvailable).toBe(false);
+  });
+
+  it('withholds combined totals for mixed currencies', () => {
+    const result = buildFinancialPosition({ accounts: [
+      account(), account({ accountId: 'cad', current: 200, isoCurrencyCode: 'CAD' }),
+    ] });
+    expect(result.mixedCurrency).toBe(true);
+    expect(result.currency).toBeNull();
+    expect(result.estimatedNetWorth).toBeNull();
+  });
+
+  it('does not present health savings or unassigned deposits as liquid household cash', () => {
+    const result = buildFinancialPosition({ accounts: [
+      account(),
+      account({ accountId: 'hsa', role: 'health_savings', defaultRole: 'health_savings', current: 5000 }),
+      account({ accountId: 'unknown', role: 'unassigned', defaultRole: 'unassigned', current: 300 }),
+    ] });
+    expect(result.liquidCash).toBe(1000);
+    expect(result.estimatedNetWorth).toBe(6300);
+  });
+});

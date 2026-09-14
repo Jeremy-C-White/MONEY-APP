@@ -102,4 +102,18 @@ describe('buildAccountRoleView', () => {
     expect(result.summary.currency).toBeNull();
     expect(result.summary.buckets.operating.total).toBeNull();
   });
+
+  it('can omit duplicate accounts from purpose totals while still returning them', () => {
+    const duplicate = connected({ accountId: 'manual-duplicate', accountSubtype: 'savings' });
+    const result = buildAccountRoleView({
+      connectedAccounts: [connected(), duplicate],
+      balanceAccounts: [balance(), balance({ ...duplicate, current: 1000 })],
+      overrides: new Map(),
+      excludeAccountIdsFromSummary: new Set(['manual-duplicate']),
+    });
+
+    expect(result.accounts).toHaveLength(2);
+    expect(result.summary.buckets.reserve.accountCount).toBe(0);
+    expect(result.summary.buckets.operating.total).toBe(1000);
+  });
 });

@@ -17,6 +17,11 @@ const roleFields = {
   isoCurrencyCode: 'USD',
   fetchedAt: '2026-09-07T12:00:00.000Z',
   balanceStatus: 'fresh' as const,
+  source: 'linked' as const,
+  manualKind: null,
+  includeInCash: true,
+  includeInNetWorth: true,
+  duplicateOfAccountId: null,
 };
 
 const connectedAccounts: ConnectedAccount[] = [
@@ -86,6 +91,15 @@ const connectedAccountsResponse = {
       health_savings: { accountCount: 0, knownBalanceCount: 0, total: null },
       debt: { accountCount: 1, knownBalanceCount: 1, total: 500 },
       unassigned: { accountCount: 0, knownBalanceCount: 0, total: null },
+    },
+  },
+  financialPosition: {
+    currency: 'USD', mixedCurrency: false, liquidCash: 6200, liquidSavings: 5000,
+    estimatedNetWorth: 5700, includedAccountCount: 3, knownBalanceCount: 3,
+    excludedDuplicateCount: 0,
+    retirement: {
+      total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
+      history: [], trend: null, contributionDataAvailable: false,
     },
   },
 };
@@ -159,7 +173,7 @@ describe('AccountsPage', () => {
 
     expect(apiFetch).toHaveBeenCalledWith('/api/connected-accounts');
     expect(apiFetch).not.toHaveBeenCalledWith('/api/accounts');
-    expect(container.textContent).not.toContain('Net worth');
+    expect(container.textContent).toContain('Estimated net worth');
   });
 
   it('treats an empty array as a successful empty state and links to Settings', async () => {
@@ -172,15 +186,24 @@ describe('AccountsPage', () => {
           'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
         ].map(role => [role, { accountCount: 0, knownBalanceCount: 0, total: null }])),
       },
+      financialPosition: {
+        currency: null, mixedCurrency: false, liquidCash: null, liquidSavings: null,
+        estimatedNetWorth: null, includedAccountCount: 0, knownBalanceCount: 0,
+        excludedDuplicateCount: 0,
+        retirement: {
+          total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
+          history: [], trend: null, contributionDataAvailable: false,
+        },
+      },
     }, setActiveTab);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain('No accounts found');
+      expect(container.textContent).toContain('No accounts match this filter');
     });
 
     expect(container.textContent).not.toContain('Unable to load accounts');
     const settingsButton = Array.from(container.querySelectorAll('button')).find(
-      button => button.textContent?.includes('Go to Settings')
+      button => button.textContent?.includes('Manage connections')
     );
     expect(settingsButton).toBeDefined();
 
@@ -324,6 +347,85 @@ describe('AccountsPage', () => {
       expect.objectContaining({ method: 'PUT', body: JSON.stringify({ role: 'reserve' }) })
     ));
     expect(apiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('creates an Apple Savings manual account and reloads the unified view', async () => {
+    const apiFetch = vi.fn()
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse))
+      .mockResolvedValueOnce(apiResponse({ accountId: 'manual_12345678-1234-1234-1234-123456789abc' }))
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse));
+
+    await act(async () => {
+      root.render(<AccountsPage apiFetch={apiFetch} refreshKey={0} setActiveTab={vi.fn()} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Add manual account'));
+    const addButton = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.trim() === 'Add manual account'
+    );
+    act(() => addButton?.click());
+
+    const balanceInput = container.querySelector('form input[type="number"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(
+        balanceInput,
+        '32450.18'
+      );
+      balanceInput.dispatchEvent(new Event('input', { bubbles: true }));
+      container.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/manual-accounts', {
+      method: 'POST',
+      body: JSON.stringify({
+        institutionName: 'Apple / Goldman Sachs',
+        accountName: 'Apple Savings',
+        accountMask: '',
+        kind: 'savings',
+        balance: 32450.18,
+        isoCurrencyCode: 'USD',
+      }),
+    }));
+    expect(apiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('updates a manual balance through its distinct account card', async () => {
+    const manual: ConnectedAccount = {
+      ...connectedAccounts[2],
+      accountId: 'manual_12345678-1234-1234-1234-123456789abc',
+      institutionName: 'Apple / Goldman Sachs',
+      accountName: 'Apple Savings',
+      health: 'manual',
+      source: 'manual',
+      manualKind: 'savings',
+    };
+    const response = { ...connectedAccountsResponse, accounts: [manual] };
+    const apiFetch = vi.fn()
+      .mockResolvedValueOnce(apiResponse(response))
+      .mockResolvedValueOnce(apiResponse({ accountId: manual.accountId, balance: 6000 }))
+      .mockResolvedValueOnce(apiResponse(response));
+
+    await act(async () => {
+      root.render(<AccountsPage apiFetch={apiFetch} refreshKey={0} setActiveTab={vi.fn()} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Manual balance'));
+    const updateButton = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.trim() === 'Update balance'
+    );
+    act(() => updateButton?.click());
+    const input = container.querySelector('input[type="number"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, '6000');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const saveButton = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.trim() === 'Save balance'
+    );
+    await act(async () => saveButton?.click());
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith(
+      `/api/manual-accounts/${manual.accountId}/balance`,
+      { method: 'PUT', body: JSON.stringify({ balance: 6000 }) }
+    ));
   });
 });
 

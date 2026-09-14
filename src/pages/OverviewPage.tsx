@@ -26,6 +26,7 @@ import type {
   CashFlowForecast,
   SafeToSpend,
   OverviewVerdicts,
+  FinancialPosition,
 } from '../types/finance';
 
 export function OverviewPage({
@@ -50,6 +51,7 @@ export function OverviewPage({
   const [verification, setVerification] =
     useState<DashboardVerificationResponse | null>(null);
   const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
+  const [financialPosition, setFinancialPosition] = useState<FinancialPosition | null>(null);
   const [cashFlowForecast, setCashFlowForecast] = useState<CashFlowForecast | null>(null);
   const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
   const [verdicts, setVerdicts] = useState<OverviewVerdicts | null>(null);
@@ -76,6 +78,7 @@ export function OverviewPage({
       setHouseholdInsights(normalized.householdInsights);
       setVerification(normalized.verification);
       setAccountBalances(normalized.accountBalances);
+      setFinancialPosition(normalized.financialPosition);
       setCashFlowForecast(normalized.cashFlowForecast);
       setSafeToSpend(normalized.safeToSpend);
       setVerdicts(normalized.verdicts);
@@ -224,6 +227,7 @@ export function OverviewPage({
 
       <AccountPositionCards
         balances={accountBalances}
+        financialPosition={financialPosition}
         spending={summary?.currentMonth.spending}
         spendingSubtitle={spendingSubtitle}
         projectedMonthEndSpending={householdInsights?.forecast.projectedMonthEndSpending}

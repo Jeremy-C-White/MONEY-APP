@@ -91,6 +91,15 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       issues: [],
       accounts: [],
     },
+    financialPosition: {
+      currency: 'USD', mixedCurrency: false, liquidCash: 4000, liquidSavings: null,
+      estimatedNetWorth: 4000, includedAccountCount: 1, knownBalanceCount: 1,
+      excludedDuplicateCount: 0,
+      retirement: {
+        total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
+        history: [], trend: null, contributionDataAvailable: false,
+      },
+    },
     cashFlowForecast: {
       status: 'unavailable',
       asOfDate: '2026-09-06',

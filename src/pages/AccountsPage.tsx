@@ -3,13 +3,22 @@ import {
   AlertCircle,
   Building2,
   ChevronRight,
+  PencilLine,
+  Plus,
   RefreshCcw,
   Settings,
-  WalletCards,
+  X,
 } from 'lucide-react';
 import { extractConnectedAccountsResponse } from '../lib/api-contracts';
 import { formatCurrency } from '../lib/formatters';
-import type { AccountRole, ConnectedAccount, ConnectedAccountsResponse } from '../types/finance';
+import { RetirementPerspectiveCard } from '../components/RetirementPerspectiveCard';
+import type {
+  AccountRole,
+  ConnectedAccount,
+  ConnectedAccountsResponse,
+  FinancialPosition,
+  ManualAccountKind,
+} from '../types/finance';
 
 export const NEEDS_ATTENTION = new Set([
   'login_required',
@@ -18,11 +27,12 @@ export const NEEDS_ATTENTION = new Set([
   'unknown',
 ]);
 
-type AccountFilter = 'all' | 'connected' | 'attention' | 'disconnected';
+type AccountFilter = 'all' | 'connected' | 'manual' | 'attention' | 'disconnected';
 
 const FILTERS: Array<{ id: AccountFilter; label: string }> = [
   { id: 'all', label: 'All' },
   { id: 'connected', label: 'Connected' },
+  { id: 'manual', label: 'Manual' },
   { id: 'attention', label: 'Needs Attention' },
   { id: 'disconnected', label: 'Disconnected' },
 ];
@@ -61,6 +71,9 @@ const SUBTYPE_LABELS: Record<string, string> = {
   mortgage: 'Mortgage',
   'student loan': 'Student loan',
   student_loan: 'Student loan',
+  '401k': '401(k)',
+  'roth 401k': 'Roth 401(k)',
+  roth_401k: 'Roth 401(k)',
 };
 
 function titleCase(value: string): string {
@@ -86,6 +99,12 @@ function healthPresentation(health: string): {
   dotClasses: string;
 } {
   switch (health) {
+    case 'manual':
+      return {
+        label: 'Manual',
+        badgeClasses: 'bg-violet-50 text-violet-700 border-violet-200',
+        dotClasses: 'bg-violet-500',
+      };
     case 'healthy':
       return {
         label: 'Connected',
@@ -122,7 +141,8 @@ function healthPresentation(health: string): {
 }
 
 function matchesFilter(account: ConnectedAccount, filter: AccountFilter): boolean {
-  if (filter === 'connected') return account.health === 'healthy';
+  if (filter === 'connected') return account.source === 'linked' && account.health === 'healthy';
+  if (filter === 'manual') return account.source === 'manual';
   if (filter === 'attention') return NEEDS_ATTENTION.has(account.health);
   if (filter === 'disconnected') return account.health === 'disconnected';
   return true;
@@ -144,6 +164,7 @@ function describeBalanceFreshness(account: ConnectedAccount): string {
   if (account.balanceStatus === 'missing' || !account.fetchedAt) return 'Balance not reported';
   const date = new Date(account.fetchedAt);
   const when = Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString();
+  if (account.source === 'manual') return `Manual balance · updated ${when}`;
   return account.balanceStatus === 'fresh' ? `Updated ${when}` : `Stale · last updated ${when}`;
 }
 
@@ -176,12 +197,25 @@ export function AccountsPage({
 }) {
   const [accounts, setAccounts] = useState<ConnectedAccount[] | null>(null);
   const [roleSummary, setRoleSummary] = useState<ConnectedAccountsResponse['summary'] | null>(null);
+  const [financialPosition, setFinancialPosition] = useState<FinancialPosition | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshWarning, setRefreshWarning] = useState<string | null>(null);
   const [filter, setFilter] = useState<AccountFilter>('all');
   const [savingRoleFor, setSavingRoleFor] = useState<string | null>(null);
   const [roleError, setRoleError] = useState<string | null>(null);
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [manualSaving, setManualSaving] = useState(false);
+  const [manualError, setManualError] = useState<string | null>(null);
+  const [manualDraft, setManualDraft] = useState({
+    institutionName: 'Apple / Goldman Sachs',
+    accountName: 'Apple Savings',
+    accountMask: '',
+    kind: 'savings' as ManualAccountKind,
+    balance: '',
+  });
+  const [balanceAccountId, setBalanceAccountId] = useState<string | null>(null);
+  const [balanceDraft, setBalanceDraft] = useState('');
   const accountsRef = useRef<ConnectedAccount[] | null>(null);
 
   const loadAccounts = async () => {
@@ -203,6 +237,7 @@ export function AccountsPage({
       accountsRef.current = parsed.accounts;
       setAccounts(parsed.accounts);
       setRoleSummary(parsed.summary);
+      setFinancialPosition(parsed.financialPosition);
       setError(null);
     } catch (err: unknown) {
       if (hasPreviousData) {
@@ -212,6 +247,54 @@ export function AccountsPage({
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const createManualAccount = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setManualSaving(true);
+    setManualError(null);
+    try {
+      const balance = Number(manualDraft.balance);
+      const response = await apiFetch('/api/manual-accounts', {
+        method: 'POST',
+        body: JSON.stringify({ ...manualDraft, balance, isoCurrencyCode: 'USD' }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Unable to add this manual account.');
+      }
+      setShowManualForm(false);
+      setManualDraft({
+        institutionName: '', accountName: '', accountMask: '', kind: 'savings', balance: '',
+      });
+      await loadAccounts();
+    } catch (err: unknown) {
+      setManualError(err instanceof Error ? err.message : 'Unable to add this manual account.');
+    } finally {
+      setManualSaving(false);
+    }
+  };
+
+  const updateManualBalance = async (account: ConnectedAccount) => {
+    setManualSaving(true);
+    setManualError(null);
+    try {
+      const response = await apiFetch(`/api/manual-accounts/${encodeURIComponent(account.accountId)}/balance`, {
+        method: 'PUT',
+        body: JSON.stringify({ balance: Number(balanceDraft) }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error || 'Unable to update this balance.');
+      }
+      setBalanceAccountId(null);
+      setBalanceDraft('');
+      await loadAccounts();
+    } catch (err: unknown) {
+      setManualError(err instanceof Error ? err.message : 'Unable to update this balance.');
+    } finally {
+      setManualSaving(false);
     }
   };
 
@@ -247,7 +330,8 @@ export function AccountsPage({
       known: current.length,
       institutions: new Set(current.map(account => account.institutionName)).size,
       attention: current.filter(account => NEEDS_ATTENTION.has(account.health)).length,
-      connected: current.filter(account => account.health === 'healthy').length,
+      connected: current.filter(account => account.source === 'linked' && account.health === 'healthy').length,
+      manual: current.filter(account => account.source === 'manual').length,
       disconnected: current.filter(account => account.health === 'disconnected').length,
     };
   }, [accounts]);
@@ -270,6 +354,7 @@ export function AccountsPage({
 
   const filterCount = (filterId: AccountFilter): number => {
     if (filterId === 'connected') return counts.connected;
+    if (filterId === 'manual') return counts.manual;
     if (filterId === 'attention') return counts.attention;
     if (filterId === 'disconnected') return counts.disconnected;
     return counts.known;
@@ -308,35 +393,6 @@ export function AccountsPage({
     );
   }
 
-  if (accounts?.length === 0) {
-    return (
-      <div className="w-full max-w-3xl mx-auto">
-        <header className="mb-8">
-          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-slate-900">Accounts</h1>
-          <p className="text-sm sm:text-base text-slate-500 mt-2">
-            Your financial accounts and connection health.
-          </p>
-        </header>
-        <div className="bg-white border border-slate-200 rounded-3xl p-8 sm:p-12 text-center shadow-sm">
-          <div className="w-14 h-14 mx-auto mb-5 rounded-2xl bg-indigo-50 flex items-center justify-center">
-            <WalletCards className="w-7 h-7 text-indigo-600" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-900 mb-2">No accounts found</h2>
-          <p className="text-sm text-slate-500 max-w-sm mx-auto mb-6">
-            Add or review your bank connections in Settings.
-          </p>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className="min-h-11 inline-flex items-center justify-center gap-2 px-5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
-          >
-            <Settings className="w-4 h-4" />
-            Go to Settings
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="w-full max-w-6xl mx-auto pb-6">
       <header className="mb-7 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
@@ -346,14 +402,64 @@ export function AccountsPage({
             Your financial accounts and connection health.
           </p>
         </div>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-sm font-semibold shadow-sm transition-colors"
-        >
-          <Settings className="w-4 h-4" />
-          Manage connections
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => setShowManualForm(value => !value)}
+            className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold shadow-sm transition-colors"
+          >
+            {showManualForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
+            {showManualForm ? 'Close form' : 'Add manual account'}
+          </button>
+          <button
+            onClick={() => setActiveTab('settings')}
+            className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-sm font-semibold shadow-sm transition-colors"
+          >
+            <Settings className="w-4 h-4" />
+            Manage connections
+          </button>
+        </div>
       </header>
+
+      {showManualForm && (
+        <form onSubmit={createManualAccount} className="mb-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 shadow-sm sm:p-6">
+          <div className="mb-4">
+            <h2 className="font-bold text-slate-900">Add a manual account</h2>
+            <p className="mt-1 text-xs text-slate-600">
+              For balances that cannot be linked. Every balance entry is saved as a dated snapshot; manual cash does not enter Safe to Spend.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <label className="text-xs font-semibold text-slate-600">
+              Institution
+              <input required maxLength={80} value={manualDraft.institutionName} onChange={event => setManualDraft(value => ({ ...value, institutionName: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
+            </label>
+            <label className="text-xs font-semibold text-slate-600">
+              Account name
+              <input required maxLength={80} value={manualDraft.accountName} onChange={event => setManualDraft(value => ({ ...value, accountName: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
+            </label>
+            <label className="text-xs font-semibold text-slate-600">
+              Account kind
+              <select value={manualDraft.kind} onChange={event => setManualDraft(value => ({ ...value, kind: event.target.value as ManualAccountKind }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900">
+                <option value="savings">Savings</option>
+                <option value="retirement">Retirement</option>
+                <option value="investment">Investment</option>
+              </select>
+            </label>
+            <label className="text-xs font-semibold text-slate-600">
+              Balance
+              <input required min="0" step="0.01" inputMode="decimal" type="number" value={manualDraft.balance} onChange={event => setManualDraft(value => ({ ...value, balance: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
+            </label>
+            <label className="text-xs font-semibold text-slate-600">
+              Last 4 <span className="font-normal text-slate-400">(optional)</span>
+              <input pattern="[0-9]{4}" inputMode="numeric" maxLength={4} value={manualDraft.accountMask} onChange={event => setManualDraft(value => ({ ...value, accountMask: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
+            </label>
+          </div>
+          {manualError && <p className="mt-3 text-sm font-medium text-rose-700">{manualError}</p>}
+          <button disabled={manualSaving} className="mt-4 min-h-11 rounded-xl bg-violet-700 px-5 text-sm font-semibold text-white disabled:opacity-60">
+            {manualSaving ? 'Saving…' : 'Save manual account'}
+          </button>
+        </form>
+      )}
 
       {refreshWarning && (
         <div className="mb-5 p-4 rounded-2xl bg-amber-50 text-amber-800 border border-amber-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -370,6 +476,12 @@ export function AccountsPage({
       {roleError && (
         <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">
           {roleError}
+        </div>
+      )}
+
+      {manualError && !showManualForm && (
+        <div className="mb-5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">
+          {manualError}
         </div>
       )}
 
@@ -428,6 +540,34 @@ export function AccountsPage({
             </p>
           )}
         </section>
+      )}
+
+      {financialPosition && (
+        <>
+          <section aria-label="Full savings picture" className="mb-7 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Liquid cash</p>
+              <p className="mt-1 text-xl font-bold text-emerald-950">{formatCurrency(financialPosition.liquidCash)}</p>
+              <p className="mt-1 text-xs text-emerald-800">Linked deposits plus included manual savings</p>
+            </div>
+            <div className="rounded-2xl border border-sky-100 bg-sky-50 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-sky-700">Liquid savings</p>
+              <p className="mt-1 text-xl font-bold text-sky-950">{formatCurrency(financialPosition.liquidSavings)}</p>
+              <p className="mt-1 text-xs text-sky-800">Reserve cash, separate from retirement</p>
+            </div>
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Estimated net worth</p>
+              <p className="mt-1 text-xl font-bold text-indigo-950">{formatCurrency(financialPosition.estimatedNetWorth)}</p>
+              <p className="mt-1 text-xs text-indigo-800">Known linked and manual balances</p>
+            </div>
+          </section>
+          {financialPosition.excludedDuplicateCount > 0 && (
+            <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+              {financialPosition.excludedDuplicateCount} possible duplicate manual account is shown below but excluded from every total.
+            </p>
+          )}
+          <RetirementPerspectiveCard position={financialPosition} />
+        </>
       )}
 
       <div
@@ -494,7 +634,9 @@ export function AccountsPage({
                       key={account.accountId}
                       data-account-name={account.accountName}
                       className={`rounded-2xl border p-4 sm:p-5 shadow-sm min-w-0 ${
-                        account.health === 'disconnected'
+                        account.source === 'manual'
+                          ? 'bg-violet-50/40 border-violet-200'
+                          : account.health === 'disconnected'
                           ? 'bg-slate-50 border-slate-200'
                           : 'bg-white border-slate-200'
                       }`}
@@ -568,7 +710,60 @@ export function AccountsPage({
                         </label>
                       </div>
 
-                      {isAttention && (
+                      {account.duplicateOfAccountId && (
+                        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                          Possible match to a linked account. This manual balance is excluded from cash, savings, retirement, and net-worth totals.
+                        </p>
+                      )}
+
+                      {account.source === 'manual' && (
+                        <div className="mt-4">
+                          {balanceAccountId === account.accountId ? (
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                              <label className="flex-1 text-xs font-medium text-slate-600">
+                                New balance
+                                <input
+                                  autoFocus
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  inputMode="decimal"
+                                  value={balanceDraft}
+                                  onChange={event => setBalanceDraft(event.target.value)}
+                                  className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm"
+                                />
+                              </label>
+                              <button
+                                disabled={manualSaving || balanceDraft === ''}
+                                onClick={() => void updateManualBalance(account)}
+                                className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-60"
+                              >
+                                {manualSaving ? 'Saving…' : 'Save balance'}
+                              </button>
+                              <button
+                                onClick={() => { setBalanceAccountId(null); setBalanceDraft(''); }}
+                                className="min-h-11 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setManualError(null);
+                                setBalanceAccountId(account.accountId);
+                                setBalanceDraft(account.current === null ? '' : String(account.current));
+                              }}
+                              className="min-h-11 inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-700 hover:bg-violet-50"
+                            >
+                              <PencilLine className="h-4 w-4" />
+                              Update balance
+                            </button>
+                          )}
+                        </div>
+                      )}
+
+                      {account.source === 'linked' && isAttention && (
                         <button
                           onClick={() => setActiveTab('settings')}
                           className="mt-4 min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 border border-amber-200 px-4 text-sm font-semibold text-amber-800 transition-colors"

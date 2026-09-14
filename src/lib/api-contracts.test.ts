@@ -304,6 +304,26 @@ const accountBalancesPayload = {
   }],
 };
 
+const financialPositionPayload = {
+  currency: 'USD',
+  mixedCurrency: false,
+  liquidCash: 2500,
+  liquidSavings: 1500,
+  estimatedNetWorth: 2000,
+  includedAccountCount: 2,
+  knownBalanceCount: 2,
+  excludedDuplicateCount: 0,
+  retirement: {
+    total: null,
+    accountCount: 0,
+    knownBalanceCount: 0,
+    shareOfNetWorth: null,
+    history: [],
+    trend: null,
+    contributionDataAvailable: false,
+  },
+};
+
 const cashFlowForecastPayload = {
   status: 'ready' as const,
   asOfDate: '2026-09-04',
@@ -616,6 +636,7 @@ describe('API response contracts', () => {
       householdInsights: householdInsightsPayload,
       verification: verificationPayload,
       accountBalances: accountBalancesPayload,
+      financialPosition: financialPositionPayload,
       cashFlowForecast: cashFlowForecastPayload,
       householdPlan: householdPlanPayload,
       safeToSpend: safeToSpendPayload,
@@ -928,6 +949,11 @@ describe('extractConnectedAccountsResponse', () => {
     isoCurrencyCode: 'USD',
     fetchedAt: '2026-09-07T12:00:00.000Z',
     balanceStatus: 'fresh',
+    source: 'linked',
+    manualKind: null,
+    includeInCash: true,
+    includeInNetWorth: true,
+    duplicateOfAccountId: null,
   };
 
   const buckets = Object.fromEntries([
@@ -939,7 +965,11 @@ describe('extractConnectedAccountsResponse', () => {
   }]));
 
   it('accepts the role-aware connected-account contract', () => {
-    const response = { accounts: [connectedAccount], summary: { currency: 'USD', buckets } };
+    const response = {
+      accounts: [connectedAccount],
+      summary: { currency: 'USD', buckets },
+      financialPosition: financialPositionPayload,
+    };
     expect(extractConnectedAccountsResponse(response)).toEqual(response);
   });
 

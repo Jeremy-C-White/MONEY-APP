@@ -2,7 +2,7 @@
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AccountBalanceSummary } from '../types/finance';
+import type { AccountBalanceSummary, FinancialPosition } from '../types/finance';
 import { AccountPositionCards } from './AccountPositionCards';
 
 function balances(overrides: Partial<AccountBalanceSummary> = {}): AccountBalanceSummary {
@@ -30,6 +30,19 @@ function balances(overrides: Partial<AccountBalanceSummary> = {}): AccountBalanc
   };
 }
 
+function position(overrides: Partial<FinancialPosition> = {}): FinancialPosition {
+  return {
+    currency: 'USD', mixedCurrency: false, liquidCash: 7500, liquidSavings: 5000,
+    estimatedNetWorth: 27000, includedAccountCount: 4, knownBalanceCount: 4,
+    excludedDuplicateCount: 0,
+    retirement: {
+      total: 20000, accountCount: 1, knownBalanceCount: 1, shareOfNetWorth: 20 / 27,
+      history: [], trend: null, contributionDataAvailable: false,
+    },
+    ...overrides,
+  };
+}
+
 describe('AccountPositionCards', () => {
   let container: HTMLDivElement;
   let root: ReturnType<typeof createRoot>;
@@ -51,6 +64,7 @@ describe('AccountPositionCards', () => {
       root.render(
         <AccountPositionCards
           balances={balances()}
+          financialPosition={position()}
           spending={725}
           spendingSubtitle="Compared with last month"
           projectedMonthEndSpending={1850}
@@ -59,11 +73,11 @@ describe('AccountPositionCards', () => {
       );
     });
 
-    expect(container.textContent).toContain('Checking and savings');
-    expect(container.textContent).toContain('$2,500.00');
-    expect(container.textContent).toContain('Available across connected deposit accounts: $2,400.00');
-    expect(container.textContent).toContain('Connected position');
-    expect(container.textContent).toContain('This is not net worth.');
+    expect(container.textContent).toContain('Liquid cash');
+    expect(container.textContent).toContain('$7,500.00');
+    expect(container.textContent).toContain('Savings portion: $5,000.00');
+    expect(container.textContent).toContain('Estimated net worth');
+    expect(container.textContent).toContain('$27,000.00');
     expect(container.textContent).toContain('Card balances owed');
     expect(container.textContent).toContain('$500.00');
     expect(container.textContent).toContain('Spending this month');
@@ -90,6 +104,7 @@ describe('AccountPositionCards', () => {
             creditCredits: null,
             connectedPosition: null,
           })}
+          financialPosition={position({ liquidCash: null, liquidSavings: null, estimatedNetWorth: null })}
           spending={0}
           spendingSubtitle={null}
           projectedMonthEndSpending={0}
@@ -99,7 +114,7 @@ describe('AccountPositionCards', () => {
     });
 
     expect(container.textContent).toContain('Account balances will appear after your next successful sync.');
-    expect(container.textContent).toContain('Checking and savings—');
+    expect(container.textContent).toContain('Liquid cash—');
     expect(container.textContent).toContain('Card balances owed—');
   });
 
@@ -108,6 +123,7 @@ describe('AccountPositionCards', () => {
       root.render(
         <AccountPositionCards
           balances={balances({ status: 'partial', reportingItemCount: 1 })}
+          financialPosition={position()}
           spending={100}
           spendingSubtitle={null}
           projectedMonthEndSpending={400}

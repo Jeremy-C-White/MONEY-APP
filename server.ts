@@ -14,7 +14,16 @@ import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTre
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
-import { buildAccountRoleView } from "./server/lib/account-role-view";
+import {
+  buildManualAccount,
+  buildManualBalanceSnapshot,
+  ManualAccountRequestError,
+  parseManualBalanceInput,
+  parseStoredManualAccount,
+  type StoredManualAccount,
+} from "./server/lib/manual-accounts";
+import { buildUnifiedAccountView } from "./server/lib/unified-accounts";
+import { buildFinancialPosition } from "./server/lib/financial-position";
 import {
   AccountRoleRequestError,
   buildAccountRoleDocumentId,
@@ -2374,6 +2383,43 @@ async function loadAccountRoleOverrides(uid: string): Promise<Map<string, Accoun
   }));
 }
 
+async function loadFinancialAccountContext(uid: string, now = new Date()) {
+  const userRef = db.collection('users').doc(uid);
+  const [plaidItemsSnap, manualAccountsSnap, overrides, balanceSnapshotsSnap] = await Promise.all([
+    db.collection('plaid_items').where('userId', '==', uid).get(),
+    userRef.collection('manual_accounts').get(),
+    loadAccountRoleOverrides(uid),
+    userRef.collection('balance_snapshots').get(),
+  ]);
+  const itemRecords = plaidItemsSnap.docs.map(document => {
+    const item = document.data();
+    return {
+      itemId: document.id,
+      institutionName: item.institution_name,
+      health: normalizeItemHealth(item),
+      accounts: item.accounts,
+      balanceSnapshot: item.balance_snapshot,
+    };
+  });
+  const linkedAccounts = buildConnectedAccounts(itemRecords);
+  const linkedBalances = buildAccountBalanceSummary(itemRecords, now.toISOString());
+  const manualAccounts = manualAccountsSnap.docs.flatMap(document => {
+    const parsed = parseStoredManualAccount(document.data());
+    return parsed ? [parsed] : [];
+  });
+  const unified = buildUnifiedAccountView({
+    linkedAccounts,
+    linkedBalances: linkedBalances.accounts,
+    manualAccounts,
+    overrides,
+  });
+  const financialPosition = buildFinancialPosition({
+    accounts: unified.accounts,
+    balanceSnapshots: balanceSnapshotsSnap.docs.map(document => document.data()),
+  });
+  return { ...unified, linkedBalances, manualAccounts, overrides, financialPosition };
+}
+
 app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const validRanges = ['6m', '12m', 'ytd'];
@@ -2385,13 +2431,13 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
     const uid = (req as any).user.uid;
     const [
       { txs, recurringObligations, householdPlan, financeTz, now },
-      accountBalances,
-      accountRoleOverrides,
+      accountContext,
     ] = await Promise.all([
       loadRecurringPlanning(uid),
-      loadAccountBalanceSummary(uid),
-      loadAccountRoleOverrides(uid),
+      loadFinancialAccountContext(uid),
     ]);
+    const accountBalances = accountContext.linkedBalances;
+    const accountRoleOverrides = accountContext.overrides;
     const verification = buildVerificationReport(txs, financeTz);
     const asOfDate = getDateForDateInTimezone(now, financeTz);
     const trends = aggregateTrends(txs, rangeParam, financeTz);
@@ -2419,6 +2465,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       householdInsights,
       verification,
       accountBalances,
+      financialPosition: accountContext.financialPosition,
       householdPlan,
       cashFlowForecast: buildCashFlowForecast({
         transactions: txs,
@@ -2739,35 +2786,93 @@ app.get("/api/transactions", requireAuth, async (req: express.Request, res: expr
   }
 });
 
-// Connected account inventory. Source of truth for connected accounts. Represents accounts present in connected Plaid items. Do not repurpose as the ledger-account source.
+// Accounts-page inventory. Combines linked Plaid accounts with owner-entered manual assets.
+// The separate /api/accounts route remains the transaction-ledger account source.
 app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const uid = (req as any).user.uid;
-    const [plaidItemsSnap, overrides] = await Promise.all([
-      db.collection("plaid_items").where("userId", "==", uid).get(),
-      loadAccountRoleOverrides(uid),
-    ]);
-    const itemRecords = plaidItemsSnap.docs.map(doc => {
-      const item = doc.data();
-      return {
-        itemId: doc.id,
-        institutionName: item.institution_name,
-        health: normalizeItemHealth(item),
-        accounts: item.accounts,
-        balanceSnapshot: item.balance_snapshot,
-      };
+    const context = await loadFinancialAccountContext(uid);
+    res.json({
+      accounts: context.accounts,
+      summary: context.summary,
+      financialPosition: context.financialPosition,
     });
-    const accounts = buildConnectedAccounts(itemRecords);
-    const balances = buildAccountBalanceSummary(itemRecords, new Date().toISOString());
-
-    res.json(buildAccountRoleView({
-      connectedAccounts: accounts,
-      balanceAccounts: balances.accounts,
-      overrides,
-    }));
   } catch (error: any) {
     console.error("Connected Accounts Error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+async function writeManualAccountSnapshot(input: {
+  uid: string;
+  account: StoredManualAccount;
+  balance: number;
+  recordedAt: string;
+  isNew: boolean;
+}) {
+  const userRef = db.collection('users').doc(input.uid);
+  const accountRef = userRef.collection('manual_accounts').doc(input.account.accountId);
+  const exactSnapshotRef = accountRef.collection('balance_snapshots').doc();
+  const balanceDate = getDateForDateInTimezone(
+    new Date(input.recordedAt),
+    process.env.FINANCE_TIME_ZONE || 'America/New_York'
+  );
+  const snapshot = buildManualBalanceSnapshot(input.account, input.balance, input.recordedAt);
+  const batch = db.batch();
+  batch.set(accountRef, {
+    ...input.account,
+    currentBalance: input.balance,
+    updatedAt: input.recordedAt,
+  }, { merge: !input.isNew });
+  batch.set(exactSnapshotRef, snapshot);
+  batch.set(userRef.collection('balance_snapshots').doc(balanceDate), {
+    date: balanceDate,
+    updatedAt: input.recordedAt,
+    manualAccounts: { [input.account.accountId]: snapshot },
+  }, { merge: true });
+  await batch.commit();
+}
+
+app.post('/api/manual-accounts', requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const now = new Date().toISOString();
+    const accountId = `manual_${crypto.randomUUID()}`;
+    const account = buildManualAccount(req.body, accountId, now);
+    await writeManualAccountSnapshot({ uid, account, balance: account.currentBalance, recordedAt: now, isNew: true });
+    dashboardCache.invalidate(uid);
+    res.status(201).json({ accountId, account });
+  } catch (error: any) {
+    if (error instanceof ManualAccountRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Manual Account Create Error:', error);
+    res.status(500).json({ error: 'Unable to create the manual account.' });
+  }
+});
+
+app.put('/api/manual-accounts/:accountId/balance', requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const accountId = String(req.params.accountId || '').trim();
+    if (!/^manual_[a-f0-9-]{36}$/.test(accountId)) {
+      return res.status(400).json({ error: 'A valid manual account is required.' });
+    }
+    const accountRef = db.collection('users').doc(uid).collection('manual_accounts').doc(accountId);
+    const accountDoc = await accountRef.get();
+    const account = parseStoredManualAccount(accountDoc.data());
+    if (!account) return res.status(404).json({ error: 'Manual account not found.' });
+    const balance = parseManualBalanceInput(req.body);
+    const now = new Date().toISOString();
+    await writeManualAccountSnapshot({ uid, account, balance, recordedAt: now, isNew: false });
+    dashboardCache.invalidate(uid);
+    res.json({ accountId, balance, updatedAt: now });
+  } catch (error: any) {
+    if (error instanceof ManualAccountRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error('Manual Account Balance Error:', error);
+    res.status(500).json({ error: 'Unable to update the manual balance.' });
   }
 });
 
@@ -2779,11 +2884,14 @@ app.put("/api/account-roles/:accountId", requireAuth, async (req: express.Reques
       return res.status(400).json({ error: 'A valid account is required.' });
     }
     const role = parseAccountRoleInput(req.body?.role);
-    const plaidItemsSnap = await db.collection('plaid_items').where('userId', '==', uid).get();
+    const [plaidItemsSnap, manualAccountDoc] = await Promise.all([
+      db.collection('plaid_items').where('userId', '==', uid).get(),
+      db.collection('users').doc(uid).collection('manual_accounts').doc(accountId).get(),
+    ]);
     const accountExists = plaidItemsSnap.docs.some(document => {
       const accounts = document.data().accounts;
       return Array.isArray(accounts) && accounts.some(account => account?.id === accountId);
-    });
+    }) || manualAccountDoc.exists;
     if (!accountExists) return res.status(404).json({ error: 'Account not found.' });
 
     const roleRef = db.collection('users').doc(uid)

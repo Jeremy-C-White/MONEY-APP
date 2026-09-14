@@ -1,7 +1,7 @@
 import React from 'react';
 import { AlertCircle, Clock3 } from 'lucide-react';
 import { formatCurrency } from '../lib/formatters';
-import type { AccountBalanceSummary, HouseholdInsights } from '../types/finance';
+import type { AccountBalanceSummary, FinancialPosition, HouseholdInsights } from '../types/finance';
 import { MetricCard } from './MetricCard';
 
 function formatBalanceTime(value: string | null): string {
@@ -18,6 +18,7 @@ function formatBalanceTime(value: string | null): string {
 
 export function AccountPositionCards({
   balances,
+  financialPosition,
   spending,
   spendingSubtitle,
   projectedMonthEndSpending,
@@ -25,6 +26,7 @@ export function AccountPositionCards({
   loading,
 }: {
   balances: AccountBalanceSummary | null;
+  financialPosition: FinancialPosition | null;
   spending: number | null | undefined;
   spendingSubtitle: React.ReactNode;
   projectedMonthEndSpending: number | null | undefined;
@@ -74,21 +76,26 @@ export function AccountPositionCards({
 
       <div className="mb-4 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 sm:p-5">
         <p className="text-xs font-semibold uppercase tracking-wide text-indigo-600">
-          Connected position
+          Estimated net worth
         </p>
         <p className="mt-1 text-2xl font-bold text-indigo-950">
-          {formatCurrency(balances?.connectedPosition)}
+          {formatCurrency(financialPosition?.estimatedNetWorth)}
         </p>
         <p className="mt-1 text-xs text-indigo-700">
-          Connected cash and investments, less connected card and loan balances. This is not net worth.
+          Known linked and manual assets, less known linked card and loan balances.
         </p>
+        {financialPosition?.excludedDuplicateCount ? (
+          <p className="mt-2 text-xs font-semibold text-amber-700">
+            {financialPosition.excludedDuplicateCount} possible duplicate manual account excluded from totals.
+          </p>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          title="Checking and savings"
-          value={formatCurrency(balances?.cashCurrent)}
-          subtitle={`Available across connected deposit accounts: ${formatCurrency(balances?.cashAvailable)}`}
+          title="Liquid cash"
+          value={formatCurrency(financialPosition?.liquidCash)}
+          subtitle={`Savings portion: ${formatCurrency(financialPosition?.liquidSavings)}`}
           loading={loading && !balances}
           highlight
         />
