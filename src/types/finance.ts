@@ -434,6 +434,7 @@ export interface FinancialPosition {
   currency: string | null;
   mixedCurrency: boolean;
   liquidCash: number | null;
+  liquidChecking: number | null;
   liquidSavings: number | null;
   estimatedNetWorth: number | null;
   includedAccountCount: number;

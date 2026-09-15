@@ -309,6 +309,7 @@ const financialPositionPayload = {
   currency: 'USD',
   mixedCurrency: false,
   liquidCash: 2500,
+  liquidChecking: 1000,
   liquidSavings: 1500,
   estimatedNetWorth: 2000,
   includedAccountCount: 2,

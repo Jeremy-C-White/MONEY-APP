@@ -1,5 +1,5 @@
 import React from 'react';
-import { Landmark, ShieldCheck, WalletCards } from 'lucide-react';
+import { Landmark, PiggyBank, ShieldCheck, WalletCards } from 'lucide-react';
 import type { FinancialPosition, SafeToSpend } from '../types/finance';
 import { formatCurrency } from '../lib/formatters';
 
@@ -48,17 +48,18 @@ export function OverviewNowCard({
           </button>
         )}
       </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <PositionValue label="Safe to spend" value={safeToSpend?.status === 'ready' ? safeToSpend.amount : null} icon={<ShieldCheck className="h-4 w-4" />} />
+        <PositionValue label="Checking" value={financialPosition?.liquidChecking} icon={<WalletCards className="h-4 w-4" />} />
+        <PositionValue label="Savings" value={financialPosition?.liquidSavings} icon={<PiggyBank className="h-4 w-4" />} />
         <PositionValue label="Estimated net worth" value={financialPosition?.estimatedNetWorth} icon={<Landmark className="h-4 w-4" />} />
-        <PositionValue label="Liquid cash" value={financialPosition?.liquidCash} icon={<WalletCards className="h-4 w-4" />} />
       </div>
       {safeToSpend?.status === 'unavailable' && (
         <p className="mt-3 text-sm text-amber-700">Safe to spend is unavailable. {safeToSpend.warning}</p>
       )}
-      {financialPosition?.liquidSavings != null && (
+      {financialPosition?.liquidCash != null && (
         <p className="mt-3 text-xs text-slate-500">
-          Liquid cash includes {formatCurrency(financialPosition.liquidSavings)} in savings. Retirement stays separate from this amount.
+          Checking and savings total {formatCurrency(financialPosition.liquidCash)} in liquid cash. Retirement stays separate.
         </p>
       )}
     </section>

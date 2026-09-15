@@ -234,7 +234,7 @@ the finance timezone, moving a row into the previous month.
 ### Overview layout
 
 The Overview answers three questions in order: **Now** combines safe to spend,
-estimated net worth, and liquid cash; **Heading** owns the month-end projection,
+checking, savings, estimated net worth, and the combined liquid-cash context; **Heading** owns the month-end projection,
 the single month-to-date pacing comparison, next paycheck, lowest scheduled
 balance, and upcoming bills; **Looking back** owns net-worth/cash-flow trends and
 top merchants. Each fact gets one canonical rendering. Do not reintroduce a

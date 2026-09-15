@@ -32,7 +32,7 @@ function balances(overrides: Partial<AccountBalanceSummary> = {}): AccountBalanc
 
 function position(overrides: Partial<FinancialPosition> = {}): FinancialPosition {
   return {
-    currency: 'USD', mixedCurrency: false, liquidCash: 7500, liquidSavings: 5000,
+    currency: 'USD', mixedCurrency: false, liquidCash: 7500, liquidChecking: 2500, liquidSavings: 5000,
     estimatedNetWorth: 27000, includedAccountCount: 4, knownBalanceCount: 4,
     excludedDuplicateCount: 0,
     netWorthHistory: [],
@@ -105,7 +105,7 @@ describe('AccountPositionCards', () => {
             creditCredits: null,
             connectedPosition: null,
           })}
-          financialPosition={position({ liquidCash: null, liquidSavings: null, estimatedNetWorth: null })}
+          financialPosition={position({ liquidCash: null, liquidChecking: null, liquidSavings: null, estimatedNetWorth: null })}
           spending={0}
           spendingSubtitle={null}
           projectedMonthEndSpending={0}

@@ -29,6 +29,7 @@ describe('buildFinancialPosition', () => {
     ] });
 
     expect(result.liquidCash).toBe(6000);
+    expect(result.liquidChecking).toBe(1000);
     expect(result.liquidSavings).toBe(5000);
     expect(result.estimatedNetWorth).toBe(6000);
     expect(result.excludedDuplicateCount).toBe(1);
@@ -49,6 +50,7 @@ describe('buildFinancialPosition', () => {
     });
 
     expect(result.liquidCash).toBe(7000);
+    expect(result.liquidChecking).toBe(7000);
     expect(result.liquidSavings).toBeNull();
     expect(result.estimatedNetWorth).toBe(10000);
     expect(result.retirement.total).toBe(3000);
@@ -82,6 +84,7 @@ describe('buildFinancialPosition', () => {
     expect(result.mixedCurrency).toBe(true);
     expect(result.currency).toBeNull();
     expect(result.estimatedNetWorth).toBeNull();
+    expect(result.liquidChecking).toBeNull();
   });
 
   it('does not present health savings or unassigned deposits as liquid household cash', () => {
@@ -91,6 +94,7 @@ describe('buildFinancialPosition', () => {
       account({ accountId: 'unknown', role: 'unassigned', defaultRole: 'unassigned', current: 300 }),
     ] });
     expect(result.liquidCash).toBe(1000);
+    expect(result.liquidChecking).toBe(1000);
     expect(result.estimatedNetWorth).toBe(6300);
   });
 });

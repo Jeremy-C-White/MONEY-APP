@@ -101,7 +101,7 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       accounts: [],
     },
     financialPosition: {
-      currency: 'USD', mixedCurrency: false, liquidCash: 4000, liquidSavings: null,
+      currency: 'USD', mixedCurrency: false, liquidCash: 4000, liquidChecking: 1500, liquidSavings: 2500,
       estimatedNetWorth: 4000, includedAccountCount: 1, knownBalanceCount: 1,
       excludedDuplicateCount: 0,
       netWorthHistory: [
@@ -237,7 +237,9 @@ describe('OverviewPage', () => {
     expect(firstSection?.textContent).toContain('Safe to spend');
     expect(firstSection?.textContent).toContain('$2,200.00');
     expect(firstSection?.textContent).toContain('Estimated net worth');
-    expect(firstSection?.textContent).toContain('Liquid cash');
+    expect(firstSection?.textContent).toContain('Checking$1,500.00');
+    expect(firstSection?.textContent).toContain('Savings$2,500.00');
+    expect(firstSection?.textContent).toContain('total $4,000.00 in liquid cash');
   });
 
   it('shows Now, Heading, and Looking back without a detail disclosure', async () => {

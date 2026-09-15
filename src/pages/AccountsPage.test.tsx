@@ -94,7 +94,7 @@ const connectedAccountsResponse = {
     },
   },
   financialPosition: {
-    currency: 'USD', mixedCurrency: false, liquidCash: 6200, liquidSavings: 5000,
+    currency: 'USD', mixedCurrency: false, liquidCash: 6200, liquidChecking: 1200, liquidSavings: 5000,
     estimatedNetWorth: 5700, includedAccountCount: 3, knownBalanceCount: 3,
     excludedDuplicateCount: 0,
     netWorthHistory: [],
@@ -188,7 +188,7 @@ describe('AccountsPage', () => {
         ].map(role => [role, { accountCount: 0, knownBalanceCount: 0, total: null }])),
       },
       financialPosition: {
-        currency: null, mixedCurrency: false, liquidCash: null, liquidSavings: null,
+        currency: null, mixedCurrency: false, liquidCash: null, liquidChecking: null, liquidSavings: null,
         estimatedNetWorth: null, includedAccountCount: 0, knownBalanceCount: 0,
         excludedDuplicateCount: 0,
         netWorthHistory: [],

@@ -18,6 +18,7 @@ export type FinancialPosition = {
   currency: string | null;
   mixedCurrency: boolean;
   liquidCash: number | null;
+  liquidChecking: number | null;
   liquidSavings: number | null;
   estimatedNetWorth: number | null;
   includedAccountCount: number;
@@ -207,6 +208,7 @@ export function buildFinancialPosition(input: {
     (account.role === 'operating' || account.role === 'reserve')
   ));
   const savingsAccounts = liquidAccounts.filter(account => account.role === 'reserve');
+  const checkingAccounts = liquidAccounts.filter(account => account.role === 'operating');
   const retirementAccounts = included.filter(account => account.role === 'retirement');
   const knownRetirementAccounts = retirementAccounts.filter(account => account.current !== null);
 
@@ -215,6 +217,9 @@ export function buildFinancialPosition(input: {
     : null;
   const liquidSavings = currency && !mixedCurrency
     ? sum(savingsAccounts.filter(account => account.isoCurrencyCode === currency).map(account => account.current as number))
+    : null;
+  const liquidChecking = currency && !mixedCurrency
+    ? sum(checkingAccounts.filter(account => account.isoCurrencyCode === currency).map(account => account.current as number))
     : null;
   const estimatedNetWorth = currency && !mixedCurrency
     ? sum(known.filter(account => account.isoCurrencyCode === currency).flatMap(account => {
@@ -237,6 +242,7 @@ export function buildFinancialPosition(input: {
     currency,
     mixedCurrency,
     liquidCash,
+    liquidChecking,
     liquidSavings,
     estimatedNetWorth,
     includedAccountCount: included.length,

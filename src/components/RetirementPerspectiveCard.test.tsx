@@ -23,7 +23,7 @@ describe('RetirementPerspectiveCard', () => {
 
   it('shows retirement totals, net-worth share, trend, and contribution limits', () => {
     const position: FinancialPosition = {
-      currency: 'USD', mixedCurrency: false, liquidCash: 10000, liquidSavings: 4000,
+      currency: 'USD', mixedCurrency: false, liquidCash: 10000, liquidChecking: 6000, liquidSavings: 4000,
       estimatedNetWorth: 50000, includedAccountCount: 3, knownBalanceCount: 3,
       excludedDuplicateCount: 0,
       netWorthHistory: [],

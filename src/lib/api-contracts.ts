@@ -310,6 +310,7 @@ export function extractFinancialPosition(data: unknown): FinancialPosition {
     !validNullableString(record.currency) ||
     typeof record.mixedCurrency !== 'boolean' ||
     !validNullableNumber(record.liquidCash) ||
+    !validNullableNumber(record.liquidChecking) ||
     !validNullableNumber(record.liquidSavings) ||
     !validNullableNumber(record.estimatedNetWorth) ||
     typeof record.includedAccountCount !== 'number' ||
