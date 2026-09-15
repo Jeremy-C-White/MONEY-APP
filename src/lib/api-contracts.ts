@@ -34,6 +34,7 @@ import type {
   SavingsDestination,
   ContributionStream,
   FinancialPosition,
+  MerchantComparisonReport,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -314,6 +315,16 @@ export function extractFinancialPosition(data: unknown): FinancialPosition {
     typeof record.includedAccountCount !== 'number' ||
     typeof record.knownBalanceCount !== 'number' ||
     typeof record.excludedDuplicateCount !== 'number' ||
+    !Array.isArray(record.netWorthHistory) ||
+    record.netWorthHistory.some(point => !(
+      isRecord(point) &&
+      typeof point.date === 'string' &&
+      validNullableNumber(point.estimatedNetWorth) &&
+      validNullableNumber(point.liquidCash) &&
+      typeof point.coveredAccountCount === 'number' &&
+      typeof point.expectedAccountCount === 'number' &&
+      ['complete', 'partial'].includes(String(point.status))
+    )) ||
     !isRecord(retirement) ||
     !validNullableNumber(retirement.total) ||
     typeof retirement.accountCount !== 'number' ||
@@ -584,6 +595,11 @@ export function extractCashFlowForecast(data: unknown): CashFlowForecast {
     record.dailyBalances.some(point => !(
       isRecord(point) && typeof point.date === 'string' && typeof point.balance === 'number'
     )) ||
+    !isRecord(record.summary) ||
+    typeof record.summary.upcomingBillTotal !== 'number' ||
+    typeof record.summary.upcomingBillCount !== 'number' ||
+    !validNullableString(record.summary.nextPaycheckDate) ||
+    !validNullableNumber(record.summary.nextPaycheckAmount) ||
     !validNullableNumber(record.minimumBalance) ||
     !validNullableString(record.minimumBalanceDate) ||
     !validNullableString(record.warning)
@@ -591,6 +607,35 @@ export function extractCashFlowForecast(data: unknown): CashFlowForecast {
     throw new Error('Invalid cash flow forecast response.');
   }
   return record as unknown as CashFlowForecast;
+}
+
+function extractMerchantComparison(data: unknown): MerchantComparisonReport {
+  const record = requireRecord(data, 'merchant comparison');
+  const validPeriod = (value: unknown) => (
+    isRecord(value) && typeof value.startDate === 'string' && typeof value.endDate === 'string'
+  );
+  if (
+    typeof record.asOfDate !== 'string' ||
+    !validPeriod(record.currentPeriod) ||
+    !validPeriod(record.previousComparablePeriod) ||
+    !Array.isArray(record.merchants) ||
+    record.merchants.some(merchant => !(
+      isRecord(merchant) &&
+      typeof merchant.merchant === 'string' &&
+      typeof merchant.currentSpending === 'number' &&
+      typeof merchant.previousSpending === 'number' &&
+      typeof merchant.difference === 'number' &&
+      validNullableNumber(merchant.percentageChange) &&
+      typeof merchant.transactionCount === 'number' &&
+      typeof merchant.isNew === 'boolean'
+    ))
+  ) throw new Error('Invalid merchant comparison response.');
+  return record as unknown as MerchantComparisonReport;
+}
+
+export function extractMerchantComparisonResponse(data: unknown): MerchantComparisonReport {
+  const record = requireRecord(data, 'dashboard merchants');
+  return extractMerchantComparison(record.comparison);
 }
 
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {

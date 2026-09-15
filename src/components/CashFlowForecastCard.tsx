@@ -55,16 +55,10 @@ export function CashFlowForecastCard({
   }
   if (!forecast) return null;
 
-  const paycheckEvents = forecast.scheduledEvents.filter(event => event.kind === 'paycheck');
-  const nextPaycheckDate = paycheckEvents[0]?.date || null;
-  const nextPaycheckAmount = nextPaycheckDate
-    ? paycheckEvents
-        .filter(event => event.date === nextPaycheckDate)
-        .reduce((total, event) => total + event.amount, 0)
-    : null;
+  const nextPaycheckDate = forecast.summary.nextPaycheckDate;
+  const nextPaycheckAmount = forecast.summary.nextPaycheckAmount;
   const affectedBills = forecast.upcomingBills.filter(event => event.affectsForecastBalance);
   const otherAccountBills = forecast.upcomingBills.filter(event => !event.affectsForecastBalance);
-  const upcomingTotal = forecast.upcomingBills.reduce((total, event) => total + event.amount, 0);
 
   return (
     <section className="mb-8 overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
@@ -82,10 +76,10 @@ export function CashFlowForecastCard({
           <div className="rounded-xl bg-indigo-50 px-4 py-3 sm:text-right">
             <p className="text-xs font-medium text-indigo-600">Bills expected in 7 days</p>
             <p className="mt-0.5 text-xl font-semibold text-indigo-950">
-              {formatCurrency(upcomingTotal)}
+              {formatCurrency(forecast.summary.upcomingBillTotal)}
             </p>
             <p className="text-[11px] text-indigo-700">
-              {forecast.upcomingBills.length} confirmed {forecast.upcomingBills.length === 1 ? 'bill' : 'bills'}
+              {forecast.summary.upcomingBillCount} confirmed {forecast.summary.upcomingBillCount === 1 ? 'bill' : 'bills'}
             </p>
           </div>
         </div>

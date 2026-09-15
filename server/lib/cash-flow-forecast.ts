@@ -53,6 +53,12 @@ export type CashFlowForecast = {
   upcomingBills: ScheduledCashEvent[];
   scheduledEvents: ScheduledCashEvent[];
   dailyBalances: DailyCashBalance[];
+  summary: {
+    upcomingBillTotal: number;
+    upcomingBillCount: number;
+    nextPaycheckDate: string | null;
+    nextPaycheckAmount: number | null;
+  };
   minimumBalance: number | null;
   minimumBalanceDate: string | null;
   warning: string | null;
@@ -402,6 +408,12 @@ export function buildCashFlowForecast(input: {
     }
   }
   const minimum = dailyBalances.slice().sort((left, right) => left.balance - right.balance)[0];
+  const nextPaycheckDate = paycheckEvents[0]?.date || null;
+  const nextPaycheckAmount = nextPaycheckDate
+    ? roundCurrency(paycheckEvents
+        .filter(event => event.date === nextPaycheckDate)
+        .reduce((total, event) => total + event.amount, 0))
+    : null;
 
   return {
     status,
@@ -419,6 +431,12 @@ export function buildCashFlowForecast(input: {
     upcomingBills,
     scheduledEvents,
     dailyBalances,
+    summary: {
+      upcomingBillTotal: roundCurrency(upcomingBills.reduce((total, event) => total + event.amount, 0)),
+      upcomingBillCount: upcomingBills.length,
+      nextPaycheckDate,
+      nextPaycheckAmount,
+    },
     minimumBalance: minimum?.balance ?? null,
     minimumBalanceDate: minimum?.date ?? null,
     warning,

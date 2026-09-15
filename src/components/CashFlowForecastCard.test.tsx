@@ -68,6 +68,12 @@ function forecast(overrides: Partial<CashFlowForecast> = {}): CashFlowForecast {
       { date: '2026-09-07', balance: 2300 },
       { date: '2026-09-11', balance: 5100 },
     ],
+    summary: {
+      upcomingBillTotal: 120,
+      upcomingBillCount: 2,
+      nextPaycheckDate: '2026-09-11',
+      nextPaycheckAmount: 2800,
+    },
     minimumBalance: 2300,
     minimumBalanceDate: '2026-09-07',
     warning: null,
@@ -115,6 +121,12 @@ describe('CashFlowForecastCard', () => {
     act(() => root.render(<CashFlowForecastCard forecast={forecast({
       status: 'stale',
       dailyBalances: [],
+      summary: {
+        upcomingBillTotal: 0,
+        upcomingBillCount: 0,
+        nextPaycheckDate: null,
+        nextPaycheckAmount: null,
+      },
       minimumBalance: null,
       minimumBalanceDate: null,
       warning: 'The payroll checking balance needs a fresh successful sync before it can be projected.',

@@ -99,6 +99,23 @@ export interface DashboardMerchantsResponse {
   merchants: DashboardMerchant[];
 }
 
+export interface MerchantComparison {
+  merchant: string;
+  currentSpending: number;
+  previousSpending: number;
+  difference: number;
+  percentageChange: number | null;
+  transactionCount: number;
+  isNew: boolean;
+}
+
+export interface MerchantComparisonReport {
+  asOfDate: string;
+  currentPeriod: { startDate: string; endDate: string };
+  previousComparablePeriod: { startDate: string; endDate: string };
+  merchants: MerchantComparison[];
+}
+
 export interface TrendPoint {
   month: string;
   income: number;
@@ -422,6 +439,14 @@ export interface FinancialPosition {
   includedAccountCount: number;
   knownBalanceCount: number;
   excludedDuplicateCount: number;
+  netWorthHistory: Array<{
+    date: string;
+    estimatedNetWorth: number | null;
+    liquidCash: number | null;
+    coveredAccountCount: number;
+    expectedAccountCount: number;
+    status: 'complete' | 'partial';
+  }>;
   retirement: {
     total: number | null;
     accountCount: number;
@@ -523,6 +548,12 @@ export interface CashFlowForecast {
   upcomingBills: ScheduledCashEvent[];
   scheduledEvents: ScheduledCashEvent[];
   dailyBalances: DailyCashBalance[];
+  summary: {
+    upcomingBillTotal: number;
+    upcomingBillCount: number;
+    nextPaycheckDate: string | null;
+    nextPaycheckAmount: number | null;
+  };
   minimumBalance: number | null;
   minimumBalanceDate: string | null;
   warning: string | null;

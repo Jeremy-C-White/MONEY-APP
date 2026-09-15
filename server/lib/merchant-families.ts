@@ -8,6 +8,12 @@ const MAJOR_RETAILER_FAMILIES: Array<{ label: string; pattern: RegExp }> = [
   { label: "Sam's Club", pattern: /^sam(?:'|’)?s(?:\s+club|club)?(?:\b|\.)/i },
   { label: 'Target', pattern: /^target(?:\b|\.)/i },
   { label: 'CVS', pattern: /^cvs(?:\b|\/)/i },
+  { label: 'Amazon', pattern: /^(?:amazon(?:\.com)?|amzn)(?:\b|\s|\*)/i },
+  { label: 'Costco', pattern: /^costco(?:\b|\s|\*)/i },
+  { label: 'Home Depot', pattern: /^(?:the\s+)?home\s+depot(?:\b|\s|\*)/i },
+  { label: "Lowe's", pattern: /^lowe(?:'|’)?s(?:\b|\s|\*)/i },
+  { label: 'Walgreens', pattern: /^walgreens(?:\b|\s|\*)/i },
+  { label: 'Starbucks', pattern: /^starbucks(?:\b|\s|\*)/i },
 ];
 
 function cleanMerchantName(value: unknown): string {

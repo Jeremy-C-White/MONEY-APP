@@ -1,33 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRight, ChevronDown, ChevronUp, RefreshCcw } from 'lucide-react';
+import { AlertCircle, ArrowRight, RefreshCcw } from 'lucide-react';
 import { TrendChart } from '../components/TrendChart';
-import { RecurringObligationsCard } from '../components/RecurringObligationsCard';
-import { HouseholdInsightsCard } from '../components/HouseholdInsightsCard';
-import { AccountPositionCards } from '../components/AccountPositionCards';
-import { CashFlowForecastCard } from '../components/CashFlowForecastCard';
-import { CategoryBreakdownCard } from '../components/CategoryBreakdownCard';
-import { SafeToSpendCard } from '../components/SafeToSpendCard';
-import { MonthVerdictCard } from '../components/MonthVerdictCard';
-import { UpcomingCommitmentsCard } from '../components/UpcomingCommitmentsCard';
-import { SavingsContributionsCard } from '../components/SavingsContributionsCard';
-import {
-  formatCurrency,
-  formatPercentagePoints,
-  formatMonthLabel,
-} from '../lib/formatters';
-import { extractOverviewResponse } from '../lib/api-contracts';
-import type {
-  DashboardSummary,
-  TrendPoint,
-  DashboardVerificationResponse,
-  RecurringObligationsResponse,
-  HouseholdInsights,
-  AccountBalanceSummary,
-  CashFlowForecast,
-  SafeToSpend,
-  OverviewVerdicts,
-  FinancialPosition,
-} from '../types/finance';
+import { NetWorthTrendChart } from '../components/NetWorthTrendChart';
+import { OverviewHeadingCard } from '../components/OverviewHeadingCard';
+import { OverviewNowCard } from '../components/OverviewNowCard';
+import { TopMerchantsCard } from '../components/TopMerchantsCard';
+import { formatCurrency, formatMonthLabel } from '../lib/formatters';
+import { extractMerchantComparisonResponse, extractOverviewResponse } from '../lib/api-contracts';
+import type { DashboardOverviewResponse, MerchantComparisonReport } from '../types/finance';
 
 export function OverviewPage({
   apiFetch,
@@ -42,53 +22,35 @@ export function OverviewPage({
   onViewTransactions: () => void;
   onOpenPlanSettings?: () => void;
 }) {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [trends, setTrends] = useState<TrendPoint[]>([]);
-  const [recurringObligations, setRecurringObligations] =
-    useState<RecurringObligationsResponse | null>(null);
-  const [householdInsights, setHouseholdInsights] =
-    useState<HouseholdInsights | null>(null);
-  const [verification, setVerification] =
-    useState<DashboardVerificationResponse | null>(null);
-  const [accountBalances, setAccountBalances] = useState<AccountBalanceSummary | null>(null);
-  const [financialPosition, setFinancialPosition] = useState<FinancialPosition | null>(null);
-  const [cashFlowForecast, setCashFlowForecast] = useState<CashFlowForecast | null>(null);
-  const [safeToSpend, setSafeToSpend] = useState<SafeToSpend | null>(null);
-  const [verdicts, setVerdicts] = useState<OverviewVerdicts | null>(null);
+  const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
+  const [merchantComparison, setMerchantComparison] = useState<MerchantComparisonReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showMoreDetail, setShowMoreDetail] = useState(false);
-  const [trendRange, setTrendRange] =
-    useState<'6m' | '12m' | 'ytd'>('12m');
+  const [trendRange, setTrendRange] = useState<'6m' | '12m' | 'ytd'>('12m');
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
-
     try {
-      const response = await apiFetch(`/api/dashboard/overview?range=${trendRange}`);
-      if (!response.ok) {
-        throw new Error('Failed to load overview data.');
+      const [response, merchantsResponse] = await Promise.all([
+        apiFetch(`/api/dashboard/overview?range=${trendRange}`),
+        apiFetch('/api/dashboard/merchants').catch(() => null),
+      ]);
+      if (!response.ok) throw new Error('Failed to load overview data.');
+      setOverview(extractOverviewResponse(await response.json()));
+      if (merchantsResponse?.ok) {
+        try {
+          setMerchantComparison(extractMerchantComparisonResponse(await merchantsResponse.json()));
+        } catch (merchantError) {
+          console.error(merchantError);
+          setMerchantComparison(null);
+        }
+      } else {
+        setMerchantComparison(null);
       }
-      const normalized = extractOverviewResponse(await response.json());
-
-      setSummary(normalized.summary);
-      setTrends(normalized.trends);
-      setRecurringObligations(normalized.recurringObligations);
-      setHouseholdInsights(normalized.householdInsights);
-      setVerification(normalized.verification);
-      setAccountBalances(normalized.accountBalances);
-      setFinancialPosition(normalized.financialPosition);
-      setCashFlowForecast(normalized.cashFlowForecast);
-      setSafeToSpend(normalized.safeToSpend);
-      setVerdicts(normalized.verdicts);
     } catch (err: unknown) {
       console.error(err);
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'An unexpected error occurred loading your dashboard.'
-      );
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred loading your dashboard.');
     } finally {
       setLoading(false);
     }
@@ -98,230 +60,96 @@ export function OverviewPage({
     void fetchData();
   }, [trendRange, refreshKey]);
 
-  if (error && !summary) {
+  if (error && !overview) {
     return (
-      <div className="flex flex-col items-center justify-center p-8 bg-white rounded-2xl shadow-sm border border-rose-100">
-        <div className="w-12 h-12 bg-rose-50 rounded-full flex items-center justify-center mb-4">
-          <AlertCircle className="w-6 h-6 text-rose-500" />
+      <div className="flex flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white p-8 shadow-sm">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-50">
+          <AlertCircle className="h-6 w-6 text-rose-500" />
         </div>
-        <h3 className="text-lg font-medium text-slate-900 mb-2">
-          Unable to load dashboard
-        </h3>
-        <p className="text-slate-500 text-center mb-6 max-w-sm">{error}</p>
-        <button
-          onClick={() => void fetchData()}
-          className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-xl font-medium transition-colors"
-        >
-          <RefreshCcw className="w-4 h-4" />
-          <span>Retry</span>
+        <h3 className="mb-2 text-lg font-medium text-slate-900">Unable to load dashboard</h3>
+        <p className="mb-6 max-w-sm text-center text-slate-500">{error}</p>
+        <button onClick={() => void fetchData()} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 font-medium text-white transition-colors hover:bg-indigo-700">
+          <RefreshCcw className="h-4 w-4" /><span>Retry</span>
         </button>
       </div>
     );
   }
 
-  const pacing = summary?.pacing;
-  const pacedDiff = pacing?.spendingDifference;
-  const pacedPct = pacing?.spendingPercentageChange;
-
-  const spendingSubtitle = (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-center gap-x-1">
-        {pacedDiff != null ? (
-          <>
-            <span
-              className={
-                pacedDiff > 0
-                  ? 'text-rose-500 font-medium'
-                  : 'text-emerald-500 font-medium'
-              }
-            >
-              {pacedDiff > 0 ? '+' : ''}
-              {formatCurrency(pacedDiff)}
-            </span>
-            {pacedPct != null && (
-              <span className="text-slate-400">
-                ({pacedPct > 0 ? '+' : ''}
-                {formatPercentagePoints(pacedPct)})
-              </span>
-            )}
-            <span className="text-slate-400">
-              vs {formatCurrency(pacing?.previousMonthToDateSpending)} at this point last month
-            </span>
-          </>
-        ) : (
-          <span className="text-slate-400">No previous data</span>
-        )}
-      </div>
-    </div>
-  );
-
   return (
     <div className="w-full pb-20 md:pb-8">
-      {summary?.currentMonth.month && (
-        <h2 className="text-xl font-bold text-slate-900 mb-6">
-          {formatMonthLabel(summary.currentMonth.month)}
-        </h2>
+      {overview?.summary.currentMonth.month && (
+        <h2 className="mb-6 text-xl font-bold text-slate-900">{formatMonthLabel(overview.summary.currentMonth.month)}</h2>
       )}
 
-      {error && summary && (
-        <div className="mb-6 p-4 rounded-xl flex items-center justify-between gap-4 shadow-sm bg-rose-50 text-rose-700 border border-rose-200">
-          <span className="text-sm font-medium">
-            Failed to refresh some data. Showing last known state.
-          </span>
-          <button
-            onClick={() => void fetchData()}
-            className="opacity-75 hover:opacity-100 text-sm font-medium underline whitespace-nowrap"
-          >
-            Retry
-          </button>
+      {error && overview && (
+        <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
+          <span className="text-xs font-medium">Refresh failed. Showing the last known state.</span>
+          <button onClick={() => void fetchData()} className="text-xs font-medium underline">Retry</button>
         </div>
       )}
 
-      {verification?.reconciliation.unknownTransferCount ? (
-        <div className="mb-6 bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div className="flex items-start sm:items-center space-x-3">
-            <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5 sm:mt-0 flex-shrink-0" />
-            <div>
-              <h4 className="font-medium text-amber-900">Needs Review</h4>
-              <p className="text-sm text-amber-700">
-                {verification.reconciliation.unknownTransferCount}{' '}
-                {verification.reconciliation.unknownTransferCount === 1
-                  ? 'transfer'
-                  : 'transfers'}{' '}
-                ({formatCurrency(verification.reconciliation.unknownTransferAmount)})
-                {' '}are excluded from recognized spending/income until their meaning is clear.
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onReviewTransactions}
-            className="px-4 py-2 bg-white border border-amber-200 hover:bg-amber-100 text-amber-800 text-sm font-medium rounded-lg shadow-sm whitespace-nowrap transition-colors"
-          >
-            Review transactions
-          </button>
+      {overview?.verification.reconciliation.unknownTransferCount ? (
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <span>
+            <AlertCircle className="mr-1.5 inline h-4 w-4" />
+            {overview.verification.reconciliation.unknownTransferCount} unclassified {overview.verification.reconciliation.unknownTransferCount === 1 ? 'transfer' : 'transfers'} ({formatCurrency(overview.verification.reconciliation.unknownTransferAmount)}) excluded from totals.
+          </span>
+          <button onClick={onReviewTransactions} className="font-semibold underline">Review</button>
         </div>
       ) : null}
 
-      {/*
-        The Overview answers four questions in order: what can I spend, how is
-        the month going, what is still coming, and where do I stand. Everything
-        else is detail and sits behind the disclosure below.
-      */}
-      <SafeToSpendCard
-        safeToSpend={safeToSpend}
-        loading={loading && !safeToSpend}
+      <OverviewNowCard
+        safeToSpend={overview?.safeToSpend || null}
+        financialPosition={overview?.financialPosition || null}
+        loading={loading && !overview}
         onEditBuffer={onOpenPlanSettings}
       />
 
-      <MonthVerdictCard
-        verdicts={verdicts}
-        loading={loading && !verdicts}
-        onSetTarget={onOpenPlanSettings}
+      <OverviewHeadingCard
+        summary={overview?.summary || null}
+        insights={overview?.householdInsights || null}
+        forecast={overview?.cashFlowForecast || null}
+        loading={loading && !overview}
       />
 
-      <UpcomingCommitmentsCard
-        safeToSpend={safeToSpend}
-        loading={loading && !safeToSpend}
-        onReviewObligations={() => setShowMoreDetail(true)}
-      />
-
-      <AccountPositionCards
-        balances={accountBalances}
-        financialPosition={financialPosition}
-        spending={summary?.currentMonth.spending}
-        spendingSubtitle={spendingSubtitle}
-        projectedMonthEndSpending={householdInsights?.forecast.projectedMonthEndSpending}
-        projectionMaturity={householdInsights?.forecast.maturity}
-        loading={loading && !summary}
-      />
-
-      <div className="mb-8 flex justify-center">
-        <button
-          type="button"
-          onClick={() => setShowMoreDetail(current => !current)}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-          aria-expanded={showMoreDetail}
-        >
-          {showMoreDetail ? 'Less detail' : 'More detail'}
-          {showMoreDetail ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-        </button>
-      </div>
-
-      {showMoreDetail && (
-        <>
-          <CashFlowForecastCard
-            forecast={cashFlowForecast}
-            loading={loading && !cashFlowForecast}
-          />
-
-          <HouseholdInsightsCard
-            insights={householdInsights}
-            loading={loading && !householdInsights}
-          />
-
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-4 md:p-6 overflow-hidden mb-8">
-            <div className="flex items-center justify-between gap-3 mb-6">
-              <h3 className="text-lg font-medium text-slate-900">Cash Flow Trends</h3>
-              <div className="flex bg-slate-100 p-1 rounded-lg">
-                {(['6m', '12m', 'ytd'] as const).map((range) => (
-                  <button
-                    key={range}
-                    onClick={() => setTrendRange(range)}
-                    className={`px-3 sm:px-4 py-1.5 text-xs font-medium rounded-md uppercase min-w-[44px] min-h-[44px] sm:min-h-0 flex items-center justify-center ${
-                      trendRange === range
-                        ? 'bg-white shadow-sm text-slate-900'
-                        : 'text-slate-500 hover:text-slate-700'
-                    }`}
-                  >
-                    {range}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <TrendChart data={trends} loading={loading && trends.length === 0} />
-            <div className="flex justify-center space-x-6 mt-4">
-              <div className="flex items-center text-sm text-slate-500">
-                <div className="w-3 h-3 bg-emerald-400 rounded-sm mr-2" />
-                Income
-              </div>
-              <div className="flex items-center text-sm text-slate-500">
-                <div className="w-3 h-3 bg-indigo-400 rounded-sm mr-2" />
-                Spending
-              </div>
-              <div className="flex items-center text-sm text-slate-500">
-                <div className="w-4 h-0.5 bg-slate-900 mr-2" />
-                Income minus spending
-              </div>
-            </div>
+      <section className="mb-8">
+        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Looking back</p>
+            <h3 className="mt-1 text-lg font-medium text-slate-900">How your money has moved</h3>
           </div>
-
-          <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} />
-
-          <SavingsContributionsCard apiFetch={apiFetch} refreshKey={refreshKey} />
-
-          <div className="mb-8">
-            <RecurringObligationsCard
-              report={recurringObligations}
-              loading={loading && !recurringObligations}
-              apiFetch={apiFetch}
-              onChanged={fetchData}
-            />
+          <div className="flex rounded-lg bg-slate-100 p-1">
+            {(['6m', '12m', 'ytd'] as const).map(range => (
+              <button
+                key={range}
+                onClick={() => setTrendRange(range)}
+                className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium uppercase ${trendRange === range ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+              >
+                {range}
+              </button>
+            ))}
           </div>
-        </>
-      )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
+            <h3 className="mb-4 text-lg font-medium text-slate-900">Net worth history</h3>
+            <NetWorthTrendChart financialPosition={overview?.financialPosition || null} />
+          </div>
+          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
+            <h3 className="mb-4 text-lg font-medium text-slate-900">Cash flow trends</h3>
+            <TrendChart data={overview?.trends || []} loading={loading && !overview} />
+          </div>
+        </div>
+
+        <div className="mt-6">
+          <TopMerchantsCard report={merchantComparison} />
+        </div>
+      </section>
 
       <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={onViewTransactions}
-          className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-        >
-          View all transactions
-          <ArrowRight className="h-4 w-4" />
+        <button type="button" onClick={onViewTransactions} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
+          View all transactions <ArrowRight className="h-4 w-4" />
         </button>
       </div>
     </div>

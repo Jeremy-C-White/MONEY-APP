@@ -26,6 +26,7 @@ describe('RetirementPerspectiveCard', () => {
       currency: 'USD', mixedCurrency: false, liquidCash: 10000, liquidSavings: 4000,
       estimatedNetWorth: 50000, includedAccountCount: 3, knownBalanceCount: 3,
       excludedDuplicateCount: 0,
+      netWorthHistory: [],
       retirement: {
         total: 30000, accountCount: 1, knownBalanceCount: 1, shareOfNetWorth: 0.6,
         history: [{ date: '2026-08-01', total: 28000 }, { date: '2026-09-01', total: 30000 }],

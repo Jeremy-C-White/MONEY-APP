@@ -62,6 +62,7 @@ import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
 import { buildSafeToSpend } from "./server/lib/safe-to-spend";
 import { analyzeTransferCoverage } from "./server/lib/transfer-coverage";
 import { applyMerchantFamilies } from "./server/lib/merchant-families";
+import { buildMerchantComparison } from "./server/lib/merchant-comparison";
 import {
   HouseholdPlanRequestError,
   buildSpendingTargetProgress,
@@ -2290,9 +2291,14 @@ app.get("/api/dashboard/categories", requireAuth, async (req: express.Request, r
 
 app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const txs = applyMerchantFamilies(await fetchNormalizedTransactions((req as any).user.uid));
     const merchants = aggregateMerchants(txs);
-    res.json({ merchants: merchants.slice(0, 50) });
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const asOfDate = getDateForDateInTimezone(new Date(), financeTz);
+    res.json({
+      merchants: merchants.slice(0, 50),
+      comparison: buildMerchantComparison({ transactions: txs, asOfDate, limit: 10 }),
+    });
   } catch (error: any) {
     console.error("Dashboard Merchants Error:", error);
     res.status(500).json({ error: error.message });
@@ -2441,6 +2447,13 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
     const verification = buildVerificationReport(txs, financeTz);
     const asOfDate = getDateForDateInTimezone(now, financeTz);
     const trends = aggregateTrends(txs, rangeParam, financeTz);
+    const earliestTrendMonth = trends[0]?.month || null;
+    const financialPosition = {
+      ...accountContext.financialPosition,
+      netWorthHistory: accountContext.financialPosition.netWorthHistory.filter(point => (
+        !earliestTrendMonth || point.date.slice(0, 7) >= earliestTrendMonth
+      )),
+    };
     const householdInsights = buildHouseholdInsights(
       txs,
       recurringObligations.obligations,
@@ -2465,7 +2478,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       householdInsights,
       verification,
       accountBalances,
-      financialPosition: accountContext.financialPosition,
+      financialPosition,
       householdPlan,
       cashFlowForecast: buildCashFlowForecast({
         transactions: txs,

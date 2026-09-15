@@ -9,6 +9,12 @@ describe('getMerchantFamily', () => {
     ['SAMSCLUB.COM', "Sam's Club"],
     ['TARGET DEBIT CRD ACH TRAN', 'Target'],
     ['CVS/PHARMACY #02134', 'CVS'],
+    ['AMZN Mktp US*AB12C', 'Amazon'],
+    ['COSTCO WHSE #123', 'Costco'],
+    ['THE HOME DEPOT #0402', 'Home Depot'],
+    ["LOWE'S #01873", "Lowe's"],
+    ['WALGREENS #10293', 'Walgreens'],
+    ['STARBUCKS STORE 1042', 'Starbucks'],
   ])('groups %s under %s', (merchant, expected) => {
     expect(getMerchantFamily(merchant)).toBe(expected);
   });

@@ -57,6 +57,24 @@ describe('buildFinancialPosition', () => {
     expect(result.retirement.contributionDataAvailable).toBe(false);
   });
 
+  it('marks net worth history gaps instead of charting incomplete account coverage', () => {
+    const result = buildFinancialPosition({
+      accounts: [account(), account({
+        accountId: 'apple', role: 'reserve', defaultRole: 'reserve', current: 5000,
+        source: 'manual', manualKind: 'savings', available: null,
+      })],
+      balanceSnapshots: [
+        { date: '2026-09-13', items: { bank: { accounts: [{ accountId: 'checking', current: 1000, isoCurrencyCode: 'USD' }] } } },
+        { date: '2026-09-14', items: { bank: { accounts: [{ accountId: 'checking', current: 1000, isoCurrencyCode: 'USD' }] } }, manualAccounts: { apple: { accountId: 'apple', balance: 5000, isoCurrencyCode: 'USD' } } },
+      ],
+    });
+
+    expect(result.netWorthHistory).toEqual([
+      { date: '2026-09-13', estimatedNetWorth: null, liquidCash: null, coveredAccountCount: 1, expectedAccountCount: 2, status: 'partial' },
+      { date: '2026-09-14', estimatedNetWorth: 6000, liquidCash: 6000, coveredAccountCount: 2, expectedAccountCount: 2, status: 'complete' },
+    ]);
+  });
+
   it('withholds combined totals for mixed currencies', () => {
     const result = buildFinancialPosition({ accounts: [
       account(), account({ accountId: 'cad', current: 200, isoCurrencyCode: 'CAD' }),

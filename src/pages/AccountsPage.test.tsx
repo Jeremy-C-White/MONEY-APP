@@ -97,6 +97,7 @@ const connectedAccountsResponse = {
     currency: 'USD', mixedCurrency: false, liquidCash: 6200, liquidSavings: 5000,
     estimatedNetWorth: 5700, includedAccountCount: 3, knownBalanceCount: 3,
     excludedDuplicateCount: 0,
+    netWorthHistory: [],
     retirement: {
       total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
       history: [], trend: null, contributionDataAvailable: false,
@@ -190,6 +191,7 @@ describe('AccountsPage', () => {
         currency: null, mixedCurrency: false, liquidCash: null, liquidSavings: null,
         estimatedNetWorth: null, includedAccountCount: 0, knownBalanceCount: 0,
         excludedDuplicateCount: 0,
+        netWorthHistory: [],
         retirement: {
           total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
           history: [], trend: null, contributionDataAvailable: false,

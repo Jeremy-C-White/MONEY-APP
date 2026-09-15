@@ -238,6 +238,12 @@ describe('buildCashFlowForecast', () => {
     });
 
     expect(result.upcomingBills.map(event => event.label)).toEqual(['Internet Co', 'Streaming Co']);
+    expect(result.summary).toEqual({
+      upcomingBillTotal: 120,
+      upcomingBillCount: 2,
+      nextPaycheckDate: '2026-09-11',
+      nextPaycheckAmount: 2800,
+    });
     expect(result.upcomingBills.find(event => event.label === 'Internet Co')).toMatchObject({
       date: '2026-09-07',
       amount: 100,

@@ -23,6 +23,15 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
     },
     categories: [],
     merchants: [],
+    merchantComparison: {
+      asOfDate: '2026-09-06',
+      currentPeriod: { startDate: '2026-09-01', endDate: '2026-09-06' },
+      previousComparablePeriod: { startDate: '2026-08-01', endDate: '2026-08-06' },
+      merchants: [{
+        merchant: 'Walmart', currentSpending: 300, previousSpending: 250,
+        difference: 50, percentageChange: 20, transactionCount: 3, isNew: false,
+      }],
+    },
     trends: [{ month: '2026-09', income: 5000, spending: 2400, netCashFlow: 2600 }],
     recurringObligations: {
       obligations: [],
@@ -95,6 +104,10 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       currency: 'USD', mixedCurrency: false, liquidCash: 4000, liquidSavings: null,
       estimatedNetWorth: 4000, includedAccountCount: 1, knownBalanceCount: 1,
       excludedDuplicateCount: 0,
+      netWorthHistory: [
+        { date: '2026-09-05', estimatedNetWorth: 3900, liquidCash: 3900, coveredAccountCount: 1, expectedAccountCount: 1, status: 'complete' },
+        { date: '2026-09-06', estimatedNetWorth: 4000, liquidCash: 4000, coveredAccountCount: 1, expectedAccountCount: 1, status: 'complete' },
+      ],
       retirement: {
         total: null, accountCount: 0, knownBalanceCount: 0, shareOfNetWorth: null,
         history: [], trend: null, contributionDataAvailable: false,
@@ -111,6 +124,7 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       upcomingBills: [],
       scheduledEvents: [],
       dailyBalances: [],
+      summary: { upcomingBillTotal: 0, upcomingBillCount: 0, nextPaycheckDate: null, nextPaycheckAmount: null },
       minimumBalance: null,
       minimumBalanceDate: null,
       warning: 'No current regular Verizon payroll schedule could be confirmed.',
@@ -193,9 +207,11 @@ describe('OverviewPage', () => {
   });
 
   async function renderOverview(payload: unknown = overviewPayload()) {
-    const apiFetch = vi.fn(async () => ({
+    const apiFetch = vi.fn(async (endpoint: string) => ({
       ok: true,
-      json: async () => payload,
+      json: async () => endpoint === '/api/dashboard/merchants'
+        ? { comparison: (payload as ReturnType<typeof overviewPayload>).merchantComparison, merchants: [] }
+        : payload,
     }) as Response);
     const onOpenPlanSettings = vi.fn();
 
@@ -214,36 +230,34 @@ describe('OverviewPage', () => {
     return { apiFetch, onOpenPlanSettings };
   }
 
-  it('leads with safe to spend above everything else', async () => {
+  it('leads with a single Now section for the current position', async () => {
     await renderOverview();
 
     const firstSection = container.querySelector('section');
     expect(firstSection?.textContent).toContain('Safe to spend');
     expect(firstSection?.textContent).toContain('$2,200.00');
+    expect(firstSection?.textContent).toContain('Estimated net worth');
+    expect(firstSection?.textContent).toContain('Liquid cash');
   });
 
-  it('shows the four decision items and hides the rest behind More detail', async () => {
-    await renderOverview();
+  it('shows Now, Heading, and Looking back without a detail disclosure', async () => {
+    const { apiFetch } = await renderOverview();
 
-    expect(container.textContent).toContain('Safe to spend');
-    expect(container.textContent).toContain("September 2026 so far: you've kept $2,600.00.");
-    expect(container.textContent).toContain('Still coming');
-    expect(container.textContent).toContain('Connected-account position');
-
-    expect(container.textContent).not.toContain('Cash Flow Trends');
-    expect(container.textContent).not.toContain('Scheduled cash outlook');
-    expect(container.textContent).toContain('More detail');
+    expect(container.textContent).toContain('Now');
+    expect(container.textContent).toContain('Heading');
+    expect(container.textContent).toContain('Looking back');
+    expect(container.textContent).toContain('Projected month-end spending');
+    expect(container.textContent).toContain('Top merchants');
+    expect(container.textContent).toContain('Walmart');
+    expect(container.textContent).toContain('Up from $250.00 last month');
+    expect(container.textContent).not.toContain('More detail');
+    expect(container.textContent).not.toContain('Connected-account position');
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/merchants');
   });
 
-  it('reveals the detail cards on request', async () => {
+  it('renders the pacing comparison only once', async () => {
     await renderOverview();
-
-    const toggle = [...container.querySelectorAll('button')]
-      .find(button => button.textContent?.includes('More detail')) as HTMLButtonElement;
-    await act(async () => { toggle.click(); });
-
-    expect(container.textContent).toContain('Cash Flow Trends');
-    expect(container.textContent).toContain('Less detail');
+    expect(container.textContent?.match(/same point last month/g)).toHaveLength(1);
   });
 
   it('withholds the figure and explains why when balances are not fresh', async () => {

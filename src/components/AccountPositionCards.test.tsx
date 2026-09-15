@@ -35,6 +35,7 @@ function position(overrides: Partial<FinancialPosition> = {}): FinancialPosition
     currency: 'USD', mixedCurrency: false, liquidCash: 7500, liquidSavings: 5000,
     estimatedNetWorth: 27000, includedAccountCount: 4, knownBalanceCount: 4,
     excludedDuplicateCount: 0,
+    netWorthHistory: [],
     retirement: {
       total: 20000, accountCount: 1, knownBalanceCount: 1, shareOfNetWorth: 20 / 27,
       history: [], trend: null, contributionDataAvailable: false,

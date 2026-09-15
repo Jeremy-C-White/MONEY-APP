@@ -5,6 +5,15 @@ export type RetirementHistoryPoint = {
   total: number;
 };
 
+export type NetWorthHistoryPoint = {
+  date: string;
+  estimatedNetWorth: number | null;
+  liquidCash: number | null;
+  coveredAccountCount: number;
+  expectedAccountCount: number;
+  status: 'complete' | 'partial';
+};
+
 export type FinancialPosition = {
   currency: string | null;
   mixedCurrency: boolean;
@@ -14,6 +23,7 @@ export type FinancialPosition = {
   includedAccountCount: number;
   knownBalanceCount: number;
   excludedDuplicateCount: number;
+  netWorthHistory: NetWorthHistoryPoint[];
   retirement: {
     total: number | null;
     accountCount: number;
@@ -122,6 +132,60 @@ function buildRetirementHistory(
   }).sort((left, right) => left.date.localeCompare(right.date));
 }
 
+function buildNetWorthHistory(
+  accounts: readonly UnifiedAccount[],
+  snapshots: readonly StoredDailyBalanceSnapshot[],
+  currency: string | null
+): NetWorthHistoryPoint[] {
+  if (!currency) return [];
+  const expected = accounts.filter(account => (
+    account.includeInNetWorth &&
+    !account.duplicateOfAccountId &&
+    account.current !== null &&
+    account.isoCurrencyCode === currency
+  ));
+  if (!expected.length) return [];
+  const liquidIds = new Set(expected.filter(account => (
+    account.accountType === 'depository' &&
+    account.includeInCash &&
+    (account.role === 'operating' || account.role === 'reserve')
+  )).map(account => account.accountId));
+
+  return snapshots.flatMap(snapshot => {
+    const date = nonEmptyString(snapshot.date);
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return [];
+    const balances = snapshotBalances(snapshot);
+    const covered = expected.filter(account => {
+      const value = balances.get(account.accountId);
+      return value?.currency === currency;
+    });
+    const complete = covered.length === expected.length;
+    const netWorth = complete
+      ? covered.reduce((total, account) => {
+          const balance = balances.get(account.accountId)?.balance || 0;
+          return total + (
+            account.accountType === 'credit' || account.accountType === 'loan' || account.role === 'debt'
+              ? -balance
+              : balance
+          );
+        }, 0)
+      : null;
+    const liquidAccounts = expected.filter(account => liquidIds.has(account.accountId));
+    const liquidComplete = liquidAccounts.every(account => balances.get(account.accountId)?.currency === currency);
+    const liquidCash = liquidComplete && liquidAccounts.length
+      ? liquidAccounts.reduce((total, account) => total + (balances.get(account.accountId)?.balance || 0), 0)
+      : null;
+    return [{
+      date,
+      estimatedNetWorth: netWorth,
+      liquidCash,
+      coveredAccountCount: covered.length,
+      expectedAccountCount: expected.length,
+      status: complete ? 'complete' as const : 'partial' as const,
+    }];
+  }).sort((left, right) => left.date.localeCompare(right.date));
+}
+
 export function buildFinancialPosition(input: {
   accounts: readonly UnifiedAccount[];
   balanceSnapshots?: readonly StoredDailyBalanceSnapshot[];
@@ -164,6 +228,7 @@ export function buildFinancialPosition(input: {
         .map(account => account.current as number))
     : null;
   const history = buildRetirementHistory(input.accounts, input.balanceSnapshots || [], currency);
+  const netWorthHistory = buildNetWorthHistory(input.accounts, input.balanceSnapshots || [], currency);
   const first = history[0];
   const last = history[history.length - 1];
   const change = first && last && first.date !== last.date ? last.total - first.total : null;
@@ -177,6 +242,7 @@ export function buildFinancialPosition(input: {
     includedAccountCount: included.length,
     knownBalanceCount: known.length,
     excludedDuplicateCount: input.accounts.filter(account => Boolean(account.duplicateOfAccountId)).length,
+    netWorthHistory,
     retirement: {
       total: retirementTotal,
       accountCount: retirementAccounts.length,

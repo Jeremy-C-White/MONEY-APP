@@ -3,6 +3,7 @@ import {
   extractSummaryResponse,
   extractCategoriesResponse,
   extractMerchantsResponse,
+  extractMerchantComparisonResponse,
   extractTrendsResponse,
   extractVerificationResponse,
   extractTransactionsResponse,
@@ -313,6 +314,10 @@ const financialPositionPayload = {
   includedAccountCount: 2,
   knownBalanceCount: 2,
   excludedDuplicateCount: 0,
+  netWorthHistory: [{
+    date: '2026-09-04', estimatedNetWorth: 2000, liquidCash: 2500,
+    coveredAccountCount: 2, expectedAccountCount: 2, status: 'complete' as const,
+  }],
   retirement: {
     total: null,
     accountCount: 0,
@@ -360,6 +365,12 @@ const cashFlowForecastPayload = {
   }],
   scheduledEvents: [],
   dailyBalances: [{ date: '2026-09-04', balance: 2400 }],
+  summary: {
+    upcomingBillTotal: 100,
+    upcomingBillCount: 1,
+    nextPaycheckDate: '2026-09-11',
+    nextPaycheckAmount: 2800,
+  },
   minimumBalance: 2300,
   minimumBalanceDate: '2026-09-07',
   warning: null,
@@ -572,6 +583,22 @@ describe('API response contracts', () => {
       ...cashFlowForecastPayload,
       upcomingBills: [{ ...cashFlowForecastPayload.upcomingBills[0], pendingTransactionId: 7 }],
     })).toThrow('Invalid cash flow forecast response.');
+  });
+
+  it('validates merchant comparisons from the merchants endpoint', () => {
+    const result = extractMerchantComparisonResponse({
+      merchants: [],
+      comparison: {
+        asOfDate: '2026-09-04',
+        currentPeriod: { startDate: '2026-09-01', endDate: '2026-09-04' },
+        previousComparablePeriod: { startDate: '2026-08-01', endDate: '2026-08-04' },
+        merchants: [{
+          merchant: 'Starbucks', currentSpending: 25, previousSpending: 20,
+          difference: 5, percentageChange: 25, transactionCount: 2, isNew: false,
+        }],
+      },
+    });
+    expect(result.merchants[0].difference).toBe(5);
   });
 
   it('reads the paced comparison from summary.pacing', () => {

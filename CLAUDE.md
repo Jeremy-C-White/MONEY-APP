@@ -233,10 +233,12 @@ the finance timezone, moving a row into the previous month.
 
 ### Overview layout
 
-The Overview answers four questions in order — safe to spend, how the month is
-going, what's still coming, where we stand — and everything else sits behind a
-"More detail" disclosure. Adding a fifth card to the top competes with the
-safe-to-spend figure for attention; put new detail behind the disclosure.
+The Overview answers three questions in order: **Now** combines safe to spend,
+estimated net worth, and liquid cash; **Heading** owns the month-end projection,
+the single month-to-date pacing comparison, next paycheck, lowest scheduled
+balance, and upcoming bills; **Looking back** owns net-worth/cash-flow trends and
+top merchants. Each fact gets one canonical rendering. Do not reintroduce a
+"More detail" disclosure or repeat these figures in extra summary cards.
 
 ### Reasonable next work
 
@@ -246,7 +248,7 @@ membership, migrating existing data, deciding what happens to Plaid Items and
 the Sheet under shared ownership) — sharing the Google Sheet read-only delivers
 most of the visibility today at zero cost.
 
-Balance history begins with the first successful sync after the balance pass. Do not backfill it from transaction history. The Overview calls the total a connected-account position rather than net worth because unconnected assets and debts are outside its scope.
+Balance history begins with the first successful sync after the balance pass. Do not backfill it from transaction history. Net-worth history must be coverage-aware: if any currently included account is missing from a daily snapshot, render a gap instead of a misleading lower total. The Overview can call the total estimated net worth because linked and included manual assets and debts share one de-duplicated account model.
 
 ---
 

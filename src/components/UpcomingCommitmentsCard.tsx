@@ -24,7 +24,6 @@ export function UpcomingCommitmentsCard({
   if (!safeToSpend) return null;
 
   const bills = safeToSpend.deductions.filter(deduction => deduction.kind === 'bill');
-  const total = bills.reduce((sum, bill) => sum + bill.amount, 0);
   const through = describeThroughDate(safeToSpend.throughDate);
 
   return (
@@ -36,7 +35,7 @@ export function UpcomingCommitmentsCard({
         </div>
         {bills.length > 0 && (
           <span className="text-sm font-semibold text-slate-700">
-            {formatCurrency(total)} through {through}
+            {formatCurrency(safeToSpend.billsDue)} through {through}
           </span>
         )}
       </div>
