@@ -537,9 +537,11 @@ export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsRe
     !isRecord(record.source) ||
     typeof record.source.spreadsheetTitle !== 'string' ||
     typeof record.source.spreadsheetUrl !== 'string' ||
+    typeof record.source.sheetReadAt !== 'string' ||
     !['last_7_days', 'last_30_days', 'last_3_months', 'last_12_months', 'this_year', 'all_time'].includes(String(record.period)) ||
     !(typeof record.startDate === 'string' || record.startDate === null) ||
     !(typeof record.endDate === 'string' || record.endDate === null) ||
+    !(typeof record.latestTransactionDate === 'string' || record.latestTransactionDate === null) ||
     !isRecord(record.summary) ||
     typeof record.summary.totalSpend !== 'number' ||
     typeof record.summary.retailSpend !== 'number' ||

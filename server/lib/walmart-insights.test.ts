@@ -34,6 +34,7 @@ describe('buildWalmartInsights', () => {
     });
 
     expect(report.startDate).toBe('2025-10-01');
+    expect(report.latestTransactionDate).toBe('2026-08-29');
     expect(report.summary).toEqual({
       totalSpend: 90,
       retailSpend: 50,

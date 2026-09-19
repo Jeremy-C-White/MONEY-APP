@@ -2048,6 +2048,7 @@ async function fetchRawTransactionsRows(uid: string): Promise<any[]> {
 
 interface WalmartInsightsCacheEntry {
   expiresAt: number;
+  sheetReadAt: string;
   report: WalmartInsights;
 }
 
@@ -2169,16 +2170,18 @@ async function loadWalmartInsights(
   const cacheKey = walmartInsightsCacheKey(uid, spreadsheetId, period);
   const cached = walmartInsightsCache.get(cacheKey);
   if (!forceRefresh && cached && cached.expiresAt > Date.now()) {
-    return cached.report;
+    return { report: cached.report, sheetReadAt: cached.sheetReadAt };
   }
 
   const workbook = await readWalmartWorkbook(uid, spreadsheetId);
   const report = buildWalmartInsights(workbook.orderRows, workbook.itemRows, { period });
+  const sheetReadAt = new Date().toISOString();
   walmartInsightsCache.set(cacheKey, {
     expiresAt: Date.now() + WALMART_INSIGHTS_CACHE_MS,
+    sheetReadAt,
     report,
   });
-  return report;
+  return { report, sheetReadAt };
 }
 
 
@@ -3058,7 +3061,7 @@ app.get("/api/walmart/insights", requireAuth, async (req: express.Request, res: 
       });
     }
 
-    const report = await loadWalmartInsights(
+    const loaded = await loadWalmartInsights(
       uid,
       spreadsheetId,
       period as WalmartInsightPeriod,
@@ -3068,8 +3071,9 @@ app.get("/api/walmart/insights", requireAuth, async (req: express.Request, res: 
       source: {
         spreadsheetTitle: String(userData?.walmartSpreadsheetTitle || 'Walmart purchases'),
         spreadsheetUrl: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`,
+        sheetReadAt: loaded.sheetReadAt,
       },
-      ...report,
+      ...loaded.report,
     });
   } catch (error: any) {
     const status = error?.code === 'GOOGLE_SHEETS_NOT_CONNECTED' ? 409 : 500;

@@ -900,10 +900,12 @@ export interface WalmartInsightsResponse {
   source: {
     spreadsheetTitle: string;
     spreadsheetUrl: string;
+    sheetReadAt: string;
   };
   period: WalmartInsightPeriod;
   startDate: string | null;
   endDate: string | null;
+  latestTransactionDate: string | null;
   summary: {
     totalSpend: number;
     retailSpend: number;

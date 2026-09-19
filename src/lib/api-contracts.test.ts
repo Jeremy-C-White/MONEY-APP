@@ -1102,10 +1102,12 @@ describe('Walmart response contracts', () => {
     source: {
       spreadsheetTitle: 'Walmart_Orders',
       spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/example/edit',
+      sheetReadAt: '2026-09-04T14:30:00.000Z',
     },
     period: 'last_12_months',
     startDate: '2025-10-01',
     endDate: '2026-09-04',
+    latestTransactionDate: '2026-08-29',
     summary: {
       totalSpend: 120,
       retailSpend: 80,

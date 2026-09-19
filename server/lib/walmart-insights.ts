@@ -101,6 +101,7 @@ export interface WalmartInsights {
   period: WalmartInsightPeriod;
   startDate: string | null;
   endDate: string | null;
+  latestTransactionDate: string | null;
   summary: {
     totalSpend: number;
     retailSpend: number;
@@ -496,6 +497,9 @@ export function buildWalmartInsights(
   const endDate = now.toISOString().slice(0, 10);
   const trendGranularity = trendGranularityFor(period);
   const { orders: allOrders, incomplete } = parseOrders(orderRows);
+  const latestTransactionDate = allOrders
+    .filter(order => order.total !== 0 && order.date <= endDate)
+    .reduce<string | null>((latest, order) => !latest || order.date > latest ? order.date : latest, null);
   const parsedItems = parseItems(itemRows);
   const resolveProductIdentity = buildWalmartProductIdentityResolver(parsedItems);
 
@@ -796,6 +800,7 @@ export function buildWalmartInsights(
     period,
     startDate,
     endDate,
+    latestTransactionDate,
     summary: {
       totalSpend: roundCurrency(totalSpend),
       retailSpend: roundCurrency(totalSpend - fuelSpend),

@@ -79,6 +79,16 @@ function formatTrendDate(date: string, granularity: WalmartInsightsResponse['tre
   }).format(new Date(`${date}T00:00:00Z`));
 }
 
+function formatSheetReadAt(value: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 function Metric({
   label,
   value,
@@ -462,11 +472,15 @@ export function WalmartInsightsPage({ apiFetch }: { apiFetch: (endpoint: string,
       {error && <div className="mb-6 flex items-start gap-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{error}</span></div>}
       {loading && !report ? <div className="flex min-h-64 items-center justify-center text-slate-500"><Loader2 className="mr-2 h-5 w-5 animate-spin" /> Reading purchase history…</div> : report ? (
         <>
+          <div className="mb-6 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <span className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-emerald-500" /><strong className="font-semibold text-slate-700">Walmart data</strong>{report.latestTransactionDate ? `through ${formatFriendlyDate(report.latestTransactionDate)}` : 'has no dated purchases yet'}</span>
+            <span>Google Sheet checked {formatSheetReadAt(report.source.sheetReadAt)}</span>
+          </div>
           {view === 'overview' && <OverviewView report={report} />}
           {view === 'purchases' && <PurchasesView report={report} />}
           {view === 'fuel' && <FuelView report={report} />}
           <div className="mt-6 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
-            <p>Updated through {report.endDate ? formatFriendlyDate(report.endDate) : 'the latest receipt'}.</p>
+            <p>Use Refresh after the source sheet receives new orders.</p>
             <div className="flex min-w-0 flex-wrap items-center gap-3"><a href={report.source.spreadsheetUrl} target="_blank" rel="noreferrer" className="inline-flex min-w-0 items-center gap-1 font-semibold text-blue-600 hover:text-blue-700">Open {report.source.spreadsheetTitle} <ExternalLink className="h-3.5 w-3.5" /></a><button type="button" onClick={() => void disconnect()} className="inline-flex items-center gap-1 font-semibold text-slate-500 hover:text-rose-600"><Unplug className="h-3.5 w-3.5" /> Disconnect</button></div>
           </div>
         </>

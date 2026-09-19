@@ -8,10 +8,12 @@ const report = {
   source: {
     spreadsheetTitle: 'Walmart_Orders',
     spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/sheet-id/edit',
+    sheetReadAt: '2026-09-04T14:30:00.000Z',
   },
   period: 'last_12_months',
   startDate: '2025-10-01',
   endDate: '2026-09-04',
+  latestTransactionDate: '2026-09-03',
   summary: {
     totalSpend: 1200,
     retailSpend: 960,
@@ -132,6 +134,9 @@ describe('WalmartInsightsPage', () => {
 
     await vi.waitFor(() => expect(container.textContent).toContain('$1,200.00'));
     expect(container.textContent).toContain('Total Walmart spend');
+    expect(container.textContent).toContain('Walmart data');
+    expect(container.textContent).toContain('through Sep 3, 2026');
+    expect(container.textContent).toContain('Google Sheet checked');
     expect(container.textContent).toContain('20% higher');
     expect(container.textContent).toContain('Organic Bananas');
     expect(container.querySelector('a[href="https://www.walmart.com/ip/123456789"]')).toBeTruthy();
