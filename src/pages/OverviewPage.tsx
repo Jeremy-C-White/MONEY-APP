@@ -27,6 +27,9 @@ export function OverviewPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [trendRange, setTrendRange] = useState<'6m' | '12m' | 'ytd'>('12m');
+  const [snapshotting, setSnapshotting] = useState(false);
+  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -59,6 +62,28 @@ export function OverviewPage({
   useEffect(() => {
     void fetchData();
   }, [trendRange, refreshKey]);
+
+  const captureSnapshot = async () => {
+    setSnapshotting(true);
+    setSnapshotMessage(null);
+    setSnapshotError(null);
+    try {
+      const response = await apiFetch('/api/account-balances/refresh', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || 'Unable to capture balances.');
+      const issueCount = Array.isArray(payload?.errors) ? payload.errors.length : 0;
+      setSnapshotMessage(issueCount > 0
+        ? `Today's snapshot was saved with ${issueCount} connection ${issueCount === 1 ? 'issue' : 'issues'}.`
+        : "Today's net-worth snapshot was saved.");
+      await fetchData();
+    } catch (snapshotCaptureError) {
+      setSnapshotError(snapshotCaptureError instanceof Error
+        ? snapshotCaptureError.message
+        : 'Unable to capture balances.');
+    } finally {
+      setSnapshotting(false);
+    }
+  };
 
   if (error && !overview) {
     return (
@@ -133,7 +158,20 @@ export function OverviewPage({
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
-            <h3 className="mb-4 text-lg font-medium text-slate-900">Net worth history</h3>
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="text-lg font-medium text-slate-900">Net worth history</h3>
+              <button
+                type="button"
+                onClick={() => void captureSnapshot()}
+                disabled={snapshotting}
+                className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
+              >
+                <RefreshCcw className={`h-3.5 w-3.5 ${snapshotting ? 'animate-spin' : ''}`} />
+                {snapshotting ? 'Capturing…' : 'Capture today'}
+              </button>
+            </div>
+            {snapshotMessage && <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{snapshotMessage}</p>}
+            {snapshotError && <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{snapshotError}</p>}
             <NetWorthTrendChart financialPosition={overview?.financialPosition || null} />
           </div>
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">

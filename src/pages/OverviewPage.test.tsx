@@ -209,9 +209,15 @@ describe('OverviewPage', () => {
   async function renderOverview(payload: unknown = overviewPayload()) {
     const apiFetch = vi.fn(async (endpoint: string) => ({
       ok: true,
-      json: async () => endpoint === '/api/dashboard/merchants'
-        ? { comparison: (payload as ReturnType<typeof overviewPayload>).merchantComparison, merchants: [] }
-        : payload,
+      json: async () => {
+        if (endpoint === '/api/dashboard/merchants') {
+          return { comparison: (payload as ReturnType<typeof overviewPayload>).merchantComparison, merchants: [] };
+        }
+        if (endpoint === '/api/account-balances/refresh') {
+          return { success: true, date: '2026-09-06', refreshedItemCount: 1, errors: [] };
+        }
+        return payload;
+      },
     }) as Response);
     const onOpenPlanSettings = vi.fn();
 
@@ -260,6 +266,26 @@ describe('OverviewPage', () => {
   it('renders the pacing comparison only once', async () => {
     await renderOverview();
     expect(container.textContent?.match(/same point last month/g)).toHaveLength(1);
+  });
+
+  it('captures a net-worth snapshot independently from transaction sync', async () => {
+    const oneSnapshot = {
+      ...overviewPayload().financialPosition,
+      netWorthHistory: [
+        { date: '2026-09-06', estimatedNetWorth: 4000, liquidCash: 4000, coveredAccountCount: 1, expectedAccountCount: 1, status: 'complete' },
+      ],
+    };
+    const { apiFetch } = await renderOverview(overviewPayload({ financialPosition: oneSnapshot }));
+
+    expect(container.textContent).toContain('Snapshot saved for Sep 6, 2026');
+    expect(container.textContent).toContain('Capture another day to start the net-worth trend.');
+
+    const captureButton = Array.from(container.querySelectorAll('button'))
+      .find(button => button.textContent?.includes('Capture today')) as HTMLButtonElement;
+    await act(async () => captureButton.click());
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/account-balances/refresh', { method: 'POST' });
+    expect(container.textContent).toContain("Today's net-worth snapshot was saved.");
   });
 
   it('withholds the figure and explains why when balances are not fresh', async () => {

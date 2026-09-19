@@ -31,6 +31,9 @@ export function buildUnifiedAccountView(input: {
   const duplicateIds = new Set([...duplicateByManualId.entries()].flatMap(
     ([accountId, duplicateOf]) => duplicateOf ? [accountId] : []
   ));
+  const propertyAssetIds = new Set(input.manualAccounts.flatMap(account => (
+    account.accountType === 'asset' ? [account.accountId] : []
+  )));
   const roleView = buildAccountRoleView({
     connectedAccounts: [
       ...input.linkedAccounts,
@@ -41,7 +44,7 @@ export function buildUnifiedAccountView(input: {
       ...manualRecords.map(record => record.balance),
     ],
     overrides: input.overrides,
-    excludeAccountIdsFromSummary: duplicateIds,
+    excludeAccountIdsFromSummary: new Set([...duplicateIds, ...propertyAssetIds]),
   });
   const manualById = new Map(input.manualAccounts.map(account => [account.accountId, account]));
 

@@ -33,14 +33,30 @@ function NetWorthTooltip({ active, payload }: any) {
 
 export function NetWorthTrendChart({ financialPosition }: { financialPosition: FinancialPosition | null }) {
   const history = financialPosition?.netWorthHistory || [];
-  const completeCount = history.filter(point => point.status === 'complete').length;
+  const completeHistory = history.filter(point => point.status === 'complete');
+  const completeCount = completeHistory.length;
 
   if (completeCount < 2) {
+    const latestComplete = completeHistory[completeHistory.length - 1];
+    const latestSnapshot = history[history.length - 1];
     return (
       <div className="flex h-64 flex-col items-center justify-center rounded-xl border border-slate-100 px-6 text-center text-sm text-slate-500">
-        <p>Net-worth history will appear after at least two complete daily snapshots.</p>
-        {history.some(point => point.status === 'partial') && (
-          <p className="mt-2 text-xs text-slate-400">Incomplete days are held as gaps instead of being shown as lower totals.</p>
+        {latestComplete ? (
+          <>
+            <p className="font-semibold text-slate-700">Snapshot saved for {formatFriendlyDate(latestComplete.date)}</p>
+            <p className="mt-1 text-lg font-bold text-indigo-700">{formatCurrency(latestComplete.estimatedNetWorth)}</p>
+            <p className="mt-2 text-xs text-slate-400">Capture another day to start the net-worth trend.</p>
+          </>
+        ) : latestSnapshot ? (
+          <>
+            <p className="font-semibold text-slate-700">Snapshot saved, but some balances are missing</p>
+            <p className="mt-2 text-xs text-slate-400">{latestSnapshot.coveredAccountCount} of {latestSnapshot.expectedAccountCount} included accounts were captured. Incomplete days stay out of the trend.</p>
+          </>
+        ) : (
+          <>
+            <p className="font-semibold text-slate-700">No net-worth snapshots yet</p>
+            <p className="mt-2 text-xs text-slate-400">Capture today to save the first balance snapshot.</p>
+          </>
         )}
       </div>
     );

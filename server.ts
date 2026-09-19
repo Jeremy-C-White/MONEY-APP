@@ -2429,6 +2429,94 @@ async function loadFinancialAccountContext(uid: string, now = new Date()) {
   return { ...unified, linkedBalances, manualAccounts, overrides, financialPosition };
 }
 
+async function captureDailyBalanceSnapshot(uid: string, now = new Date()) {
+  const recordedAt = now.toISOString();
+  const balanceDate = getDateForDateInTimezone(
+    now,
+    process.env.FINANCE_TIME_ZONE || 'America/New_York'
+  );
+  const userRef = db.collection('users').doc(uid);
+  const [plaidItemsSnap, manualAccountsSnap] = await Promise.all([
+    db.collection('plaid_items').where('userId', '==', uid).get(),
+    userRef.collection('manual_accounts').get(),
+  ]);
+  const eligibleItems = plaidItemsSnap.docs.filter(document => {
+    const health = normalizeItemHealth(document.data());
+    return health !== 'disconnected' && health !== 'login_required' && health !== 'permission_revoked';
+  });
+  const itemSnapshots: Record<string, NonNullable<ReturnType<typeof buildStoredBalanceSnapshot>>> = {};
+  const errors: string[] = [];
+  const client = eligibleItems.length ? getPlaidClient() : null;
+
+  for (const itemDoc of eligibleItems) {
+    const item = itemDoc.data();
+    try {
+      const response = await client!.accountsGet({ access_token: item.access_token });
+      const snapshot = buildStoredBalanceSnapshot({
+        institutionName: item.institution_name,
+        fetchedAt: recordedAt,
+        accounts: response.data.accounts.map(account => ({
+          account_id: account.account_id,
+          name: account.name,
+          mask: account.mask,
+          type: account.type,
+          subtype: account.subtype,
+          balances: account.balances,
+        })),
+      });
+      if (!snapshot) continue;
+
+      itemSnapshots[itemDoc.id] = snapshot;
+      await itemDoc.ref.set({
+        accounts: snapshot.accounts.map(account => ({
+          id: account.accountId,
+          name: account.accountName,
+          mask: account.accountMask,
+          type: account.accountType,
+          subtype: account.accountSubtype,
+        })),
+        balance_snapshot: snapshot,
+        balance_last_attempted_at: recordedAt,
+        balance_last_error: FieldValue.delete(),
+      }, { merge: true });
+    } catch (error) {
+      console.warn(`Could not capture balances for ${item.institution_name}`, error);
+      errors.push(`${item.institution_name || 'Connected account'} could not refresh.`);
+      await itemDoc.ref.set({
+        balance_last_attempted_at: recordedAt,
+        balance_last_error: 'Balance temporarily unavailable',
+      }, { merge: true }).catch(console.warn);
+    }
+  }
+
+  const manualSnapshots = Object.fromEntries(manualAccountsSnap.docs.flatMap(document => {
+    const account = parseStoredManualAccount(document.data());
+    return account
+      ? [[account.accountId, buildManualBalanceSnapshot(account, account.currentBalance, recordedAt)] as const]
+      : [];
+  }));
+  const hasSnapshotData = Object.keys(itemSnapshots).length > 0 || Object.keys(manualSnapshots).length > 0;
+
+  if (hasSnapshotData) {
+    await userRef.collection('balance_snapshots').doc(balanceDate).set({
+      date: balanceDate,
+      updatedAt: recordedAt,
+      source: 'manual_capture',
+      ...(Object.keys(itemSnapshots).length > 0 ? { items: itemSnapshots } : {}),
+      ...(Object.keys(manualSnapshots).length > 0 ? { manualAccounts: manualSnapshots } : {}),
+    }, { merge: true });
+  }
+
+  return {
+    date: balanceDate,
+    eligibleItemCount: eligibleItems.length,
+    refreshedItemCount: Object.keys(itemSnapshots).length,
+    manualAccountCount: Object.keys(manualSnapshots).length,
+    errors,
+    hasSnapshotData,
+  };
+}
+
 app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const validRanges = ['6m', '12m', 'ytd'];
@@ -2816,6 +2904,26 @@ app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res
   } catch (error: any) {
     console.error("Connected Accounts Error:", error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/account-balances/refresh', requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const result = await captureDailyBalanceSnapshot(uid);
+    if (!result.hasSnapshotData) {
+      return res.status(result.errors.length > 0 ? 502 : 400).json({
+        error: result.errors.length > 0
+          ? 'No account balances could be refreshed.'
+          : 'No eligible accounts are available for a net-worth snapshot.',
+        ...result,
+      });
+    }
+    dashboardCache.invalidate(uid);
+    res.json({ success: true, ...result });
+  } catch (error: any) {
+    console.error('Balance Snapshot Capture Error:', error);
+    res.status(500).json({ error: error.message || 'Unable to capture account balances.' });
   }
 });
 

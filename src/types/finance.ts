@@ -395,7 +395,12 @@ export type AccountRole =
   | 'debt'
   | 'unassigned';
 
-export type ManualAccountKind = 'savings' | 'retirement' | 'investment';
+export type ManualAccountKind =
+  | 'savings'
+  | 'retirement'
+  | 'investment'
+  | 'real_estate'
+  | 'vehicle';
 
 export interface ConnectedAccount extends AccountSummary {
   role: AccountRole;

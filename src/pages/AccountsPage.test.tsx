@@ -360,9 +360,9 @@ describe('AccountsPage', () => {
     await act(async () => {
       root.render(<AccountsPage apiFetch={apiFetch} refreshKey={0} setActiveTab={vi.fn()} />);
     });
-    await vi.waitFor(() => expect(container.textContent).toContain('Add manual account'));
+    await vi.waitFor(() => expect(container.textContent).toContain('Add account or asset'));
     const addButton = Array.from(container.querySelectorAll('button')).find(
-      button => button.textContent?.trim() === 'Add manual account'
+      button => button.textContent?.trim() === 'Add account or asset'
     );
     act(() => addButton?.click());
 
@@ -388,6 +388,44 @@ describe('AccountsPage', () => {
       }),
     }));
     expect(apiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('adds a home estimate with a simple Zillow lookup and keeps it out of spendable cash', async () => {
+    const apiFetch = vi.fn()
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse))
+      .mockResolvedValueOnce(apiResponse({ accountId: 'manual_12345678-1234-1234-1234-123456789abc' }))
+      .mockResolvedValueOnce(apiResponse(connectedAccountsResponse));
+
+    await act(async () => {
+      root.render(<AccountsPage apiFetch={apiFetch} refreshKey={0} setActiveTab={vi.fn()} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Add account or asset'));
+    act(() => Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.trim() === 'Add account or asset'
+    )?.click());
+
+    const kindSelect = container.querySelector('form select') as HTMLSelectElement;
+    await act(async () => {
+      kindSelect.value = 'real_estate';
+      kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(container.querySelector('a[href="https://www.zillow.com/how-much-is-my-home-worth/"]')).not.toBeNull();
+    expect(container.textContent).toContain('Property estimates count toward net worth but never Safe to Spend');
+
+    const valueInput = container.querySelector('form input[type="number"]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(valueInput, '450000');
+      valueInput.dispatchEvent(new Event('input', { bubbles: true }));
+      container.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/manual-accounts', {
+      method: 'POST',
+      body: JSON.stringify({
+        institutionName: 'Property', accountName: 'Primary home', accountMask: '',
+        kind: 'real_estate', balance: 450000, isoCurrencyCode: 'USD',
+      }),
+    }));
   });
 
   it('updates a manual balance through its distinct account card', async () => {

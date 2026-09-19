@@ -1,7 +1,13 @@
 import type { AccountBalanceRecord } from './account-balances';
 import type { ConnectedAccountRecord } from './connected-accounts';
 
-export const MANUAL_ACCOUNT_KINDS = ['savings', 'retirement', 'investment'] as const;
+export const MANUAL_ACCOUNT_KINDS = [
+  'savings',
+  'retirement',
+  'investment',
+  'real_estate',
+  'vehicle',
+] as const;
 
 export type ManualAccountKind = typeof MANUAL_ACCOUNT_KINDS[number];
 
@@ -11,7 +17,7 @@ export type StoredManualAccount = {
   institutionName: string;
   accountName: string;
   accountMask: string;
-  accountType: 'depository' | 'investment';
+  accountType: 'depository' | 'investment' | 'asset';
   accountSubtype: string;
   kind: ManualAccountKind;
   currentBalance: number;
@@ -91,6 +97,14 @@ function kindConfig(kind: ManualAccountKind): Pick<StoredManualAccount,
       includeInNetWorth: true,
     };
   }
+  if (kind === 'real_estate' || kind === 'vehicle') {
+    return {
+      accountType: 'asset',
+      accountSubtype: kind,
+      includeInCash: false,
+      includeInNetWorth: true,
+    };
+  }
   return {
     accountType: 'investment',
     accountSubtype: 'brokerage',
@@ -101,7 +115,9 @@ function kindConfig(kind: ManualAccountKind): Pick<StoredManualAccount,
 
 function parseKind(value: unknown): ManualAccountKind {
   if (typeof value !== 'string' || !MANUAL_ACCOUNT_KINDS.includes(value as ManualAccountKind)) {
-    throw new ManualAccountRequestError('Account kind must be savings, retirement, or investment.');
+    throw new ManualAccountRequestError(
+      'Account kind must be savings, retirement, investment, real estate, or vehicle.'
+    );
   }
   return value as ManualAccountKind;
 }
@@ -234,6 +250,10 @@ export function findLinkedDuplicate(
   linkedAccounts: readonly ConnectedAccountRecord[],
   linkedBalances: readonly AccountBalanceRecord[]
 ): string | null {
+  // Plaid-linked records are financial accounts, not household property. A
+  // similarly named loan must never suppress the value of a home or vehicle.
+  if (manual.accountType === 'asset') return null;
+
   const reportingIds = new Set(
     linkedBalances.filter(account => account.current !== null).map(account => account.accountId)
   );

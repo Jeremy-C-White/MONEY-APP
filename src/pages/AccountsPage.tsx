@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Building2,
   ChevronRight,
+  ExternalLink,
   PencilLine,
   Plus,
   RefreshCcw,
@@ -74,7 +75,44 @@ const SUBTYPE_LABELS: Record<string, string> = {
   '401k': '401(k)',
   'roth 401k': 'Roth 401(k)',
   roth_401k: 'Roth 401(k)',
+  real_estate: 'Real estate',
+  vehicle: 'Vehicle',
 };
+
+const ASSET_KINDS = new Set<ManualAccountKind>(['real_estate', 'vehicle']);
+
+const VALUATION_LOOKUPS: Partial<Record<ManualAccountKind, { label: string; href: string }>> = {
+  real_estate: {
+    label: 'Look up on Zillow',
+    href: 'https://www.zillow.com/how-much-is-my-home-worth/',
+  },
+  vehicle: {
+    label: 'Look up on Kelley Blue Book',
+    href: 'https://www.kbb.com/car-values/',
+  },
+};
+
+function isManualAsset(account: ConnectedAccount): boolean {
+  return account.source === 'manual' && account.manualKind !== null && ASSET_KINDS.has(account.manualKind);
+}
+
+function manualDefaults(kind: ManualAccountKind) {
+  if (kind === 'real_estate') {
+    return { institutionName: 'Property', accountName: 'Primary home', accountMask: '' };
+  }
+  if (kind === 'vehicle') {
+    return { institutionName: 'Vehicles', accountName: 'Vehicle', accountMask: '' };
+  }
+  if (kind === 'retirement') {
+    return { institutionName: 'Employer plan', accountName: '401(k)', accountMask: '' };
+  }
+  if (kind === 'investment') {
+    return { institutionName: 'Brokerage', accountName: 'Investment account', accountMask: '' };
+  }
+  return {
+    institutionName: 'Apple / Goldman Sachs', accountName: 'Apple Savings', accountMask: '',
+  };
+}
 
 function titleCase(value: string): string {
   return value
@@ -164,6 +202,7 @@ function describeBalanceFreshness(account: ConnectedAccount): string {
   if (account.balanceStatus === 'missing' || !account.fetchedAt) return 'Balance not reported';
   const date = new Date(account.fetchedAt);
   const when = Number.isNaN(date.getTime()) ? 'Unknown time' : date.toLocaleString();
+  if (isManualAsset(account)) return `Estimated value · updated ${when}`;
   if (account.source === 'manual') return `Manual balance · updated ${when}`;
   return account.balanceStatus === 'fresh' ? `Updated ${when}` : `Stale · last updated ${when}`;
 }
@@ -408,7 +447,7 @@ export function AccountsPage({
             className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-semibold shadow-sm transition-colors"
           >
             {showManualForm ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
-            {showManualForm ? 'Close form' : 'Add manual account'}
+            {showManualForm ? 'Close form' : 'Add account or asset'}
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -423,40 +462,65 @@ export function AccountsPage({
       {showManualForm && (
         <form onSubmit={createManualAccount} className="mb-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 shadow-sm sm:p-6">
           <div className="mb-4">
-            <h2 className="font-bold text-slate-900">Add a manual account</h2>
+            <h2 className="font-bold text-slate-900">Add a manual account or asset</h2>
             <p className="mt-1 text-xs text-slate-600">
-              For balances that cannot be linked. Every balance entry is saved as a dated snapshot; manual cash does not enter Safe to Spend.
+              Add an unlinked balance, home, or vehicle. Property estimates count toward net worth but never Safe to Spend.
             </p>
           </div>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <label className="text-xs font-semibold text-slate-600">
-              Institution
+              Source or group
               <input required maxLength={80} value={manualDraft.institutionName} onChange={event => setManualDraft(value => ({ ...value, institutionName: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
             </label>
             <label className="text-xs font-semibold text-slate-600">
-              Account name
+              Account or asset name
               <input required maxLength={80} value={manualDraft.accountName} onChange={event => setManualDraft(value => ({ ...value, accountName: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
             </label>
             <label className="text-xs font-semibold text-slate-600">
-              Account kind
-              <select value={manualDraft.kind} onChange={event => setManualDraft(value => ({ ...value, kind: event.target.value as ManualAccountKind }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900">
+              Type
+              <select value={manualDraft.kind} onChange={event => {
+                const kind = event.target.value as ManualAccountKind;
+                setManualDraft(value => ({ ...value, ...manualDefaults(kind), kind }));
+              }} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900">
                 <option value="savings">Savings</option>
                 <option value="retirement">Retirement</option>
                 <option value="investment">Investment</option>
+                <option value="real_estate">House / real estate</option>
+                <option value="vehicle">Car / vehicle</option>
               </select>
             </label>
             <label className="text-xs font-semibold text-slate-600">
-              Balance
+              {ASSET_KINDS.has(manualDraft.kind) ? 'Estimated value' : 'Balance'}
               <input required min="0" step="0.01" inputMode="decimal" type="number" value={manualDraft.balance} onChange={event => setManualDraft(value => ({ ...value, balance: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
             </label>
-            <label className="text-xs font-semibold text-slate-600">
-              Last 4 <span className="font-normal text-slate-400">(optional)</span>
-              <input pattern="[0-9]{4}" inputMode="numeric" maxLength={4} value={manualDraft.accountMask} onChange={event => setManualDraft(value => ({ ...value, accountMask: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
-            </label>
+            {ASSET_KINDS.has(manualDraft.kind) ? (
+              <div className="text-xs font-semibold text-slate-600">
+                Estimate helper
+                <a
+                  href={VALUATION_LOOKUPS[manualDraft.kind]?.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm font-semibold text-violet-700 inline-flex items-center justify-center gap-2 hover:bg-violet-100"
+                >
+                  {VALUATION_LOOKUPS[manualDraft.kind]?.label}
+                  <ExternalLink className="h-4 w-4" />
+                </a>
+              </div>
+            ) : (
+              <label className="text-xs font-semibold text-slate-600">
+                Last 4 <span className="font-normal text-slate-400">(optional)</span>
+                <input pattern="[0-9]{4}" inputMode="numeric" maxLength={4} value={manualDraft.accountMask} onChange={event => setManualDraft(value => ({ ...value, accountMask: event.target.value }))} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm text-slate-900" />
+              </label>
+            )}
           </div>
+          {ASSET_KINDS.has(manualDraft.kind) && (
+            <p className="mt-3 text-xs text-slate-500">
+              Open the estimate tool, then enter the value you want to use. This is a planning estimate, not an appraisal.
+            </p>
+          )}
           {manualError && <p className="mt-3 text-sm font-medium text-rose-700">{manualError}</p>}
           <button disabled={manualSaving} className="mt-4 min-h-11 rounded-xl bg-violet-700 px-5 text-sm font-semibold text-white disabled:opacity-60">
-            {manualSaving ? 'Saving…' : 'Save manual account'}
+            {manualSaving ? 'Saving…' : ASSET_KINDS.has(manualDraft.kind) ? 'Save asset' : 'Save manual account'}
           </button>
         </form>
       )}
@@ -511,7 +575,7 @@ export function AccountsPage({
           <div className="mb-3 px-1">
             <h2 className="font-bold text-slate-900">Money by purpose</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Retirement and investment balances are reference information and never enter Safe to Spend.
+              Retirement, investment, home, and vehicle values never enter Safe to Spend.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
@@ -558,7 +622,7 @@ export function AccountsPage({
             <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 shadow-sm">
               <p className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Estimated net worth</p>
               <p className="mt-1 text-xl font-bold text-indigo-950">{formatCurrency(financialPosition.estimatedNetWorth)}</p>
-              <p className="mt-1 text-xs text-indigo-800">Known linked and manual balances</p>
+              <p className="mt-1 text-xs text-indigo-800">Linked balances plus manual asset estimates</p>
             </div>
           </section>
           {financialPosition.excludedDuplicateCount > 0 && (
@@ -628,6 +692,7 @@ export function AccountsPage({
                   const status = healthPresentation(account.health);
                   const subtype = friendlySubtype(account.accountSubtype);
                   const isAttention = NEEDS_ATTENTION.has(account.health);
+                  const asset = isManualAsset(account);
 
                   return (
                     <article
@@ -664,16 +729,24 @@ export function AccountsPage({
                             <span>{subtype}</span>
                           </>
                         )}
-                        <span aria-hidden="true" className="text-slate-300 hidden min-[360px]:inline">•</span>
-                        <span className="font-mono text-slate-500 whitespace-nowrap">
-                          {account.accountMask ? `••••${account.accountMask}` : 'Number unavailable'}
-                        </span>
+                        {!asset && (
+                          <>
+                            <span aria-hidden="true" className="text-slate-300 hidden min-[360px]:inline">•</span>
+                            <span className="font-mono text-slate-500 whitespace-nowrap">
+                              {account.accountMask ? `••••${account.accountMask}` : 'Number unavailable'}
+                            </span>
+                          </>
+                        )}
                       </div>
 
                       <div className="mt-4 grid grid-cols-1 gap-3 border-t border-slate-100 pt-4 sm:grid-cols-2">
                         <div>
                           <p className="text-xs font-medium text-slate-500">
-                            {account.role === 'retirement' ? 'Reference balance' : 'Current balance'}
+                            {asset
+                              ? 'Estimated value'
+                              : account.role === 'retirement'
+                                ? 'Reference balance'
+                                : 'Current balance'}
                           </p>
                           <p className="mt-1 text-lg font-bold text-slate-900">
                             {formatCurrency(account.current)}
@@ -682,32 +755,39 @@ export function AccountsPage({
                             {describeBalanceFreshness(account)}
                           </p>
                         </div>
-                        <label className="block text-xs font-medium text-slate-600">
-                          Purpose
-                          <select
-                            aria-label={`Purpose for ${account.accountName}`}
-                            value={account.roleSource === 'owner' ? account.role : 'automatic'}
-                            disabled={savingRoleFor === account.accountId}
-                            onChange={event => void saveRole(account, event.target.value)}
-                            className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
-                          >
-                            <option value="automatic">
-                              {account.requiresRoleConfirmation
-                                ? `Needs confirmation${account.suggestedRole ? ` · suggest ${ROLE_LABELS[account.suggestedRole]}` : ''}`
-                                : `Automatic · ${ROLE_LABELS[account.defaultRole]}`}
-                            </option>
-                            {OWNER_ROLE_OPTIONS.map(role => (
-                              <option key={role} value={role}>{ROLE_LABELS[role]}</option>
-                            ))}
-                          </select>
-                          <span className="mt-1 block text-[11px] text-slate-400">
-                            {savingRoleFor === account.accountId
-                              ? 'Saving…'
-                              : account.roleSource === 'owner'
-                                ? 'You assigned this purpose.'
-                                : 'Assigned from the account subtype.'}
-                          </span>
-                        </label>
+                        {asset ? (
+                          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5 text-xs text-indigo-800">
+                            <p className="font-semibold">Included in estimated net worth</p>
+                            <p className="mt-1">Excluded from cash, savings, and Safe to Spend.</p>
+                          </div>
+                        ) : (
+                          <label className="block text-xs font-medium text-slate-600">
+                            Purpose
+                            <select
+                              aria-label={`Purpose for ${account.accountName}`}
+                              value={account.roleSource === 'owner' ? account.role : 'automatic'}
+                              disabled={savingRoleFor === account.accountId}
+                              onChange={event => void saveRole(account, event.target.value)}
+                              className="mt-1 min-h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
+                            >
+                              <option value="automatic">
+                                {account.requiresRoleConfirmation
+                                  ? `Needs confirmation${account.suggestedRole ? ` · suggest ${ROLE_LABELS[account.suggestedRole]}` : ''}`
+                                  : `Automatic · ${ROLE_LABELS[account.defaultRole]}`}
+                              </option>
+                              {OWNER_ROLE_OPTIONS.map(role => (
+                                <option key={role} value={role}>{ROLE_LABELS[role]}</option>
+                              ))}
+                            </select>
+                            <span className="mt-1 block text-[11px] text-slate-400">
+                              {savingRoleFor === account.accountId
+                                ? 'Saving…'
+                                : account.roleSource === 'owner'
+                                  ? 'You assigned this purpose.'
+                                  : 'Assigned from the account subtype.'}
+                            </span>
+                          </label>
+                        )}
                       </div>
 
                       {account.duplicateOfAccountId && (
@@ -721,7 +801,7 @@ export function AccountsPage({
                           {balanceAccountId === account.accountId ? (
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
                               <label className="flex-1 text-xs font-medium text-slate-600">
-                                New balance
+                                {asset ? 'New estimated value' : 'New balance'}
                                 <input
                                   autoFocus
                                   type="number"
@@ -738,7 +818,7 @@ export function AccountsPage({
                                 onClick={() => void updateManualBalance(account)}
                                 className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-60"
                               >
-                                {manualSaving ? 'Saving…' : 'Save balance'}
+                                {manualSaving ? 'Saving…' : asset ? 'Save value' : 'Save balance'}
                               </button>
                               <button
                                 onClick={() => { setBalanceAccountId(null); setBalanceDraft(''); }}
@@ -757,7 +837,7 @@ export function AccountsPage({
                               className="min-h-11 inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-700 hover:bg-violet-50"
                             >
                               <PencilLine className="h-4 w-4" />
-                              Update balance
+                              {asset ? 'Update estimated value' : 'Update balance'}
                             </button>
                           )}
                         </div>

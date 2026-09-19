@@ -97,4 +97,26 @@ describe('buildFinancialPosition', () => {
     expect(result.liquidChecking).toBe(1000);
     expect(result.estimatedNetWorth).toBe(6300);
   });
+
+  it('includes manually estimated property in net worth without treating it as liquid cash', () => {
+    const result = buildFinancialPosition({ accounts: [
+      account(),
+      account({
+        accountId: 'home', institutionName: 'Property', accountName: 'Primary home',
+        accountType: 'asset', accountSubtype: 'real_estate', current: 450000,
+        available: null, source: 'manual', manualKind: 'real_estate', includeInCash: false,
+        role: 'unassigned', defaultRole: 'unassigned', requiresRoleConfirmation: true,
+      }),
+      account({
+        accountId: 'lexus', institutionName: 'Vehicles', accountName: 'Lexus TX',
+        accountType: 'asset', accountSubtype: 'vehicle', current: 55000,
+        available: null, source: 'manual', manualKind: 'vehicle', includeInCash: false,
+        role: 'unassigned', defaultRole: 'unassigned', requiresRoleConfirmation: true,
+      }),
+    ] });
+
+    expect(result.liquidCash).toBe(1000);
+    expect(result.estimatedNetWorth).toBe(506000);
+    expect(result.includedAccountCount).toBe(3);
+  });
 });

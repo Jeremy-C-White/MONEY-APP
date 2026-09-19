@@ -50,6 +50,26 @@ describe('manual accounts', () => {
     });
   });
 
+  it.each([
+    ['real_estate', 'real_estate'],
+    ['vehicle', 'vehicle'],
+  ] as const)('treats %s as a net-worth asset, not cash', (kind, accountSubtype) => {
+    const account = buildManualAccount({
+      institutionName: kind === 'real_estate' ? 'Property' : 'Vehicles',
+      accountName: kind === 'real_estate' ? 'Primary home' : 'Lexus TX',
+      kind,
+      balance: 50000,
+    }, id, now);
+
+    expect(account).toMatchObject({
+      accountType: 'asset',
+      accountSubtype,
+      includeInCash: false,
+      includeInNetWorth: true,
+    });
+    expect(parseStoredManualAccount(account)).toEqual(account);
+  });
+
   it('rejects malformed balances and preserves exact snapshot values', () => {
     expect(() => parseManualBalanceInput({ balance: -1 })).toThrow('non-negative');
     expect(() => parseManualBalanceInput({ balance: '100' })).toThrow('non-negative');
@@ -99,5 +119,20 @@ describe('manual accounts', () => {
       [{ ...linked, institutionName: 'Other Bank' }],
       [{ ...balance, institutionName: 'Other Bank' }]
     )).toBeNull();
+  });
+
+  it('never marks property as a duplicate of a linked financial account', () => {
+    const home = buildManualAccount({
+      institutionName: 'Property', accountName: 'Primary home', kind: 'real_estate', balance: 500000,
+    }, id, now);
+    const linked: ConnectedAccountRecord = {
+      accountId: 'mortgage', institutionName: 'Property', accountName: 'Primary home',
+      accountMask: '', accountType: 'loan', accountSubtype: 'mortgage', health: 'healthy',
+    };
+    const balance = {
+      ...linked, current: 250000, available: null, limit: null, isoCurrencyCode: 'USD',
+      unofficialCurrencyCode: null, fetchedAt: now, balanceStatus: 'fresh',
+    } satisfies AccountBalanceRecord;
+    expect(findLinkedDuplicate(home, [linked], [balance])).toBeNull();
   });
 });

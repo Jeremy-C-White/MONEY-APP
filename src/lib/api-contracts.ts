@@ -274,7 +274,9 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
     !validNullableString(account.fetchedAt) ||
     !['fresh', 'stale', 'missing'].includes(String(account.balanceStatus)) ||
     !['linked', 'manual'].includes(String(account.source)) ||
-    !(account.manualKind === null || ['savings', 'retirement', 'investment'].includes(String(account.manualKind))) ||
+    !(account.manualKind === null || [
+      'savings', 'retirement', 'investment', 'real_estate', 'vehicle',
+    ].includes(String(account.manualKind))) ||
     typeof account.includeInCash !== 'boolean' ||
     typeof account.includeInNetWorth !== 'boolean' ||
     !validNullableString(account.duplicateOfAccountId)
