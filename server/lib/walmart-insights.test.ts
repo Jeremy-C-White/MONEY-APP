@@ -36,6 +36,9 @@ describe('buildWalmartInsights', () => {
     expect(report.startDate).toBe('2025-10-01');
     expect(report.summary).toEqual({
       totalSpend: 90,
+      retailSpend: 50,
+      previousTotalSpend: 25,
+      spendChangePercentage: 2.6,
       orderCount: 2,
       averageOrder: 45,
       onlineSpend: 50,
@@ -43,6 +46,7 @@ describe('buildWalmartInsights', () => {
       tips: 5,
       savings: 2,
       fuelSpend: 40,
+      fuelShareOfSpend: 0.4444,
       fuelGallons: 10,
       averageFuelPricePerGallon: 4,
       fuelPurchaseCount: 1,
@@ -71,6 +75,20 @@ describe('buildWalmartInsights', () => {
       fuelSpend: 40,
       orderCount: 2,
     }]);
+    expect(report.trend).toContainEqual({
+      periodStart: '2026-08-01',
+      totalSpend: 90,
+      retailSpend: 50,
+      fuelSpend: 40,
+      orderCount: 2,
+    });
+    expect(report.fuelGrades).toEqual([{
+      grade: 'Regular',
+      spend: 40,
+      gallons: 10,
+      fillUpCount: 1,
+      averagePricePerGallon: 4,
+    }]);
   });
 
   it('supports all-time history without including incomplete order stubs', () => {
@@ -83,6 +101,25 @@ describe('buildWalmartInsights', () => {
     expect(report.summary.totalSpend).toBe(115);
     expect(report.summary.orderCount).toBe(3);
     expect(report.topItems.some(item => item.productName === 'Old Product')).toBe(true);
+  });
+
+  it('supports daily and weekly trend periods for recent activity', () => {
+    const sevenDays = buildWalmartInsights(orders, items, {
+      period: 'last_7_days',
+      now: new Date('2026-09-01T12:00:00Z'),
+    });
+    expect(sevenDays.startDate).toBe('2026-08-26');
+    expect(sevenDays.trendGranularity).toBe('day');
+    expect(sevenDays.trend).toHaveLength(7);
+    expect(sevenDays.trend.at(-1)?.periodStart).toBe('2026-09-01');
+
+    const thirtyDays = buildWalmartInsights(orders, items, {
+      period: 'last_30_days',
+      now: new Date('2026-09-01T12:00:00Z'),
+    });
+    expect(thirtyDays.startDate).toBe('2026-08-03');
+    expect(thirtyDays.trendGranularity).toBe('week');
+    expect(thirtyDays.trend).toHaveLength(5);
   });
 
   it('nets returns without misreporting them as zero-dollar orders', () => {

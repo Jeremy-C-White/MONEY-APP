@@ -14,6 +14,9 @@ const report = {
   endDate: '2026-09-04',
   summary: {
     totalSpend: 1200,
+    retailSpend: 960,
+    previousTotalSpend: 1000,
+    spendChangePercentage: 0.2,
     orderCount: 20,
     averageOrder: 60,
     onlineSpend: 900,
@@ -21,13 +24,26 @@ const report = {
     tips: 55,
     savings: 80,
     fuelSpend: 240,
+    fuelShareOfSpend: 0.2,
     fuelGallons: 80,
     averageFuelPricePerGallon: 3,
     fuelPurchaseCount: 8,
     returnAmount: 40,
     returnCount: 1,
   },
+  trendGranularity: 'month',
+  trend: [{ periodStart: '2026-08-01', totalSpend: 300, retailSpend: 240, fuelSpend: 60, orderCount: 5 }],
   monthly: [{ month: '2026-08', totalSpend: 300, fuelSpend: 60, orderCount: 5 }],
+  fuelGrades: [{ grade: 'Regular', spend: 240, gallons: 80, fillUpCount: 8, averagePricePerGallon: 3 }],
+  fuelPurchases: [{
+    orderNumber: 'fuel-1',
+    date: '2026-08-28',
+    productName: 'Regular Unleaded',
+    grade: 'Regular',
+    spend: 30,
+    gallons: 10,
+    pricePerGallon: 3,
+  }],
   topItems: [{
     productName: 'Organic Bananas',
     productUrl: 'https://www.walmart.com/ip/123456789',
@@ -115,16 +131,16 @@ describe('WalmartInsightsPage', () => {
     });
 
     await vi.waitFor(() => expect(container.textContent).toContain('$1,200.00'));
-    expect(container.textContent).toContain('Net Walmart spend');
-    expect(container.textContent).toContain('$40.00 returned');
-    expect(container.textContent).toContain('80');
-    expect(container.textContent).toContain('$3.00');
+    expect(container.textContent).toContain('Total Walmart spend');
+    expect(container.textContent).toContain('20% higher');
     expect(container.textContent).toContain('Organic Bananas');
-    expect(container.textContent).toContain('Price watch');
-    expect(container.textContent).toContain('25%');
-    expect(container.textContent).toContain('Check current price');
     expect(container.querySelector('a[href="https://www.walmart.com/ip/123456789"]')).toBeTruthy();
-    expect(apiFetch).toHaveBeenCalledWith('/api/walmart/insights?period=last_12_months');
+    expect(apiFetch).toHaveBeenCalledWith('/api/walmart/insights?period=last_30_days');
+
+    const purchasesTab = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Purchases') as HTMLButtonElement;
+    await act(async () => purchasesTab.click());
+    expect(container.textContent).toContain('Price changes worth noticing');
+    expect(container.textContent).toContain('25%');
 
     const orderButton = container.querySelector('button[aria-expanded="false"]') as HTMLButtonElement;
     await act(async () => orderButton.click());
@@ -160,7 +176,7 @@ describe('WalmartInsightsPage', () => {
       form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
 
-    await vi.waitFor(() => expect(container.textContent).toContain('Spending habits & items'));
+    await vi.waitFor(() => expect(container.textContent).toContain('Spending at a glance'));
     expect(apiFetch).toHaveBeenCalledWith('/api/walmart/source', expect.objectContaining({
       method: 'PUT',
       body: JSON.stringify({ spreadsheetUrl: report.source.spreadsheetUrl }),

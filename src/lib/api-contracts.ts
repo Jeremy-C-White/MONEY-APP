@@ -439,6 +439,39 @@ function isWalmartMonthlyInsight(value: unknown): boolean {
     typeof value.orderCount === 'number';
 }
 
+function isWalmartTrendPoint(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.periodStart === 'string' &&
+    typeof value.totalSpend === 'number' &&
+    typeof value.retailSpend === 'number' &&
+    typeof value.fuelSpend === 'number' &&
+    typeof value.orderCount === 'number';
+}
+
+function isWalmartFuelGrade(value: unknown): boolean {
+  return ['Regular', 'Midgrade', 'Premium', 'Diesel', 'Other'].includes(String(value));
+}
+
+function isWalmartFuelGradeSummary(value: unknown): boolean {
+  return isRecord(value) &&
+    isWalmartFuelGrade(value.grade) &&
+    typeof value.spend === 'number' &&
+    typeof value.gallons === 'number' &&
+    typeof value.fillUpCount === 'number' &&
+    validNullableNumber(value.averagePricePerGallon);
+}
+
+function isWalmartFuelPurchase(value: unknown): boolean {
+  return isRecord(value) &&
+    typeof value.orderNumber === 'string' &&
+    typeof value.date === 'string' &&
+    typeof value.productName === 'string' &&
+    isWalmartFuelGrade(value.grade) &&
+    typeof value.spend === 'number' &&
+    typeof value.gallons === 'number' &&
+    validNullableNumber(value.pricePerGallon);
+}
+
 function isWalmartTopItem(value: unknown): boolean {
   return isRecord(value) &&
     typeof value.productName === 'string' &&
@@ -504,11 +537,14 @@ export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsRe
     !isRecord(record.source) ||
     typeof record.source.spreadsheetTitle !== 'string' ||
     typeof record.source.spreadsheetUrl !== 'string' ||
-    !['last_12_months', 'this_year', 'all_time'].includes(String(record.period)) ||
+    !['last_7_days', 'last_30_days', 'last_3_months', 'last_12_months', 'this_year', 'all_time'].includes(String(record.period)) ||
     !(typeof record.startDate === 'string' || record.startDate === null) ||
     !(typeof record.endDate === 'string' || record.endDate === null) ||
     !isRecord(record.summary) ||
     typeof record.summary.totalSpend !== 'number' ||
+    typeof record.summary.retailSpend !== 'number' ||
+    !validNullableNumber(record.summary.previousTotalSpend) ||
+    !validNullableNumber(record.summary.spendChangePercentage) ||
     typeof record.summary.orderCount !== 'number' ||
     typeof record.summary.averageOrder !== 'number' ||
     typeof record.summary.onlineSpend !== 'number' ||
@@ -516,13 +552,21 @@ export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsRe
     typeof record.summary.tips !== 'number' ||
     typeof record.summary.savings !== 'number' ||
     typeof record.summary.fuelSpend !== 'number' ||
+    !validNullableNumber(record.summary.fuelShareOfSpend) ||
     typeof record.summary.fuelGallons !== 'number' ||
     !(typeof record.summary.averageFuelPricePerGallon === 'number' || record.summary.averageFuelPricePerGallon === null) ||
     typeof record.summary.fuelPurchaseCount !== 'number' ||
     typeof record.summary.returnAmount !== 'number' ||
     typeof record.summary.returnCount !== 'number' ||
+    !['day', 'week', 'month'].includes(String(record.trendGranularity)) ||
+    !Array.isArray(record.trend) ||
+    !record.trend.every(isWalmartTrendPoint) ||
     !Array.isArray(record.monthly) ||
     !record.monthly.every(isWalmartMonthlyInsight) ||
+    !Array.isArray(record.fuelGrades) ||
+    !record.fuelGrades.every(isWalmartFuelGradeSummary) ||
+    !Array.isArray(record.fuelPurchases) ||
+    !record.fuelPurchases.every(isWalmartFuelPurchase) ||
     !Array.isArray(record.topItems) ||
     !record.topItems.every(isWalmartTopItem) ||
     !Array.isArray(record.priceTrends) ||

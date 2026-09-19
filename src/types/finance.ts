@@ -794,7 +794,13 @@ export interface DashboardOverviewResponse {
   verdicts: OverviewVerdicts;
 }
 
-export type WalmartInsightPeriod = 'last_12_months' | 'this_year' | 'all_time';
+export type WalmartInsightPeriod =
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'last_3_months'
+  | 'last_12_months'
+  | 'this_year'
+  | 'all_time';
 
 export interface WalmartSourceStatus {
   connected: boolean;
@@ -808,6 +814,34 @@ export interface WalmartMonthlyInsight {
   totalSpend: number;
   fuelSpend: number;
   orderCount: number;
+}
+
+export interface WalmartTrendPoint {
+  periodStart: string;
+  totalSpend: number;
+  retailSpend: number;
+  fuelSpend: number;
+  orderCount: number;
+}
+
+export type WalmartFuelGrade = 'Regular' | 'Midgrade' | 'Premium' | 'Diesel' | 'Other';
+
+export interface WalmartFuelGradeSummary {
+  grade: WalmartFuelGrade;
+  spend: number;
+  gallons: number;
+  fillUpCount: number;
+  averagePricePerGallon: number | null;
+}
+
+export interface WalmartFuelPurchase {
+  orderNumber: string;
+  date: string;
+  productName: string;
+  grade: WalmartFuelGrade;
+  spend: number;
+  gallons: number;
+  pricePerGallon: number | null;
 }
 
 export interface WalmartTopItem {
@@ -872,6 +906,9 @@ export interface WalmartInsightsResponse {
   endDate: string | null;
   summary: {
     totalSpend: number;
+    retailSpend: number;
+    previousTotalSpend: number | null;
+    spendChangePercentage: number | null;
     orderCount: number;
     averageOrder: number;
     onlineSpend: number;
@@ -879,13 +916,18 @@ export interface WalmartInsightsResponse {
     tips: number;
     savings: number;
     fuelSpend: number;
+    fuelShareOfSpend: number | null;
     fuelGallons: number;
     averageFuelPricePerGallon: number | null;
     fuelPurchaseCount: number;
     returnAmount: number;
     returnCount: number;
   };
+  trendGranularity: 'day' | 'week' | 'month';
+  trend: WalmartTrendPoint[];
   monthly: WalmartMonthlyInsight[];
+  fuelGrades: WalmartFuelGradeSummary[];
+  fuelPurchases: WalmartFuelPurchase[];
   topItems: WalmartTopItem[];
   priceTrends: WalmartPriceTrend[];
   recentOrders: WalmartRecentOrder[];

@@ -1,4 +1,11 @@
-export const WALMART_INSIGHT_PERIODS = ['last_12_months', 'this_year', 'all_time'] as const;
+export const WALMART_INSIGHT_PERIODS = [
+  'last_7_days',
+  'last_30_days',
+  'last_3_months',
+  'last_12_months',
+  'this_year',
+  'all_time',
+] as const;
 
 export type WalmartInsightPeriod = typeof WALMART_INSIGHT_PERIODS[number];
 export type WalmartSheetRow = Array<string | number | boolean | null | undefined>;
@@ -8,6 +15,34 @@ export interface WalmartMonthlyInsight {
   totalSpend: number;
   fuelSpend: number;
   orderCount: number;
+}
+
+export interface WalmartTrendPoint {
+  periodStart: string;
+  totalSpend: number;
+  retailSpend: number;
+  fuelSpend: number;
+  orderCount: number;
+}
+
+export type WalmartFuelGrade = 'Regular' | 'Midgrade' | 'Premium' | 'Diesel' | 'Other';
+
+export interface WalmartFuelGradeSummary {
+  grade: WalmartFuelGrade;
+  spend: number;
+  gallons: number;
+  fillUpCount: number;
+  averagePricePerGallon: number | null;
+}
+
+export interface WalmartFuelPurchase {
+  orderNumber: string;
+  date: string;
+  productName: string;
+  grade: WalmartFuelGrade;
+  spend: number;
+  gallons: number;
+  pricePerGallon: number | null;
 }
 
 export interface WalmartTopItem {
@@ -68,6 +103,9 @@ export interface WalmartInsights {
   endDate: string | null;
   summary: {
     totalSpend: number;
+    retailSpend: number;
+    previousTotalSpend: number | null;
+    spendChangePercentage: number | null;
     orderCount: number;
     averageOrder: number;
     onlineSpend: number;
@@ -75,13 +113,18 @@ export interface WalmartInsights {
     tips: number;
     savings: number;
     fuelSpend: number;
+    fuelShareOfSpend: number | null;
     fuelGallons: number;
     averageFuelPricePerGallon: number | null;
     fuelPurchaseCount: number;
     returnAmount: number;
     returnCount: number;
   };
+  trendGranularity: 'day' | 'week' | 'month';
+  trend: WalmartTrendPoint[];
   monthly: WalmartMonthlyInsight[];
+  fuelGrades: WalmartFuelGradeSummary[];
+  fuelPurchases: WalmartFuelPurchase[];
   topItems: WalmartTopItem[];
   priceTrends: WalmartPriceTrend[];
   recentOrders: WalmartRecentOrder[];
@@ -334,6 +377,14 @@ export function isFuelProduct(productName: string): boolean {
   return /\b(?:gasoline|unleaded|diesel)\b/i.test(productName);
 }
 
+export function fuelGradeForProduct(productName: string): WalmartFuelGrade {
+  if (/\bdiesel\b/i.test(productName)) return 'Diesel';
+  if (/\b(?:premium|hi[ -]?grade|high[ -]?grade)\b/i.test(productName)) return 'Premium';
+  if (/\b(?:mid[ -]?grade|plus)\b/i.test(productName)) return 'Midgrade';
+  if (/\b(?:regular|reg\.?|unleaded)\b/i.test(productName)) return 'Regular';
+  return 'Other';
+}
+
 function cleanItems(
   items: ParsedItem[],
   resolveIdentity = buildWalmartProductIdentityResolver(items)
@@ -386,8 +437,37 @@ function cleanItems(
 function periodStart(period: WalmartInsightPeriod, now: Date): string | null {
   if (period === 'all_time') return null;
   if (period === 'this_year') return `${now.getUTCFullYear()}-01-01`;
+  if (period === 'last_7_days') return addDays(now.toISOString().slice(0, 10), -6);
+  if (period === 'last_30_days') return addDays(now.toISOString().slice(0, 10), -29);
+  if (period === 'last_3_months') {
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
+    return start.toISOString().slice(0, 10);
+  }
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
   return start.toISOString().slice(0, 10);
+}
+
+function addDays(date: string, days: number): string {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+}
+
+function daysBetween(start: string, end: string): number {
+  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
+}
+
+function trendGranularityFor(period: WalmartInsightPeriod): WalmartInsights['trendGranularity'] {
+  if (period === 'last_7_days') return 'day';
+  if (period === 'last_30_days') return 'week';
+  return 'month';
+}
+
+function trendKey(date: string, startDate: string | null, granularity: WalmartInsights['trendGranularity']): string {
+  if (granularity === 'day') return date;
+  if (granularity === 'month') return `${date.slice(0, 7)}-01`;
+  if (!startDate) return date;
+  return addDays(startDate, Math.floor(daysBetween(startDate, date) / 7) * 7);
 }
 
 function channelFor(order: ParsedOrder): WalmartRecentOrder['channel'] {
@@ -414,6 +494,7 @@ export function buildWalmartInsights(
   const now = options.now || new Date();
   const startDate = periodStart(period, now);
   const endDate = now.toISOString().slice(0, 10);
+  const trendGranularity = trendGranularityFor(period);
   const { orders: allOrders, incomplete } = parseOrders(orderRows);
   const parsedItems = parseItems(itemRows);
   const resolveProductIdentity = buildWalmartProductIdentityResolver(parsedItems);
@@ -443,6 +524,87 @@ export function buildWalmartInsights(
   const fuelSpend = fuelItems.reduce((sum, item) => sum + item.price * item.copies, 0);
   const fuelGallons = fuelItems.reduce((sum, item) => sum + item.quantity * item.copies, 0);
   const fuelOrders = new Set(fuelItems.map(item => item.orderNumber));
+
+  const previousRange = startDate ? (() => {
+    const durationDays = daysBetween(startDate, endDate) + 1;
+    return {
+      start: addDays(startDate, -durationDays),
+      end: addDays(startDate, -1),
+    };
+  })() : null;
+  const previousTotalSpend = previousRange
+    ? allOrders
+      .filter(order => order.date >= previousRange.start && order.date <= previousRange.end && order.total !== 0)
+      .reduce((sum, order) => sum + order.total, 0)
+    : null;
+  const spendChangePercentage = previousTotalSpend !== null && previousTotalSpend > 0
+    ? (totalSpend - previousTotalSpend) / previousTotalSpend
+    : null;
+
+  const trendMap = new Map<string, WalmartTrendPoint>();
+  if (startDate) {
+    const stepDays = trendGranularity === 'day' ? 1 : trendGranularity === 'week' ? 7 : null;
+    if (stepDays) {
+      for (let date = startDate; date <= endDate; date = addDays(date, stepDays)) {
+        trendMap.set(date, { periodStart: date, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 });
+      }
+    } else {
+      for (
+        let cursor = new Date(`${startDate.slice(0, 7)}-01T00:00:00Z`);
+        cursor.toISOString().slice(0, 10) <= endDate;
+        cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1))
+      ) {
+        const date = cursor.toISOString().slice(0, 10);
+        trendMap.set(date, { periodStart: date, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 });
+      }
+    }
+  }
+  for (const order of financialOrders) {
+    const key = trendKey(order.date, startDate, trendGranularity);
+    const entry = trendMap.get(key) || { periodStart: key, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 };
+    entry.totalSpend += order.total;
+    if (order.total > 0) entry.orderCount += 1;
+    trendMap.set(key, entry);
+  }
+  for (const item of fuelItems) {
+    const key = trendKey(item.date, startDate, trendGranularity);
+    const entry = trendMap.get(key) || { periodStart: key, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 };
+    entry.fuelSpend += item.price * item.copies;
+    trendMap.set(key, entry);
+  }
+
+  const fuelPurchases: WalmartFuelPurchase[] = fuelItems
+    .map(item => {
+      const spend = item.price * item.copies;
+      const gallons = item.quantity * item.copies;
+      return {
+        orderNumber: item.orderNumber,
+        date: item.date,
+        productName: item.productName,
+        grade: fuelGradeForProduct(item.productName),
+        spend: roundCurrency(spend),
+        gallons: roundQuantity(gallons),
+        pricePerGallon: gallons > 0 ? roundCurrency(spend / gallons) : null,
+      };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date) || b.orderNumber.localeCompare(a.orderNumber));
+  const fuelGradeMap = new Map<WalmartFuelGrade, { spend: number; gallons: number; orders: Set<string> }>();
+  for (const purchase of fuelPurchases) {
+    const grade = fuelGradeMap.get(purchase.grade) || { spend: 0, gallons: 0, orders: new Set<string>() };
+    grade.spend += purchase.spend;
+    grade.gallons += purchase.gallons;
+    grade.orders.add(purchase.orderNumber);
+    fuelGradeMap.set(purchase.grade, grade);
+  }
+  const fuelGrades: WalmartFuelGradeSummary[] = [...fuelGradeMap.entries()]
+    .map(([grade, values]) => ({
+      grade,
+      spend: roundCurrency(values.spend),
+      gallons: roundQuantity(values.gallons),
+      fillUpCount: values.orders.size,
+      averagePricePerGallon: values.gallons > 0 ? roundCurrency(values.spend / values.gallons) : null,
+    }))
+    .sort((a, b) => b.spend - a.spend);
 
   const monthlyMap = new Map<string, WalmartMonthlyInsight>();
   for (const order of financialOrders) {
@@ -636,6 +798,11 @@ export function buildWalmartInsights(
     endDate,
     summary: {
       totalSpend: roundCurrency(totalSpend),
+      retailSpend: roundCurrency(totalSpend - fuelSpend),
+      previousTotalSpend: previousTotalSpend === null ? null : roundCurrency(previousTotalSpend),
+      spendChangePercentage: spendChangePercentage === null
+        ? null
+        : Math.round(spendChangePercentage * 10_000) / 10_000,
       orderCount: purchaseOrders.length,
       averageOrder: purchaseOrders.length ? roundCurrency(purchaseSpend / purchaseOrders.length) : 0,
       onlineSpend: roundCurrency(purchaseOrders.filter(order => order.orderType !== 'IN_STORE').reduce((sum, order) => sum + order.total, 0)),
@@ -643,12 +810,22 @@ export function buildWalmartInsights(
       tips: roundCurrency(purchaseOrders.reduce((sum, order) => sum + order.tip, 0)),
       savings: roundCurrency(purchaseOrders.reduce((sum, order) => sum + order.savings, 0)),
       fuelSpend: roundCurrency(fuelSpend),
+      fuelShareOfSpend: totalSpend > 0 ? Math.round((fuelSpend / totalSpend) * 10_000) / 10_000 : null,
       fuelGallons: roundQuantity(fuelGallons),
       averageFuelPricePerGallon: fuelGallons > 0 ? roundCurrency(fuelSpend / fuelGallons) : null,
       fuelPurchaseCount: fuelOrders.size,
       returnAmount: roundCurrency(-returnOrders.reduce((sum, order) => sum + order.total, 0)),
       returnCount: returnOrders.length,
     },
+    trendGranularity,
+    trend: [...trendMap.values()]
+      .sort((a, b) => a.periodStart.localeCompare(b.periodStart))
+      .map(point => ({
+        ...point,
+        totalSpend: roundCurrency(point.totalSpend),
+        retailSpend: roundCurrency(point.totalSpend - point.fuelSpend),
+        fuelSpend: roundCurrency(point.fuelSpend),
+      })),
     monthly: [...monthlyMap.values()]
       .sort((a, b) => a.month.localeCompare(b.month))
       .map(month => ({
@@ -656,6 +833,8 @@ export function buildWalmartInsights(
         totalSpend: roundCurrency(month.totalSpend),
         fuelSpend: roundCurrency(month.fuelSpend),
       })),
+    fuelGrades,
+    fuelPurchases,
     topItems,
     priceTrends,
     recentOrders,
