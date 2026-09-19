@@ -312,6 +312,12 @@ const financialPositionPayload = {
   liquidChecking: 1000,
   liquidSavings: 1500,
   estimatedNetWorth: 2000,
+  breakdown: {
+    cashAndSavings: 2500,
+    investmentsAndRetirement: null,
+    propertyAndVehicles: null,
+    liabilities: 500,
+  },
   includedAccountCount: 2,
   knownBalanceCount: 2,
   excludedDuplicateCount: 0,

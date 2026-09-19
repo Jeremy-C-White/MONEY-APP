@@ -308,6 +308,7 @@ export function extractConnectedAccountsResponse(data: unknown): ConnectedAccoun
 export function extractFinancialPosition(data: unknown): FinancialPosition {
   const record = requireRecord(data, 'financial position');
   const retirement = record.retirement;
+  const breakdown = record.breakdown;
   if (
     !validNullableString(record.currency) ||
     typeof record.mixedCurrency !== 'boolean' ||
@@ -315,6 +316,13 @@ export function extractFinancialPosition(data: unknown): FinancialPosition {
     !validNullableNumber(record.liquidChecking) ||
     !validNullableNumber(record.liquidSavings) ||
     !validNullableNumber(record.estimatedNetWorth) ||
+    !(breakdown === undefined || (
+      isRecord(breakdown) &&
+      validNullableNumber(breakdown.cashAndSavings) &&
+      validNullableNumber(breakdown.investmentsAndRetirement) &&
+      validNullableNumber(breakdown.propertyAndVehicles) &&
+      validNullableNumber(breakdown.liabilities)
+    )) ||
     typeof record.includedAccountCount !== 'number' ||
     typeof record.knownBalanceCount !== 'number' ||
     typeof record.excludedDuplicateCount !== 'number' ||

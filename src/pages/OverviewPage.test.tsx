@@ -103,6 +103,10 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
     financialPosition: {
       currency: 'USD', mixedCurrency: false, liquidCash: 4000, liquidChecking: 1500, liquidSavings: 2500,
       estimatedNetWorth: 4000, includedAccountCount: 1, knownBalanceCount: 1,
+      breakdown: {
+        cashAndSavings: 4000, investmentsAndRetirement: null,
+        propertyAndVehicles: null, liabilities: null,
+      },
       excludedDuplicateCount: 0,
       netWorthHistory: [
         { date: '2026-09-05', estimatedNetWorth: 3900, liquidCash: 3900, coveredAccountCount: 1, expectedAccountCount: 1, status: 'complete' },
@@ -246,6 +250,34 @@ describe('OverviewPage', () => {
     expect(firstSection?.textContent).toContain('Checking$1,500.00');
     expect(firstSection?.textContent).toContain('Savings$2,500.00');
     expect(firstSection?.textContent).toContain('total $4,000.00 in liquid cash');
+    expect(firstSection?.textContent).toContain('Net worth breakdown');
+    expect(firstSection?.textContent).toContain('Cash & savings$4,000.00');
+    expect(firstSection?.textContent).toContain('Up $100.00 since Sep 5, 2026');
+    expect(firstSection?.textContent).not.toContain('Credit balances');
+  });
+
+  it('keeps the net-worth mix compact and hides zero debt', async () => {
+    await renderOverview(overviewPayload({
+      financialPosition: {
+        ...overviewPayload().financialPosition,
+        estimatedNetWorth: 504000,
+        breakdown: {
+          cashAndSavings: 4000,
+          investmentsAndRetirement: 100000,
+          propertyAndVehicles: 400000,
+          liabilities: null,
+        },
+        netWorthHistory: [
+          { date: '2026-09-05', estimatedNetWorth: 503000, liquidCash: 4000, coveredAccountCount: 3, expectedAccountCount: 3, status: 'complete' },
+          { date: '2026-09-06', estimatedNetWorth: 504000, liquidCash: 4000, coveredAccountCount: 3, expectedAccountCount: 3, status: 'complete' },
+        ],
+      },
+    }));
+
+    expect(container.textContent).toContain('Investments & retirement$100,000.00');
+    expect(container.textContent).toContain('Homes & vehicles$400,000.00');
+    expect(container.textContent).toContain('Up $1,000.00 since Sep 5, 2026');
+    expect(container.textContent).not.toContain('Credit balances');
   });
 
   it('shows Now, Heading, and Looking back without a detail disclosure', async () => {

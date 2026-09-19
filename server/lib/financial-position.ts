@@ -21,6 +21,12 @@ export type FinancialPosition = {
   liquidChecking: number | null;
   liquidSavings: number | null;
   estimatedNetWorth: number | null;
+  breakdown: {
+    cashAndSavings: number | null;
+    investmentsAndRetirement: number | null;
+    propertyAndVehicles: number | null;
+    liabilities: number | null;
+  };
   includedAccountCount: number;
   knownBalanceCount: number;
   excludedDuplicateCount: number;
@@ -211,6 +217,34 @@ export function buildFinancialPosition(input: {
   const checkingAccounts = liquidAccounts.filter(account => account.role === 'operating');
   const retirementAccounts = included.filter(account => account.role === 'retirement');
   const knownRetirementAccounts = retirementAccounts.filter(account => account.current !== null);
+  const liabilityAccounts = known.filter(account => (
+    account.accountType === 'credit' || account.accountType === 'loan' || account.role === 'debt'
+  ));
+  const propertyAccounts = known.filter(account => account.accountType === 'asset');
+  const investmentAccounts = known.filter(account => (
+    !liabilityAccounts.includes(account) &&
+    !propertyAccounts.includes(account) &&
+    (
+      account.accountType === 'investment' ||
+      account.accountType === 'brokerage' ||
+      account.role === 'retirement' ||
+      account.role === 'investment' ||
+      account.role === 'health_savings'
+    )
+  ));
+  const cashAndSavingsAccounts = known.filter(account => (
+    account.accountType === 'depository' &&
+    !liabilityAccounts.includes(account) &&
+    !investmentAccounts.includes(account)
+  ));
+
+  const sumCurrent = (accounts: readonly UnifiedAccount[]): number | null => (
+    currency && !mixedCurrency
+      ? sum(accounts
+          .filter(account => account.isoCurrencyCode === currency)
+          .map(account => account.current as number))
+      : null
+  );
 
   const liquidCash = currency && !mixedCurrency
     ? sum(liquidAccounts.filter(account => account.isoCurrencyCode === currency).map(account => account.current as number))
@@ -245,6 +279,12 @@ export function buildFinancialPosition(input: {
     liquidChecking,
     liquidSavings,
     estimatedNetWorth,
+    breakdown: {
+      cashAndSavings: sumCurrent(cashAndSavingsAccounts),
+      investmentsAndRetirement: sumCurrent(investmentAccounts),
+      propertyAndVehicles: sumCurrent(propertyAccounts),
+      liabilities: sumCurrent(liabilityAccounts),
+    },
     includedAccountCount: included.length,
     knownBalanceCount: known.length,
     excludedDuplicateCount: input.accounts.filter(account => Boolean(account.duplicateOfAccountId)).length,

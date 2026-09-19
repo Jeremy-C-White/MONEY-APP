@@ -467,6 +467,35 @@ describe('AccountsPage', () => {
       { method: 'PUT', body: JSON.stringify({ balance: 6000 }) }
     ));
   });
+
+  it('gently flags an old property estimate without adding debt controls', async () => {
+    const home: ConnectedAccount = {
+      ...connectedAccounts[2],
+      accountId: 'manual_12345678-1234-1234-1234-123456789abc',
+      institutionName: 'Property',
+      accountName: 'Primary home',
+      accountMask: '',
+      accountType: 'asset',
+      accountSubtype: 'real_estate',
+      health: 'manual',
+      current: 450000,
+      available: null,
+      fetchedAt: '2025-01-01T12:00:00.000Z',
+      source: 'manual',
+      manualKind: 'real_estate',
+      includeInCash: false,
+      includeInNetWorth: true,
+    };
+
+    await renderAccounts({ ...connectedAccountsResponse, accounts: [home] });
+    await vi.waitFor(() => expect(container.textContent).toContain('Primary home'));
+
+    expect(container.textContent).toContain('Estimated value');
+    expect(container.textContent).toContain('This estimate is over 4 months old. Consider reviewing it.');
+    expect(container.textContent).toContain('Update estimated value');
+    expect(container.textContent).toContain('Excluded from cash, savings, and Safe to Spend.');
+    expect(container.textContent).not.toContain('Purpose for Primary home');
+  });
 });
 
 describe('Accounts navigation', () => {

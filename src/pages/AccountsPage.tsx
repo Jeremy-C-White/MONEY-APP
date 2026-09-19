@@ -96,6 +96,12 @@ function isManualAsset(account: ConnectedAccount): boolean {
   return account.source === 'manual' && account.manualKind !== null && ASSET_KINDS.has(account.manualKind);
 }
 
+function shouldReviewManualAssetEstimate(account: ConnectedAccount, now = Date.now()): boolean {
+  if (!isManualAsset(account) || !account.fetchedAt) return false;
+  const updatedAt = new Date(account.fetchedAt).getTime();
+  return Number.isFinite(updatedAt) && now - updatedAt >= 120 * 24 * 60 * 60 * 1000;
+}
+
 function manualDefaults(kind: ManualAccountKind) {
   if (kind === 'real_estate') {
     return { institutionName: 'Property', accountName: 'Primary home', accountMask: '' };
@@ -693,6 +699,7 @@ export function AccountsPage({
                   const subtype = friendlySubtype(account.accountSubtype);
                   const isAttention = NEEDS_ATTENTION.has(account.health);
                   const asset = isManualAsset(account);
+                  const reviewAssetEstimate = shouldReviewManualAssetEstimate(account);
 
                   return (
                     <article
@@ -754,6 +761,11 @@ export function AccountsPage({
                           <p className={`mt-1 text-xs ${account.balanceStatus === 'stale' ? 'font-medium text-amber-700' : 'text-slate-500'}`}>
                             {describeBalanceFreshness(account)}
                           </p>
+                          {reviewAssetEstimate && (
+                            <p className="mt-1 text-xs font-medium text-amber-700">
+                              This estimate is over 4 months old. Consider reviewing it.
+                            </p>
+                          )}
                         </div>
                         {asset ? (
                           <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2.5 text-xs text-indigo-800">

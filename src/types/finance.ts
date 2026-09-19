@@ -442,6 +442,12 @@ export interface FinancialPosition {
   liquidChecking: number | null;
   liquidSavings: number | null;
   estimatedNetWorth: number | null;
+  breakdown?: {
+    cashAndSavings: number | null;
+    investmentsAndRetirement: number | null;
+    propertyAndVehicles: number | null;
+    liabilities: number | null;
+  };
   includedAccountCount: number;
   knownBalanceCount: number;
   excludedDuplicateCount: number;

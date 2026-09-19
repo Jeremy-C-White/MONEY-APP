@@ -32,6 +32,12 @@ describe('buildFinancialPosition', () => {
     expect(result.liquidChecking).toBe(1000);
     expect(result.liquidSavings).toBe(5000);
     expect(result.estimatedNetWorth).toBe(6000);
+    expect(result.breakdown).toEqual({
+      cashAndSavings: 6000,
+      investmentsAndRetirement: null,
+      propertyAndVehicles: null,
+      liabilities: null,
+    });
     expect(result.excludedDuplicateCount).toBe(1);
   });
 
@@ -118,5 +124,25 @@ describe('buildFinancialPosition', () => {
     expect(result.liquidCash).toBe(1000);
     expect(result.estimatedNetWorth).toBe(506000);
     expect(result.includedAccountCount).toBe(3);
+    expect(result.breakdown).toEqual({
+      cashAndSavings: 1000,
+      investmentsAndRetirement: null,
+      propertyAndVehicles: 505000,
+      liabilities: null,
+    });
+  });
+
+  it('shows credit balances separately while subtracting them from net worth', () => {
+    const result = buildFinancialPosition({ accounts: [
+      account(),
+      account({
+        accountId: 'card', accountType: 'credit', accountSubtype: 'credit card',
+        role: 'debt', defaultRole: 'debt', current: 250, available: null,
+        includeInCash: false,
+      }),
+    ] });
+
+    expect(result.estimatedNetWorth).toBe(750);
+    expect(result.breakdown.liabilities).toBe(250);
   });
 });
