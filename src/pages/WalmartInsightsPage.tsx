@@ -352,13 +352,16 @@ function vehicleHintForFuelGrade(grade: string) {
 
 function FuelView({ report }: { report: WalmartInsightsResponse }) {
   const hasFuel = report.summary.fuelPurchaseCount > 0;
+  const averageFillUpSpend = hasFuel
+    ? report.summary.fuelSpend / report.summary.fuelPurchaseCount
+    : 0;
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Fuel spend" value={formatCurrency(report.summary.fuelSpend)} detail="Included in total Walmart spend" icon={Fuel} tone="amber" />
-        <Metric label="Gallons" value={hasFuel && report.summary.fuelGallons > 0 ? formatQuantity(report.summary.fuelGallons) : 'Not available'} detail="From receipt quantities" icon={Gauge} tone="amber" />
-        <Metric label="Average price" value={report.summary.averageFuelPricePerGallon === null ? 'Not available' : `${formatCurrency(report.summary.averageFuelPricePerGallon)}/gal`} detail="Based on recorded gallons" icon={ArrowDownRight} tone="amber" />
+        <Metric label="Average fill-up" value={formatCurrency(averageFillUpSpend)} detail="Per Walmart fuel purchase" icon={ArrowDownRight} tone="amber" />
         <Metric label="Fill-ups" value={String(report.summary.fuelPurchaseCount)} detail="Distinct Walmart fuel purchases" icon={Package} tone="amber" />
+        <Metric label="Gallons" value={hasFuel && report.summary.fuelGallons > 0 ? formatQuantity(report.summary.fuelGallons) : 'Not available'} detail="From receipt quantities" icon={Gauge} tone="amber" />
       </div>
       {!hasFuel ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center"><Fuel className="mx-auto h-7 w-7 text-slate-300" /><h3 className="mt-3 font-semibold text-slate-800">No fuel purchases in this period</h3><p className="mt-1 text-sm text-slate-500">Try a longer period to see Walmart fuel history.</p></div>

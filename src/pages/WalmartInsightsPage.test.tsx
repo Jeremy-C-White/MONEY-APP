@@ -165,9 +165,12 @@ describe('WalmartInsightsPage', () => {
 
     const fuelTab = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Fuel') as HTMLButtonElement;
     await act(async () => fuelTab.click());
+    expect(container.textContent).toContain('Average fill-up');
+    expect(container.textContent).toContain('$30.00');
     expect(container.textContent).toContain('Premium maps to the Lexus TX');
     expect(container.textContent).toContain('Premium · Lexus TX');
     expect(container.textContent).toContain('Regular · Tundra or Civic');
+    expect(container.textContent).toContain('$3.00/gal');
   });
 
   it('connects a source from the empty state', async () => {
