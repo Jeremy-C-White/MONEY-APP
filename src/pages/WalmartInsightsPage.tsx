@@ -344,6 +344,12 @@ function PurchasesView({ report }: { report: WalmartInsightsResponse }) {
   );
 }
 
+function vehicleHintForFuelGrade(grade: string) {
+  if (grade === 'Premium') return 'Lexus TX';
+  if (grade === 'Regular') return 'Tundra or Civic';
+  return null;
+}
+
 function FuelView({ report }: { report: WalmartInsightsResponse }) {
   const hasFuel = report.summary.fuelPurchaseCount > 0;
   return (
@@ -361,12 +367,12 @@ function FuelView({ report }: { report: WalmartInsightsResponse }) {
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="mb-4"><h3 className="font-bold text-slate-900">Fuel spending trend</h3><p className="mt-1 text-xs text-slate-500">Based on fuel lines in Walmart receipts.</p></div><SpendingTrend report={report} fuelOnly /></section>
           <div className="grid gap-6 lg:grid-cols-2">
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-              <div className="border-b border-slate-100 p-5"><h3 className="font-bold text-slate-900">Fuel type</h3><p className="mt-1 text-xs text-slate-500">Shown when the receipt names a grade or diesel.</p></div>
-              <div className="divide-y divide-slate-100">{report.fuelGrades.map(grade => <div key={grade.grade} className="flex items-center justify-between gap-4 px-5 py-4"><div><p className="text-sm font-semibold text-slate-800">{grade.grade}</p><p className="mt-0.5 text-xs text-slate-500">{grade.fillUpCount} fill-ups · {formatQuantity(grade.gallons)} gal</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{formatCurrency(grade.spend)}</p>{grade.averagePricePerGallon !== null && <p className="mt-0.5 text-xs text-slate-500">{formatCurrency(grade.averagePricePerGallon)}/gal</p>}</div></div>)}</div>
+              <div className="border-b border-slate-100 p-5"><h3 className="font-bold text-slate-900">Fuel type</h3><p className="mt-1 text-xs text-slate-500">Premium maps to the Lexus TX; Regular stays shared between the Tundra and Civic.</p></div>
+              <div className="divide-y divide-slate-100">{report.fuelGrades.map(grade => <div key={grade.grade} className="flex items-center justify-between gap-4 px-5 py-4"><div><p className="text-sm font-semibold text-slate-800">{grade.grade}{vehicleHintForFuelGrade(grade.grade) && <> · {vehicleHintForFuelGrade(grade.grade)}</>}</p><p className="mt-0.5 text-xs text-slate-500">{grade.fillUpCount} fill-ups · {formatQuantity(grade.gallons)} gal</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{formatCurrency(grade.spend)}</p>{grade.averagePricePerGallon !== null && <p className="mt-0.5 text-xs text-slate-500">{formatCurrency(grade.averagePricePerGallon)}/gal</p>}</div></div>)}</div>
             </section>
             <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
               <div className="border-b border-slate-100 p-5"><h3 className="font-bold text-slate-900">Recent fill-ups</h3><p className="mt-1 text-xs text-slate-500">Most recent fuel receipt lines.</p></div>
-              <div className="divide-y divide-slate-100">{report.fuelPurchases.slice(0, 8).map((purchase, index) => <div key={`${purchase.orderNumber}-${purchase.productName}-${index}`} className="flex items-center justify-between gap-4 px-5 py-4"><div className="min-w-0"><p className="text-sm font-semibold text-slate-800">{formatFriendlyDate(purchase.date)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{purchase.grade} · {formatQuantity(purchase.gallons)} gal</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{formatCurrency(purchase.spend)}</p>{purchase.pricePerGallon !== null && <p className="mt-0.5 text-xs text-slate-500">{formatCurrency(purchase.pricePerGallon)}/gal</p>}</div></div>)}</div>
+              <div className="divide-y divide-slate-100">{report.fuelPurchases.slice(0, 8).map((purchase, index) => <div key={`${purchase.orderNumber}-${purchase.productName}-${index}`} className="flex items-center justify-between gap-4 px-5 py-4"><div className="min-w-0"><p className="text-sm font-semibold text-slate-800">{formatFriendlyDate(purchase.date)}</p><p className="mt-0.5 truncate text-xs text-slate-500">{purchase.grade}{vehicleHintForFuelGrade(purchase.grade) && <> · {vehicleHintForFuelGrade(purchase.grade)}</>} · {formatQuantity(purchase.gallons)} gal</p></div><div className="text-right"><p className="text-sm font-bold text-slate-900">{formatCurrency(purchase.spend)}</p>{purchase.pricePerGallon !== null && <p className="mt-0.5 text-xs text-slate-500">{formatCurrency(purchase.pricePerGallon)}/gal</p>}</div></div>)}</div>
             </section>
           </div>
         </>

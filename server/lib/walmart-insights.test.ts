@@ -3,6 +3,7 @@ import {
   buildWalmartInsights,
   buildWalmartProductIdentityResolver,
   extractGoogleSpreadsheetId,
+  fuelGradeForProduct,
   getWalmartProductIdentity,
   isFuelProduct,
 } from './walmart-insights';
@@ -213,6 +214,8 @@ describe('Walmart source helpers', () => {
   it('recognizes common fuel product labels without treating unrelated items as fuel', () => {
     expect(isFuelProduct('Hi-grade Premium Gasoline')).toBe(true);
     expect(isFuelProduct('Reg Gasoline Unleaded')).toBe(true);
+    expect(fuelGradeForProduct('Hi-grade Premium Gasoline')).toBe('Premium');
+    expect(fuelGradeForProduct('Reg Gasoline Unleaded')).toBe('Regular');
     expect(isFuelProduct('Great Value Fuel Injector Cleaner')).toBe(false);
     expect(isFuelProduct('Great Value Whole Milk')).toBe(false);
   });

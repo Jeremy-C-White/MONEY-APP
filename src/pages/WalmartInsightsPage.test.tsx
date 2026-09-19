@@ -36,8 +36,19 @@ const report = {
   trendGranularity: 'month',
   trend: [{ periodStart: '2026-08-01', totalSpend: 300, retailSpend: 240, fuelSpend: 60, orderCount: 5 }],
   monthly: [{ month: '2026-08', totalSpend: 300, fuelSpend: 60, orderCount: 5 }],
-  fuelGrades: [{ grade: 'Regular', spend: 240, gallons: 80, fillUpCount: 8, averagePricePerGallon: 3 }],
+  fuelGrades: [
+    { grade: 'Premium', spend: 120, gallons: 40, fillUpCount: 4, averagePricePerGallon: 3 },
+    { grade: 'Regular', spend: 120, gallons: 40, fillUpCount: 4, averagePricePerGallon: 3 },
+  ],
   fuelPurchases: [{
+    orderNumber: 'fuel-2',
+    date: '2026-08-29',
+    productName: 'Hi-grade Premium Gasoline',
+    grade: 'Premium',
+    spend: 30,
+    gallons: 10,
+    pricePerGallon: 3,
+  }, {
     orderNumber: 'fuel-1',
     date: '2026-08-28',
     productName: 'Regular Unleaded',
@@ -151,6 +162,12 @@ describe('WalmartInsightsPage', () => {
     await act(async () => orderButton.click());
     expect(container.textContent).toContain('Qty 1');
     expect(container.textContent).toContain('Saved $3.00');
+
+    const fuelTab = Array.from(container.querySelectorAll('button')).find(button => button.textContent === 'Fuel') as HTMLButtonElement;
+    await act(async () => fuelTab.click());
+    expect(container.textContent).toContain('Premium maps to the Lexus TX');
+    expect(container.textContent).toContain('Premium · Lexus TX');
+    expect(container.textContent).toContain('Regular · Tundra or Civic');
   });
 
   it('connects a source from the empty state', async () => {
