@@ -22,14 +22,23 @@ const CLASSIFICATIONS = [
 
 export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
 
+export type TransactionsInitialFilters = {
+  category?: string;
+  merchantFamily?: string;
+  startDate?: string;
+  endDate?: string;
+};
+
 export function TransactionsPage({
   apiFetch,
   refreshKey,
   initialViewMode = 'posted',
+  initialFilters = {},
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   initialViewMode?: TransactionsViewMode;
+  initialFilters?: TransactionsInitialFilters;
 }) {
   const [viewMode, setViewMode] = useState<TransactionsViewMode>(initialViewMode);
   
@@ -51,9 +60,10 @@ export function TransactionsPage({
   
   const [filterAccount, setFilterAccount] = useState('');
   const [filterClassification, setFilterClassification] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
-  const [filterStartDate, setFilterStartDate] = useState('');
-  const [filterEndDate, setFilterEndDate] = useState('');
+  const [filterCategory, setFilterCategory] = useState(initialFilters.category || '');
+  const [filterMerchantFamily, setFilterMerchantFamily] = useState(initialFilters.merchantFamily || '');
+  const [filterStartDate, setFilterStartDate] = useState(initialFilters.startDate || '');
+  const [filterEndDate, setFilterEndDate] = useState(initialFilters.endDate || '');
 
   // Fetch options once
   useEffect(() => {
@@ -107,6 +117,7 @@ export function TransactionsPage({
     setFilterAccount('');
     setFilterClassification('');
     setFilterCategory('');
+    setFilterMerchantFamily('');
     setFilterStartDate('');
     setFilterEndDate('');
     setPage(1);
@@ -125,6 +136,7 @@ export function TransactionsPage({
       setFilterAccount('');
       setFilterClassification('');
       setFilterCategory('');
+      setFilterMerchantFamily('');
       setFilterStartDate('');
       setFilterEndDate('');
     }
@@ -157,6 +169,7 @@ export function TransactionsPage({
         params.set('classification', filterClassification);
       }
       if (filterCategory) params.set('category', filterCategory);
+      if (filterMerchantFamily) params.set('merchantFamily', filterMerchantFamily);
       if (filterStartDate) params.set('startDate', filterStartDate);
       if (filterEndDate) params.set('endDate', filterEndDate);
       
@@ -194,7 +207,7 @@ export function TransactionsPage({
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiFetch, refreshKey, viewMode, page, debouncedSearch, filterAccount, filterClassification, filterCategory, filterStartDate, filterEndDate]);
+  }, [apiFetch, refreshKey, viewMode, page, debouncedSearch, filterAccount, filterClassification, filterCategory, filterMerchantFamily, filterStartDate, filterEndDate]);
 
   const activeTabClasses = "border-indigo-600 text-indigo-600 font-semibold";
   const inactiveTabClasses = "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 font-medium";
@@ -240,6 +253,13 @@ export function TransactionsPage({
       
       <div className="flex-1 p-0 pt-4 sm:p-4 md:p-6 md:pb-6">
         <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 space-y-4">
+          {filterMerchantFamily && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+              <span className="font-semibold">Merchant family:</span>
+              <span>{filterMerchantFamily}</span>
+              <span className="text-xs text-indigo-600">Using the same grouping as the dashboard</span>
+            </div>
+          )}
           <div className="relative">
             <Search className="w-5 h-5 absolute left-3 top-2.5 text-slate-400" />
             <input 
@@ -301,7 +321,7 @@ export function TransactionsPage({
               onChange={(e) => updateFilter(setFilterEndDate, e.target.value)}
             />
             
-            {(searchInput || filterAccount || filterClassification || filterCategory || filterStartDate || filterEndDate) && (
+            {(searchInput || filterAccount || filterClassification || filterCategory || filterMerchantFamily || filterStartDate || filterEndDate) && (
               <button 
                 onClick={clearFilters}
                 className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 px-3 py-2 font-medium"

@@ -153,6 +153,15 @@ describe('Trend Ranges and Boundaries', () => {
     expect(trends[11].month).toBe('2026-08');
   });
 
+  it('24m trend returns exactly 24 months', () => {
+    vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
+    const trends = aggregateTrends([], '24m', 'America/New_York');
+
+    expect(trends).toHaveLength(24);
+    expect(trends[0].month).toBe('2024-09');
+    expect(trends[23].month).toBe('2026-08');
+  });
+
   it('ytd trend starts at January', () => {
     vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
     const txs = [];
@@ -326,6 +335,22 @@ describe('Aggregations Semantic Income Prevention', () => {
 });
 
 describe('filterTransactions', () => {
+  it('uses the shared merchant-family matcher for dashboard drill-downs', () => {
+    const amazon = mockTx({
+      transactionId: 'amazon',
+      name: 'AMZN Mktp US*2K4TQ',
+      normalizedMerchant: 'AMZN Mktp US*2K4TQ',
+    });
+    const unrelated = mockTx({
+      transactionId: 'unrelated',
+      name: 'Local Market',
+      normalizedMerchant: 'Local Market',
+    });
+
+    expect(filterTransactions([amazon, unrelated], { merchantFamily: 'Amazon' }))
+      .toEqual([amazon]);
+  });
+
   it('pending status filter returns active pending and excludes removed pending', () => {
     const txs = [
       mockTx({ transactionId: 't1', pending: true, removed: false }),

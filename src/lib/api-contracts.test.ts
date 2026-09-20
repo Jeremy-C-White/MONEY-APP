@@ -4,6 +4,7 @@ import {
   extractCategoriesResponse,
   extractMerchantsResponse,
   extractMerchantComparisonResponse,
+  extractSpendingBreakdownResponse,
   extractTrendsResponse,
   extractVerificationResponse,
   extractTransactionsResponse,
@@ -19,7 +20,6 @@ import {
   extractCashFlowForecast,
   extractHouseholdPlan,
   extractSafeToSpend,
-  extractOverviewVerdicts,
   extractSavingsContributions,
   extractOverviewResponse,
   extractCategoryBreakdownResponse,
@@ -415,48 +415,6 @@ const safeToSpendPayload = {
   warning: null,
 };
 
-const verdictsPayload = {
-  monthProgress: {
-    month: '2026-09',
-    dayOfMonth: 6,
-    daysInMonth: 30,
-    spending: 2400,
-    income: 5000,
-    netCashFlow: 2600,
-    tone: 'positive' as const,
-  },
-  lastCompletedMonth: {
-    month: '2026-08',
-    netCashFlow: 5324,
-    rank: 'best' as const,
-    comparedMonthCount: 6,
-    previousMonth: '2026-07',
-    previousNetCashFlow: 1500,
-    difference: 3824,
-    tone: 'positive' as const,
-  },
-  pacing: {
-    dayOfMonth: 6,
-    daysInMonth: 30,
-    previousMonthToDateSpending: 2000,
-    spendingDifference: 400,
-    spendingPercentageChange: 20,
-    direction: 'ahead' as const,
-    driver: { category: 'HOME_IMPROVEMENT', difference: 340, share: 0.85 },
-    tone: 'caution' as const,
-  },
-  categoryDrivers: [{
-    category: 'HOME_IMPROVEMENT',
-    currentSpending: 6400,
-    previousSpending: 0,
-    difference: 6400,
-    percentageChange: null,
-    movement: 'new' as const,
-    tone: 'caution' as const,
-  }],
-  targetProgress: null,
-};
-
 const savingsContributionsPayload = {
   asOfDate: '2026-09-06',
   destinations: [{
@@ -608,6 +566,23 @@ describe('API response contracts', () => {
     expect(result.merchants[0].difference).toBe(5);
   });
 
+  it('validates rolling spending breakdowns with exact server dates', () => {
+    const result = extractSpendingBreakdownResponse({
+      period: 'last_7_days',
+      currentPeriod: { startDate: '2026-09-13', endDate: '2026-09-19' },
+      previousComparablePeriod: { startDate: '2026-09-06', endDate: '2026-09-12' },
+      categories: [{
+        category: 'FOOD_AND_DRINK', currentSpending: 100, previousSpending: 80,
+        difference: 20, percentageChange: 25, transactionCount: 2, percentage: 1,
+      }],
+      merchants: [{
+        merchant: 'Amazon', currentSpending: 100, previousSpending: 80,
+        difference: 20, percentageChange: 25, transactionCount: 2,
+      }],
+    });
+    expect(result.currentPeriod.startDate).toBe('2026-09-13');
+  });
+
   it('reads the paced comparison from summary.pacing', () => {
     const result = extractSummaryResponse(summaryPayload);
     expect(result.pacing.dayOfMonth).toBe(15);
@@ -663,26 +638,31 @@ describe('API response contracts', () => {
   it('extracts the consolidated Overview response including balances', () => {
     const result = extractOverviewResponse({
       summary: summaryPayload,
-      categories: [category],
-      merchants: [merchant],
       trends: [trend],
-      recurringObligations: recurringObligationsPayload,
       householdInsights: householdInsightsPayload,
       verification: verificationPayload,
       accountBalances: accountBalancesPayload,
       financialPosition: financialPositionPayload,
       cashFlowForecast: cashFlowForecastPayload,
-      householdPlan: householdPlanPayload,
       safeToSpend: safeToSpendPayload,
-      verdicts: verdictsPayload,
+      yearOverYear: {
+        status: 'not_comparable',
+        currentPeriod: { startDate: '2026-09-01', endDate: '2026-09-04' },
+        previousPeriod: { startDate: '2025-09-01', endDate: '2025-09-04' },
+        currentSpending: 100,
+        previousSpending: 80,
+        difference: 20,
+        percentageChange: 25,
+        addedAccountCount: 1,
+        removedAccountCount: 0,
+      },
     });
 
     expect(result.accountBalances.connectedPosition).toBe(2000);
     expect(result.cashFlowForecast.minimumBalance).toBe(2300);
     expect(result.trends[0].month).toBe('2026-09');
-    expect(result.householdPlan.monthlySpendingTarget).toBe(5000);
     expect(result.safeToSpend.amount).toBe(1570);
-    expect(result.verdicts.lastCompletedMonth?.rank).toBe('best');
+    expect(result.yearOverYear.status).toBe('not_comparable');
   });
 
   it('validates the household plan contract', () => {
@@ -734,27 +714,6 @@ describe('API response contracts', () => {
 
     expect(result.status).toBe('unavailable');
     expect(result.amount).toBeNull();
-  });
-
-  it('validates the overview verdicts contract', () => {
-    const result = extractOverviewVerdicts(verdictsPayload);
-    expect(result.monthProgress.tone).toBe('positive');
-    expect(result.pacing?.driver?.category).toBe('HOME_IMPROVEMENT');
-
-    expect(extractOverviewVerdicts({
-      ...verdictsPayload,
-      lastCompletedMonth: null,
-      pacing: null,
-    }).pacing).toBeNull();
-
-    expect(() => extractOverviewVerdicts({ ...verdictsPayload, monthProgress: null }))
-      .toThrow('Invalid overview verdicts response.');
-    expect(() => extractOverviewVerdicts({
-      ...verdictsPayload,
-      categoryDrivers: [{ ...verdictsPayload.categoryDrivers[0], movement: 'sideways' }],
-    })).toThrow('Invalid overview verdicts response.');
-    expect(() => extractOverviewVerdicts({ ...verdictsPayload, targetProgress: { target: 5000 } }))
-      .toThrow('Invalid overview verdicts response.');
   });
 
   it('validates the savings contributions contract', () => {

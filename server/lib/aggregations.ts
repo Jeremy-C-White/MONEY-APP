@@ -1,5 +1,6 @@
 import { NormalizedTransaction } from './financial';
 import { getMonthForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth } from './time';
+import { getMerchantFamily } from './merchant-families';
 
 export function getPreviousMonthString(currentMonthStr: string): string {
   const parts = currentMonthStr.split('-');
@@ -411,6 +412,10 @@ export function aggregateTrends(txs: NormalizedTransaction[], range: string = '1
     let m = currentMonthPrefix;
     for (let i = 0; i < 11; i++) m = getPreviousMonthString(m);
     cutoffMonth = m;
+  } else if (range === '24m') {
+    let m = currentMonthPrefix;
+    for (let i = 0; i < 23; i++) m = getPreviousMonthString(m);
+    cutoffMonth = m;
   } else if (range === 'ytd') {
     cutoffMonth = `${currentYear}-01`;
   } else {
@@ -467,6 +472,11 @@ export function filterTransactions(txs: NormalizedTransaction[], filters: any) {
   if (filters.account) result = result.filter(t => t.accountId === filters.account);
   if (filters.category) {
     result = result.filter(t => getEffectiveCategory(t) === filters.category);
+  }
+  if (filters.merchantFamily) {
+    result = result.filter(t => (
+      getMerchantFamily(t.normalizedMerchant, t.name) === String(filters.merchantFamily)
+    ));
   }
   if (String(filters.overridden || '').toLowerCase() === 'true') {
     result = result.filter(t => t.isOverridden);

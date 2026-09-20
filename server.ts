@@ -65,12 +65,16 @@ import { applyMerchantFamilies } from "./server/lib/merchant-families";
 import { buildMerchantComparison } from "./server/lib/merchant-comparison";
 import {
   HouseholdPlanRequestError,
-  buildSpendingTargetProgress,
   parseHouseholdPlanInput,
   parseStoredHouseholdPlan,
   type HouseholdPlan,
 } from "./server/lib/household-plan";
-import { buildOverviewVerdicts } from "./server/lib/verdicts";
+import {
+  buildSpendingBreakdown,
+  SPENDING_PERIODS,
+  type SpendingPeriod,
+} from "./server/lib/spending-breakdown";
+import { buildYearOverYearComparison } from "./server/lib/year-over-year";
 import {
   SavingsDestinationRequestError,
   buildSavingsContributions,
@@ -78,7 +82,7 @@ import {
   parseSavingsDestinationName,
   parseStoredSavingsDestination,
 } from "./server/lib/savings-contributions";
-import { getDateForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth, getMonthForDateInTimezone } from "./server/lib/time";
+import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
 import {
   buildWalmartInsights,
   extractGoogleSpreadsheetId,
@@ -2325,12 +2329,32 @@ app.get("/api/dashboard/category-breakdown", requireAuth, async (req: express.Re
   }
 });
 
+app.get("/api/dashboard/spending-breakdown", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const periodParam = (req.query.period as string) || 'last_30_days';
+    if (!SPENDING_PERIODS.includes(periodParam as SpendingPeriod)) {
+      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${SPENDING_PERIODS.join(', ')}` });
+    }
+    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
+    const asOfDate = getDateForDateInTimezone(new Date(), financeTz);
+    const transactions = await fetchNormalizedTransactions((req as any).user.uid);
+    res.json(buildSpendingBreakdown({
+      transactions,
+      period: periodParam as SpendingPeriod,
+      asOfDate,
+    }));
+  } catch (error: any) {
+    console.error("Dashboard Spending Breakdown Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const validRanges = ['6m', '12m', 'ytd'];
+    const validRanges = ['6m', '12m', '24m', 'ytd'];
     const rangeParam = req.query.range as string || '12m';
     if (!validRanges.includes(rangeParam)) {
-      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, ytd" });
+      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, 24m, ytd" });
     }
     
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
@@ -2519,10 +2543,10 @@ async function captureDailyBalanceSnapshot(uid: string, now = new Date()) {
 
 app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const validRanges = ['6m', '12m', 'ytd'];
+    const validRanges = ['6m', '12m', '24m', 'ytd'];
     const rangeParam = req.query.range as string || '12m';
     if (!validRanges.includes(rangeParam)) {
-      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, ytd" });
+      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, 24m, ytd" });
     }
 
     const uid = (req as any).user.uid;
@@ -2550,27 +2574,13 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       recurringObligations.obligations,
       asOfDate
     );
-    const targetProgress = buildSpendingTargetProgress({
-      plan: householdPlan,
-      month: householdInsights.forecast.month,
-      daysElapsed: getDayOfMonthInTimezone(now, financeTz),
-      daysInMonth: getDaysInMonth(householdInsights.forecast.month),
-      spentToDate: verification.summary.currentMonth.spending,
-      projectedMonthEndSpending: householdInsights.forecast.projectedMonthEndSpending,
-      projectionMaturity: householdInsights.forecast.maturity,
-    });
-
     res.json({
       summary: verification.summary,
-      categories: verification.categories,
-      merchants: verification.merchants.slice(0, 50),
       trends,
-      recurringObligations,
       householdInsights,
       verification,
       accountBalances,
       financialPosition,
-      householdPlan,
       cashFlowForecast: buildCashFlowForecast({
         transactions: txs,
         recurringObligations: recurringObligations.obligations,
@@ -2585,13 +2595,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
         plan: householdPlan,
         asOfDate,
       }),
-      verdicts: buildOverviewVerdicts({
-        currentMonth: verification.summary.currentMonth,
-        pacing: verification.summary.pacing,
-        trends,
-        categoryChanges: householdInsights.monthly.categoryChanges,
-        targetProgress,
-      }),
+      yearOverYear: buildYearOverYearComparison({ transactions: txs, asOfDate }),
     });
   } catch (error: any) {
     console.error("Dashboard Overview Error:", error);

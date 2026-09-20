@@ -116,6 +116,36 @@ export interface MerchantComparisonReport {
   merchants: MerchantComparison[];
 }
 
+export type SpendingPeriod = 'last_7_days' | 'last_30_days' | 'last_3_months' | 'last_12_months';
+
+export interface SpendingBreakdownRow {
+  currentSpending: number;
+  previousSpending: number | null;
+  difference: number | null;
+  percentageChange: number | null;
+  transactionCount: number;
+}
+
+export interface SpendingBreakdownReport {
+  period: SpendingPeriod;
+  currentPeriod: { startDate: string; endDate: string };
+  previousComparablePeriod: { startDate: string; endDate: string };
+  categories: Array<SpendingBreakdownRow & { category: string; percentage: number }>;
+  merchants: Array<SpendingBreakdownRow & { merchant: string }>;
+}
+
+export interface YearOverYearComparison {
+  status: 'comparable' | 'not_comparable' | 'unavailable';
+  currentPeriod: { startDate: string; endDate: string };
+  previousPeriod: { startDate: string; endDate: string };
+  currentSpending: number;
+  previousSpending: number;
+  difference: number;
+  percentageChange: number | null;
+  addedAccountCount: number;
+  removedAccountCount: number;
+}
+
 export interface TrendPoint {
   month: string;
   income: number;
@@ -666,58 +696,6 @@ export interface SafeToSpend {
   warning: string | null;
 }
 
-export type VerdictTone = 'positive' | 'caution' | 'neutral';
-
-export interface MonthProgressVerdict {
-  month: string;
-  dayOfMonth: number;
-  daysInMonth: number;
-  spending: number;
-  income: number;
-  netCashFlow: number;
-  tone: VerdictTone;
-}
-
-export interface CompletedMonthVerdict {
-  month: string;
-  netCashFlow: number;
-  rank: 'best' | 'tightest' | 'middle';
-  comparedMonthCount: number;
-  previousMonth: string | null;
-  previousNetCashFlow: number | null;
-  difference: number | null;
-  tone: VerdictTone;
-}
-
-export interface PacingVerdict {
-  dayOfMonth: number;
-  daysInMonth: number;
-  previousMonthToDateSpending: number;
-  spendingDifference: number;
-  spendingPercentageChange: number | null;
-  direction: 'ahead' | 'behind' | 'level';
-  driver: { category: string; difference: number; share: number } | null;
-  tone: VerdictTone;
-}
-
-export interface CategoryDriverVerdict {
-  category: string;
-  currentSpending: number;
-  previousSpending: number;
-  difference: number;
-  percentageChange: number | null;
-  movement: 'new' | 'up' | 'down' | 'stopped';
-  tone: VerdictTone;
-}
-
-export interface OverviewVerdicts {
-  monthProgress: MonthProgressVerdict;
-  lastCompletedMonth: CompletedMonthVerdict | null;
-  pacing: PacingVerdict | null;
-  categoryDrivers: CategoryDriverVerdict[];
-  targetProgress: SpendingTargetProgress | null;
-}
-
 export interface HouseholdPlanResponse {
   householdPlan: HouseholdPlan;
 }
@@ -791,18 +769,14 @@ export interface SavingsContributionsResponse {
 
 export interface DashboardOverviewResponse {
   summary: DashboardSummary;
-  categories: DashboardCategory[];
-  merchants: DashboardMerchant[];
   trends: TrendPoint[];
-  recurringObligations: RecurringObligationsResponse;
   householdInsights: HouseholdInsights;
   verification: DashboardVerificationResponse;
   accountBalances: AccountBalanceSummary;
   financialPosition: FinancialPosition;
   cashFlowForecast: CashFlowForecast;
-  householdPlan: HouseholdPlan;
   safeToSpend: SafeToSpend;
-  verdicts: OverviewVerdicts;
+  yearOverYear: YearOverYearComparison;
 }
 
 export type WalmartInsightPeriod =

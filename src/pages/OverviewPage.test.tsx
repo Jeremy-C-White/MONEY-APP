@@ -32,6 +32,19 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
         difference: 50, percentageChange: 20, transactionCount: 3, isNew: false,
       }],
     },
+    spendingBreakdown: {
+      period: 'last_30_days',
+      currentPeriod: { startDate: '2026-08-08', endDate: '2026-09-06' },
+      previousComparablePeriod: { startDate: '2026-07-09', endDate: '2026-08-07' },
+      categories: [{
+        category: 'FOOD_AND_DRINK', currentSpending: 200, previousSpending: 180,
+        difference: 20, percentageChange: 11.11, transactionCount: 4, percentage: 1,
+      }],
+      merchants: [{
+        merchant: 'Walmart', currentSpending: 300, previousSpending: 250,
+        difference: 50, percentageChange: 20, transactionCount: 3,
+      }],
+    },
     trends: [{ month: '2026-09', income: 5000, spending: 2400, netCashFlow: 2600 }],
     recurringObligations: {
       obligations: [],
@@ -184,6 +197,17 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       categoryDrivers: [],
       targetProgress: null,
     },
+    yearOverYear: {
+      status: 'not_comparable',
+      currentPeriod: { startDate: '2026-09-01', endDate: '2026-09-06' },
+      previousPeriod: { startDate: '2025-09-01', endDate: '2025-09-06' },
+      currentSpending: 2400,
+      previousSpending: 2000,
+      difference: 400,
+      percentageChange: 20,
+      addedAccountCount: 1,
+      removedAccountCount: 0,
+    },
     ...overrides,
   };
 }
@@ -214,8 +238,8 @@ describe('OverviewPage', () => {
     const apiFetch = vi.fn(async (endpoint: string) => ({
       ok: true,
       json: async () => {
-        if (endpoint === '/api/dashboard/merchants') {
-          return { comparison: (payload as ReturnType<typeof overviewPayload>).merchantComparison, merchants: [] };
+        if (endpoint.startsWith('/api/dashboard/spending-breakdown')) {
+          return (payload as ReturnType<typeof overviewPayload>).spendingBreakdown;
         }
         if (endpoint === '/api/account-balances/refresh') {
           return { success: true, date: '2026-09-06', refreshedItemCount: 1, errors: [] };
@@ -224,6 +248,7 @@ describe('OverviewPage', () => {
       },
     }) as Response);
     const onOpenPlanSettings = vi.fn();
+    const onViewTransactions = vi.fn();
 
     await act(async () => {
       root.render(
@@ -231,13 +256,13 @@ describe('OverviewPage', () => {
           apiFetch={apiFetch}
           refreshKey={0}
           onReviewTransactions={vi.fn()}
-          onViewTransactions={vi.fn()}
+          onViewTransactions={onViewTransactions}
           onOpenPlanSettings={onOpenPlanSettings}
         />
       );
     });
 
-    return { apiFetch, onOpenPlanSettings };
+    return { apiFetch, onOpenPlanSettings, onViewTransactions };
   }
 
   it('leads with a single Now section for the current position', async () => {
@@ -289,10 +314,28 @@ describe('OverviewPage', () => {
     expect(container.textContent).toContain('Projected month-end spending');
     expect(container.textContent).toContain('Top merchants');
     expect(container.textContent).toContain('Walmart');
-    expect(container.textContent).toContain('Up from $250.00 last month');
+    expect(container.textContent).toContain('Up from $250.00');
+    expect(container.textContent).toContain('Top categories');
+    expect(container.textContent).toContain('Year-over-year is not comparable — 1 account was added since last year.');
     expect(container.textContent).not.toContain('More detail');
     expect(container.textContent).not.toContain('Connected-account position');
-    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/merchants');
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/spending-breakdown?period=last_30_days');
+  });
+
+  it('drills into a merchant using the exact date range returned by the server', async () => {
+    const { onViewTransactions } = await renderOverview();
+    await vi.waitFor(() => expect(container.textContent).toContain('Walmart'));
+    const walmartButton = Array.from(container.querySelectorAll('button'))
+      .find(button => button.textContent?.includes('Walmart'));
+
+    expect(walmartButton).toBeDefined();
+    await act(async () => walmartButton?.click());
+
+    expect(onViewTransactions).toHaveBeenCalledWith({
+      merchantFamily: 'Walmart',
+      startDate: '2026-08-08',
+      endDate: '2026-09-06',
+    });
   });
 
   it('renders the pacing comparison only once', async () => {

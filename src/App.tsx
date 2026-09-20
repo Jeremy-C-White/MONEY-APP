@@ -6,7 +6,11 @@ import { LogIn, LogOut, RefreshCcw, Landmark, FileSpreadsheet, Loader2, Link2Off
 import { DeveloperVerification } from './components/DeveloperVerification';
 import { AppShell } from './components/AppShell';
 import { OverviewPage } from './pages/OverviewPage';
-import { TransactionsPage, type TransactionsViewMode } from './pages/TransactionsPage';
+import {
+  TransactionsPage,
+  type TransactionsInitialFilters,
+  type TransactionsViewMode,
+} from './pages/TransactionsPage';
 import { AccountsPage } from './pages/AccountsPage';
 import { WalmartInsightsPage } from './pages/WalmartInsightsPage';
 import { AiAssistantPage } from './pages/AiAssistantPage';
@@ -44,15 +48,27 @@ export default function App() {
   const [showDeveloperTools, setShowDeveloperTools] = useState(false);
   const [transactionsInitialView, setTransactionsInitialView] =
     useState<TransactionsViewMode>('posted');
+  const [transactionsInitialFilters, setTransactionsInitialFilters] =
+    useState<TransactionsInitialFilters>({});
   const [refreshKey, setRefreshKey] = useState(0);
 
   const navigateToTab = (tab: string) => {
-    if (tab === 'transactions') setTransactionsInitialView('posted');
+    if (tab === 'transactions') {
+      setTransactionsInitialView('posted');
+      setTransactionsInitialFilters({});
+    }
     setActiveTab(tab);
+  };
+
+  const openTransactions = (filters: TransactionsInitialFilters = {}) => {
+    setTransactionsInitialView('posted');
+    setTransactionsInitialFilters(filters);
+    setActiveTab('transactions');
   };
 
   const openNeedsReview = () => {
     setTransactionsInitialView('needs_review');
+    setTransactionsInitialFilters({});
     setActiveTab('transactions');
   };
 
@@ -507,7 +523,7 @@ export default function App() {
           apiFetch={apiFetch}
           refreshKey={refreshKey}
           onReviewTransactions={openNeedsReview}
-          onViewTransactions={() => navigateToTab('transactions')}
+          onViewTransactions={openTransactions}
           onOpenPlanSettings={openPlanSettings}
         />
       )}
@@ -517,6 +533,7 @@ export default function App() {
           apiFetch={apiFetch}
           refreshKey={refreshKey}
           initialViewMode={transactionsInitialView}
+          initialFilters={transactionsInitialFilters}
         />
       )}
 

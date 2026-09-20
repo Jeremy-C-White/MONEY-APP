@@ -56,7 +56,9 @@ export function OverviewHeadingCard({
             {forecast?.minimumBalance == null ? '—' : formatCurrency(forecast.minimumBalance)}
           </p>
           <p className="mt-1 text-xs text-slate-600">
-            {forecast?.minimumBalanceDate ? formatFriendlyDate(forecast.minimumBalanceDate) : 'Projection not ready'}
+            {forecast?.minimumBalanceDate
+              ? `Lowest expected checking balance through ${formatFriendlyDate(forecast.minimumBalanceDate)}`
+              : 'Projection not ready'}
           </p>
         </div>
       </div>
@@ -93,7 +95,7 @@ export function OverviewHeadingCard({
         )}
       </div>
       <p className="mt-4 text-[11px] text-slate-400">
-        {insights ? `${insights.forecast.maturity === 'early' ? 'Early-month estimate' : insights.forecast.maturity === 'developing' ? 'Developing estimate' : 'Established estimate'} · ` : ''}
+        {insights ? `${insights.forecast.maturity === 'early' ? 'Based on only the first few days of this month; this may still change' : insights.forecast.maturity === 'developing' ? 'Based on the month so far; this may still change' : 'Based on most of the current month'} · ` : ''}
         Scheduled cash outlook excludes unplanned day-to-day spending.
       </p>
     </section>

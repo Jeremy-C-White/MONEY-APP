@@ -29,12 +29,13 @@ import type {
   HouseholdPlan,
   SafeToSpend,
   SafeToSpendDeduction,
-  OverviewVerdicts,
   SavingsContributionsResponse,
   SavingsDestination,
   ContributionStream,
   FinancialPosition,
   MerchantComparisonReport,
+  SpendingBreakdownReport,
+  YearOverYearComparison,
 } from '../types/finance';
 
 type UnknownRecord = Record<string, unknown>;
@@ -695,6 +696,58 @@ export function extractMerchantComparisonResponse(data: unknown): MerchantCompar
   return extractMerchantComparison(record.comparison);
 }
 
+const SPENDING_PERIODS = ['last_7_days', 'last_30_days', 'last_3_months', 'last_12_months'];
+
+function isDateRange(value: unknown): boolean {
+  return isRecord(value) && typeof value.startDate === 'string' && typeof value.endDate === 'string';
+}
+
+function isSpendingBreakdownRow(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.currentSpending === 'number' &&
+    validNullableNumber(value.previousSpending) &&
+    validNullableNumber(value.difference) &&
+    validNullableNumber(value.percentageChange) &&
+    typeof value.transactionCount === 'number'
+  );
+}
+
+export function extractSpendingBreakdownResponse(data: unknown): SpendingBreakdownReport {
+  const record = requireRecord(data, 'spending breakdown');
+  if (
+    !SPENDING_PERIODS.includes(String(record.period)) ||
+    !isDateRange(record.currentPeriod) ||
+    !isDateRange(record.previousComparablePeriod) ||
+    !Array.isArray(record.categories) ||
+    record.categories.some(row => !(
+      isSpendingBreakdownRow(row) &&
+      isRecord(row) && typeof row.category === 'string' && typeof row.percentage === 'number'
+    )) ||
+    !Array.isArray(record.merchants) ||
+    record.merchants.some(row => !(
+      isSpendingBreakdownRow(row) && isRecord(row) && typeof row.merchant === 'string'
+    ))
+  ) throw new Error('Invalid spending breakdown response.');
+  return record as unknown as SpendingBreakdownReport;
+}
+
+function extractYearOverYearComparison(data: unknown): YearOverYearComparison {
+  const record = requireRecord(data, 'year-over-year comparison');
+  if (
+    !['comparable', 'not_comparable', 'unavailable'].includes(String(record.status)) ||
+    !isDateRange(record.currentPeriod) ||
+    !isDateRange(record.previousPeriod) ||
+    typeof record.currentSpending !== 'number' ||
+    typeof record.previousSpending !== 'number' ||
+    typeof record.difference !== 'number' ||
+    !validNullableNumber(record.percentageChange) ||
+    typeof record.addedAccountCount !== 'number' ||
+    typeof record.removedAccountCount !== 'number'
+  ) throw new Error('Invalid year-over-year comparison response.');
+  return record as unknown as YearOverYearComparison;
+}
+
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
   return requireArrayField<ClassificationRuleRecord>(
     data,
@@ -846,7 +899,6 @@ const SAFE_TO_SPEND_BLOCKERS = [
   'connection_needs_attention',
   'mixed_currency',
 ];
-const VERDICT_TONES = ['positive', 'caution', 'neutral'];
 
 export function extractHouseholdPlan(data: unknown): HouseholdPlan {
   const record = requireRecord(data, 'household plan');
@@ -911,94 +963,6 @@ export function extractSafeToSpend(data: unknown): SafeToSpend {
   }
 
   return record as unknown as SafeToSpend;
-}
-
-function isSpendingTargetProgress(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    typeof value.month === 'string' &&
-    typeof value.target === 'number' &&
-    typeof value.spentToDate === 'number' &&
-    typeof value.remaining === 'number' &&
-    typeof value.expectedToDate === 'number' &&
-    typeof value.paceDifference === 'number' &&
-    typeof value.projectedMonthEndSpending === 'number' &&
-    typeof value.projectedDifference === 'number' &&
-    ['early', 'developing', 'established'].includes(String(value.projectionMaturity)) &&
-    ['under', 'on_track', 'over'].includes(String(value.verdict))
-  );
-}
-
-export function extractOverviewVerdicts(data: unknown): OverviewVerdicts {
-  const record = requireRecord(data, 'overview verdicts');
-  const monthProgress = record.monthProgress;
-
-  if (
-    !isRecord(monthProgress) ||
-    typeof monthProgress.month !== 'string' ||
-    typeof monthProgress.dayOfMonth !== 'number' ||
-    typeof monthProgress.daysInMonth !== 'number' ||
-    typeof monthProgress.spending !== 'number' ||
-    typeof monthProgress.income !== 'number' ||
-    typeof monthProgress.netCashFlow !== 'number' ||
-    !VERDICT_TONES.includes(String(monthProgress.tone))
-  ) {
-    throw new Error('Invalid overview verdicts response.');
-  }
-
-  const lastCompletedMonth = record.lastCompletedMonth;
-  if (lastCompletedMonth !== null && !(
-    isRecord(lastCompletedMonth) &&
-    typeof lastCompletedMonth.month === 'string' &&
-    typeof lastCompletedMonth.netCashFlow === 'number' &&
-    ['best', 'tightest', 'middle'].includes(String(lastCompletedMonth.rank)) &&
-    typeof lastCompletedMonth.comparedMonthCount === 'number' &&
-    validNullableString(lastCompletedMonth.previousMonth) &&
-    validNullableNumber(lastCompletedMonth.previousNetCashFlow) &&
-    validNullableNumber(lastCompletedMonth.difference) &&
-    VERDICT_TONES.includes(String(lastCompletedMonth.tone))
-  )) {
-    throw new Error('Invalid overview verdicts response.');
-  }
-
-  const pacing = record.pacing;
-  if (pacing !== null && !(
-    isRecord(pacing) &&
-    typeof pacing.dayOfMonth === 'number' &&
-    typeof pacing.daysInMonth === 'number' &&
-    typeof pacing.previousMonthToDateSpending === 'number' &&
-    typeof pacing.spendingDifference === 'number' &&
-    validNullableNumber(pacing.spendingPercentageChange) &&
-    ['ahead', 'behind', 'level'].includes(String(pacing.direction)) &&
-    (pacing.driver === null || (
-      isRecord(pacing.driver) &&
-      typeof pacing.driver.category === 'string' &&
-      typeof pacing.driver.difference === 'number' &&
-      typeof pacing.driver.share === 'number'
-    )) &&
-    VERDICT_TONES.includes(String(pacing.tone))
-  )) {
-    throw new Error('Invalid overview verdicts response.');
-  }
-
-  if (
-    !Array.isArray(record.categoryDrivers) ||
-    !record.categoryDrivers.every(driver => (
-      isRecord(driver) &&
-      typeof driver.category === 'string' &&
-      typeof driver.currentSpending === 'number' &&
-      typeof driver.previousSpending === 'number' &&
-      typeof driver.difference === 'number' &&
-      validNullableNumber(driver.percentageChange) &&
-      ['new', 'up', 'down', 'stopped'].includes(String(driver.movement)) &&
-      VERDICT_TONES.includes(String(driver.tone))
-    )) ||
-    (record.targetProgress !== null && !isSpendingTargetProgress(record.targetProgress))
-  ) {
-    throw new Error('Invalid overview verdicts response.');
-  }
-
-  return record as unknown as OverviewVerdicts;
 }
 
 const CONTRIBUTION_CADENCES = ['weekly', 'biweekly', 'twice_monthly', 'monthly', 'irregular'];
@@ -1079,26 +1043,16 @@ export function extractSavingsContributions(data: unknown): SavingsContributions
 
 export function extractOverviewResponse(data: unknown): DashboardOverviewResponse {
   const record = requireRecord(data, 'dashboard overview');
-  const normalized = normalizeOverviewPayloads({
-    summary: record.summary,
-    categories: { categories: record.categories },
-    merchants: { merchants: record.merchants },
-    trends: { monthly: record.trends },
-    householdPlanning: {
-      recurringObligations: record.recurringObligations,
-      insights: record.householdInsights,
-    },
-    verification: record.verification,
-  });
-
   return {
-    ...normalized,
+    summary: extractSummaryResponse(record.summary),
+    trends: extractTrendsResponse({ monthly: record.trends }),
+    householdInsights: extractHouseholdInsights(record.householdInsights),
+    verification: extractVerificationResponse(record.verification),
     accountBalances: extractAccountBalanceSummary(record.accountBalances),
     financialPosition: extractFinancialPosition(record.financialPosition),
     cashFlowForecast: extractCashFlowForecast(record.cashFlowForecast),
-    householdPlan: extractHouseholdPlan(record.householdPlan),
     safeToSpend: extractSafeToSpend(record.safeToSpend),
-    verdicts: extractOverviewVerdicts(record.verdicts),
+    yearOverYear: extractYearOverYearComparison(record.yearOverYear),
   };
 }
 

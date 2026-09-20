@@ -4,10 +4,10 @@ import { TrendChart } from '../components/TrendChart';
 import { NetWorthTrendChart } from '../components/NetWorthTrendChart';
 import { OverviewHeadingCard } from '../components/OverviewHeadingCard';
 import { OverviewNowCard } from '../components/OverviewNowCard';
-import { TopMerchantsCard } from '../components/TopMerchantsCard';
+import { CategoryBreakdownCard, type SpendingDrilldown } from '../components/CategoryBreakdownCard';
 import { formatCurrency, formatMonthLabel } from '../lib/formatters';
-import { extractMerchantComparisonResponse, extractOverviewResponse } from '../lib/api-contracts';
-import type { DashboardOverviewResponse, MerchantComparisonReport } from '../types/finance';
+import { extractOverviewResponse } from '../lib/api-contracts';
+import type { DashboardOverviewResponse, SpendingPeriod } from '../types/finance';
 
 export function OverviewPage({
   apiFetch,
@@ -19,14 +19,14 @@ export function OverviewPage({
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   onReviewTransactions: () => void;
-  onViewTransactions: () => void;
+  onViewTransactions: (filters?: SpendingDrilldown) => void;
   onOpenPlanSettings?: () => void;
 }) {
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
-  const [merchantComparison, setMerchantComparison] = useState<MerchantComparisonReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [trendRange, setTrendRange] = useState<'6m' | '12m' | 'ytd'>('12m');
+  const [trendRange, setTrendRange] = useState<'6m' | '12m' | '24m' | 'ytd'>('12m');
+  const [spendingPeriod, setSpendingPeriod] = useState<SpendingPeriod>('last_30_days');
   const [snapshotting, setSnapshotting] = useState(false);
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
@@ -35,22 +35,9 @@ export function OverviewPage({
     setLoading(true);
     setError(null);
     try {
-      const [response, merchantsResponse] = await Promise.all([
-        apiFetch(`/api/dashboard/overview?range=${trendRange}`),
-        apiFetch('/api/dashboard/merchants').catch(() => null),
-      ]);
+      const response = await apiFetch(`/api/dashboard/overview?range=${trendRange}`);
       if (!response.ok) throw new Error('Failed to load overview data.');
       setOverview(extractOverviewResponse(await response.json()));
-      if (merchantsResponse?.ok) {
-        try {
-          setMerchantComparison(extractMerchantComparisonResponse(await merchantsResponse.json()));
-        } catch (merchantError) {
-          console.error(merchantError);
-          setMerchantComparison(null);
-        }
-      } else {
-        setMerchantComparison(null);
-      }
     } catch (err: unknown) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred loading your dashboard.');
@@ -126,6 +113,7 @@ export function OverviewPage({
       <OverviewNowCard
         safeToSpend={overview?.safeToSpend || null}
         financialPosition={overview?.financialPosition || null}
+        insights={overview?.householdInsights || null}
         loading={loading && !overview}
         onEditBuffer={onOpenPlanSettings}
       />
@@ -144,7 +132,7 @@ export function OverviewPage({
             <h3 className="mt-1 text-lg font-medium text-slate-900">How your money has moved</h3>
           </div>
           <div className="flex rounded-lg bg-slate-100 p-1">
-            {(['6m', '12m', 'ytd'] as const).map(range => (
+            {(['6m', '12m', '24m', 'ytd'] as const).map(range => (
               <button
                 key={range}
                 onClick={() => setTrendRange(range)}
@@ -177,16 +165,59 @@ export function OverviewPage({
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
             <h3 className="mb-4 text-lg font-medium text-slate-900">Cash flow trends</h3>
             <TrendChart data={overview?.trends || []} loading={loading && !overview} />
+            {overview?.yearOverYear.status === 'comparable' && (
+              <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${overview.yearOverYear.difference > 0 ? 'bg-rose-50 text-rose-700' : overview.yearOverYear.difference < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-600'}`}>
+                This month is {overview.yearOverYear.difference === 0
+                  ? 'level with'
+                  : `${formatCurrency(Math.abs(overview.yearOverYear.difference))} ${overview.yearOverYear.difference > 0 ? 'above' : 'below'}`} the same days last year.
+              </p>
+            )}
+            {overview?.yearOverYear.status === 'not_comparable' && (
+              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
+                Year-over-year is not comparable
+                {overview.yearOverYear.addedAccountCount > 0
+                  ? ` — ${overview.yearOverYear.addedAccountCount} ${overview.yearOverYear.addedAccountCount === 1 ? 'account was' : 'accounts were'} added since last year.`
+                  : ` — ${overview.yearOverYear.removedAccountCount} ${overview.yearOverYear.removedAccountCount === 1 ? 'account is' : 'accounts are'} no longer represented.`}
+              </p>
+            )}
           </div>
         </div>
 
         <div className="mt-6">
-          <TopMerchantsCard report={merchantComparison} />
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-medium text-slate-900">Where your money went</h3>
+              <p className="mt-1 text-xs text-slate-500">Top five by default, with more detail when you want it</p>
+            </div>
+            <div className="flex rounded-lg bg-slate-100 p-1">
+              {([
+                ['last_7_days', '7D'],
+                ['last_30_days', '30D'],
+                ['last_3_months', '3M'],
+                ['last_12_months', '12M'],
+              ] as const).map(([period, label]) => (
+                <button
+                  key={period}
+                  type="button"
+                  onClick={() => setSpendingPeriod(period)}
+                  className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${spendingPeriod === period ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <CategoryBreakdownCard
+            apiFetch={apiFetch}
+            refreshKey={refreshKey}
+            period={spendingPeriod}
+            onDrillDown={onViewTransactions}
+          />
         </div>
       </section>
 
       <div className="flex justify-end">
-        <button type="button" onClick={onViewTransactions} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
+        <button type="button" onClick={() => onViewTransactions()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
           View all transactions <ArrowRight className="h-4 w-4" />
         </button>
       </div>

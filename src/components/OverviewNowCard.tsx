@@ -1,12 +1,13 @@
 import React from 'react';
 import { Landmark, PiggyBank, ShieldCheck, WalletCards } from 'lucide-react';
-import type { FinancialPosition, SafeToSpend } from '../types/finance';
+import type { FinancialPosition, HouseholdInsights, SafeToSpend } from '../types/finance';
 import { formatCurrency, formatFriendlyDate } from '../lib/formatters';
 
-function PositionValue({ label, value, icon }: {
+function PositionValue({ label, value, icon, description }: {
   label: string;
   value: number | null | undefined;
   icon: React.ReactNode;
+  description: string;
 }) {
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/70 p-4">
@@ -16,6 +17,7 @@ function PositionValue({ label, value, icon }: {
       <p className="mt-2 text-2xl font-semibold text-slate-950">
         {value == null ? '—' : formatCurrency(value)}
       </p>
+      <p className="mt-1 text-xs text-slate-500">{description}</p>
     </div>
   );
 }
@@ -23,11 +25,13 @@ function PositionValue({ label, value, icon }: {
 export function OverviewNowCard({
   safeToSpend,
   financialPosition,
+  insights,
   loading,
   onEditBuffer,
 }: {
   safeToSpend: SafeToSpend | null;
   financialPosition: FinancialPosition | null;
+  insights: HouseholdInsights | null;
   loading?: boolean;
   onEditBuffer?: () => void;
 }) {
@@ -65,10 +69,10 @@ export function OverviewNowCard({
         )}
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <PositionValue label="Safe to spend" value={safeToSpend?.status === 'ready' ? safeToSpend.amount : null} icon={<ShieldCheck className="h-4 w-4" />} />
-        <PositionValue label="Checking" value={financialPosition?.liquidChecking} icon={<WalletCards className="h-4 w-4" />} />
-        <PositionValue label="Savings" value={financialPosition?.liquidSavings} icon={<PiggyBank className="h-4 w-4" />} />
-        <PositionValue label="Estimated net worth" value={financialPosition?.estimatedNetWorth} icon={<Landmark className="h-4 w-4" />} />
+        <PositionValue label="Safe to spend" value={safeToSpend?.status === 'ready' ? safeToSpend.amount : null} icon={<ShieldCheck className="h-4 w-4" />} description="After upcoming bills and your chosen buffer" />
+        <PositionValue label="Checking" value={financialPosition?.liquidChecking} icon={<WalletCards className="h-4 w-4" />} description="Current linked checking balances" />
+        <PositionValue label="Savings" value={financialPosition?.liquidSavings} icon={<PiggyBank className="h-4 w-4" />} description="Cash set aside outside checking" />
+        <PositionValue label="Estimated net worth" value={financialPosition?.estimatedNetWorth} icon={<Landmark className="h-4 w-4" />} description="Cash, investments, and property combined" />
       </div>
       {safeToSpend?.status === 'unavailable' && (
         <p className="mt-3 text-sm text-amber-700">Safe to spend is unavailable. {safeToSpend.warning}</p>
@@ -77,6 +81,24 @@ export function OverviewNowCard({
         <p className="mt-3 text-xs text-slate-500">
           Checking and savings total {formatCurrency(financialPosition.liquidCash)} in liquid cash. Retirement stays separate.
         </p>
+      )}
+      {insights && (
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold text-slate-800">This week</p>
+            <p className={`text-xs font-semibold ${insights.weekly.spendingDifference > 0 ? 'text-rose-600' : insights.weekly.spendingDifference < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+              {insights.weekly.spendingDifference === 0
+                ? 'Level with the same days last week'
+                : `${formatCurrency(Math.abs(insights.weekly.spendingDifference))} ${insights.weekly.spendingDifference > 0 ? 'more' : 'less'} than the same days last week`}
+            </p>
+          </div>
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+            <p className="text-xl font-semibold text-slate-950">{formatCurrency(insights.weekly.current.spending)} <span className="text-xs font-normal text-slate-500">posted spending</span></p>
+            {insights.weekly.pendingSpending > 0 && (
+              <p className="text-sm font-medium text-amber-700">{formatCurrency(insights.weekly.pendingSpending)} pending</p>
+            )}
+          </div>
+        </div>
       )}
       {(breakdownItems.length > 0 || (liabilities !== null && liabilities !== undefined && liabilities > 0)) && (
         <div className="mt-5 border-t border-slate-100 pt-4">

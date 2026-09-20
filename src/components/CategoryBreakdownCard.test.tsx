@@ -4,50 +4,28 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CategoryBreakdownCard } from './CategoryBreakdownCard';
 
-function payloadFor(period: string) {
-  if (period === 'last_month') {
-    return {
-      period: 'last_month',
-      startMonth: '2026-08',
-      endMonth: '2026-08',
-      categories: [
-        {
-          category: 'GENERAL_MERCHANDISE',
-          netSpending: 200,
-          transactionCount: 1,
-          percentage: 1,
-          previousSpending: null,
-          change: null,
-          details: [],
-        },
-      ],
-      merchants: [{ merchant: 'Target', netSpending: 200, transactionCount: 1 }],
-    };
-  }
-
+function payload(period = 'last_30_days') {
   return {
-    period: 'this_month',
-    startMonth: '2026-09',
-    endMonth: '2026-09',
-    categories: [
-      {
-        category: 'FOOD_AND_DRINK',
-        netSpending: 85,
-        transactionCount: 2,
-        percentage: 1,
-        previousSpending: 0,
-        change: 85,
-        details: [
-          {
-            categoryDetailed: 'FOOD_AND_DRINK_GROCERIES',
-            netSpending: 60,
-            transactionCount: 1,
-            merchants: [{ merchant: 'Kroger', netSpending: 60, transactionCount: 1 }],
-          },
-        ],
-      },
-    ],
-    merchants: [{ merchant: 'Kroger', netSpending: 60, transactionCount: 1 }],
+    period,
+    currentPeriod: { startDate: '2026-08-21', endDate: '2026-09-19' },
+    previousComparablePeriod: { startDate: '2026-07-22', endDate: '2026-08-20' },
+    categories: Array.from({ length: 11 }, (_, index) => ({
+      category: index === 0 ? 'FOOD_AND_DRINK' : `CATEGORY_${index + 1}`,
+      currentSpending: 110 - index,
+      previousSpending: 50,
+      difference: 60 - index,
+      percentageChange: 120 - index * 2,
+      transactionCount: index + 1,
+      percentage: 0.1,
+    })),
+    merchants: Array.from({ length: 11 }, (_, index) => ({
+      merchant: index === 0 ? 'Amazon' : `Merchant ${index + 1}`,
+      currentSpending: 110 - index,
+      previousSpending: 50,
+      difference: 60 - index,
+      percentageChange: 120 - index * 2,
+      transactionCount: index + 1,
+    })),
   };
 }
 
@@ -67,47 +45,70 @@ describe('CategoryBreakdownCard', () => {
     container.remove();
   });
 
-  it('loads this month by default, expands a category to reveal its detailed breakdown, and switches period on demand', async () => {
-    const apiFetch = vi.fn().mockImplementation(async (url: string) => {
-      const period = new URL(url, 'http://localhost').searchParams.get('period') || 'this_month';
-      return { ok: true, json: async () => payloadFor(period) };
+  it('shows five by default, expands five at a time, and drills down with server dates', async () => {
+    const apiFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
+    const onDrillDown = vi.fn();
+    await act(async () => {
+      root.render(
+        <CategoryBreakdownCard
+          apiFetch={apiFetch}
+          refreshKey={0}
+          period="last_30_days"
+          onDrillDown={onDrillDown}
+        />
+      );
     });
+
+    await vi.waitFor(() => expect(container.textContent).toContain('Amazon'));
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/spending-breakdown?period=last_30_days');
+    expect(container.textContent).toContain('Food & dining');
+    expect(container.textContent).toContain('Merchant 5');
+    expect(container.textContent).not.toContain('Merchant 6');
+
+    const showMore = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Show 5 more')
+    ) as HTMLButtonElement;
+    await act(async () => showMore.click());
+    expect(container.textContent).toContain('Merchant 10');
+    expect(container.textContent).not.toContain('Merchant 11');
+    expect(container.textContent).toContain('Show less');
+
+    const amazon = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Amazon')
+    ) as HTMLButtonElement;
+    act(() => amazon.click());
+    expect(onDrillDown).toHaveBeenCalledWith({
+      merchantFamily: 'Amazon', startDate: '2026-08-21', endDate: '2026-09-19',
+    });
+
+    const food = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Food & dining')
+    ) as HTMLButtonElement;
+    act(() => food.click());
+    expect(onDrillDown).toHaveBeenCalledWith({
+      category: 'FOOD_AND_DRINK', startDate: '2026-08-21', endDate: '2026-09-19',
+    });
+  });
+
+  it('resets expansion when the shared period changes', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url: string) => ({
+      ok: true,
+      json: async () => payload(new URL(url, 'http://localhost').searchParams.get('period') || ''),
+    }));
+    const onDrillDown = vi.fn();
+    await act(async () => {
+      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} period="last_30_days" onDrillDown={onDrillDown} />);
+    });
+    await vi.waitFor(() => expect(container.textContent).toContain('Amazon'));
+    const showMore = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('Show 5 more')) as HTMLButtonElement;
+    await act(async () => showMore.click());
+    expect(container.textContent).toContain('Merchant 10');
 
     await act(async () => {
-      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} />);
+      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} period="last_7_days" onDrillDown={onDrillDown} />);
     });
-
-    await vi.waitFor(() => expect(container.textContent).toContain('Food & dining'));
-    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/category-breakdown?period=this_month');
-    expect(container.textContent).toContain('Where your money went');
-    expect(container.textContent).toContain('Estimated Categories');
-    expect(container.textContent).toContain('Categories are estimates');
-    const breakdownHeadings = Array.from(container.querySelectorAll('h4')).map(
-      heading => heading.textContent || ''
-    );
-    expect(breakdownHeadings.findIndex(heading => heading.includes('Top Merchants'))).toBeLessThan(
-      breakdownHeadings.findIndex(heading => heading.includes('Estimated Categories'))
-    );
-    expect(container.textContent).toContain('$85.00');
-    expect(container.textContent).toContain('up from $0.00');
-    expect(container.textContent).not.toContain('Groceries');
-
-    const categoryButton = container.querySelector('button[aria-expanded="false"]') as HTMLButtonElement;
-    expect(categoryButton).toBeTruthy();
-    await act(async () => categoryButton.click());
-    expect(container.textContent).toContain('Groceries');
-    expect(container.textContent).toContain('Kroger');
-
-    const lastMonthButton = Array.from(container.querySelectorAll('button')).find(
-      button => button.textContent === 'Last month'
-    ) as HTMLButtonElement;
-    await act(async () => lastMonthButton.click());
-
-    await vi.waitFor(() => {
-      expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/category-breakdown?period=last_month');
-      expect(container.textContent).toContain('General merchandise');
-    });
-    expect(container.textContent).not.toContain('Food & dining');
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/spending-breakdown?period=last_7_days'));
+    expect(container.textContent).not.toContain('Merchant 6');
   });
 
   it('surfaces a load failure instead of silently showing nothing', async () => {
@@ -115,35 +116,9 @@ describe('CategoryBreakdownCard', () => {
       ok: false,
       json: async () => ({ error: 'Could not load spending breakdown.' }),
     });
-
     await act(async () => {
-      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} />);
+      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} period="last_30_days" onDrillDown={vi.fn()} />);
     });
-
     await vi.waitFor(() => expect(container.textContent).toContain('Could not load spending breakdown.'));
-  });
-
-  it('does not label stale data as the newly selected period when a reload fails', async () => {
-    const apiFetch = vi.fn().mockImplementation(async (url: string) => {
-      const period = new URL(url, 'http://localhost').searchParams.get('period') || 'this_month';
-      if (period === 'last_month') {
-        return { ok: false, json: async () => ({ error: 'Last month could not be loaded.' }) };
-      }
-      return { ok: true, json: async () => payloadFor(period) };
-    });
-
-    await act(async () => {
-      root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} />);
-    });
-    await vi.waitFor(() => expect(container.textContent).toContain('Food & dining'));
-
-    const lastMonthButton = Array.from(container.querySelectorAll('button')).find(
-      button => button.textContent === 'Last month'
-    ) as HTMLButtonElement;
-    await act(async () => lastMonthButton.click());
-
-    await vi.waitFor(() => expect(container.textContent).toContain('Last month could not be loaded.'));
-    expect(container.textContent).not.toContain('Food & dining');
-    expect(container.textContent).not.toContain('$85.00');
   });
 });

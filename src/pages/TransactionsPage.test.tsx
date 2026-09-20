@@ -79,6 +79,40 @@ describe('TransactionsPage', () => {
     expect([...container.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Review')).toBe(true);
   });
 
+  it('uses exact server dates and merchant-family matching from an overview drill-down', async () => {
+    const apiFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => mockRes };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(
+        <TransactionsPage
+          apiFetch={apiFetch}
+          refreshKey={0}
+          initialFilters={{
+            merchantFamily: 'Amazon',
+            startDate: '2026-08-08',
+            endDate: '2026-09-06',
+          }}
+        />
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(apiFetch).toHaveBeenCalledWith(expect.stringContaining('merchantFamily=Amazon'));
+    });
+    const transactionsCall = apiFetch.mock.calls
+      .map(([url]) => String(url))
+      .find(url => url.includes('/api/transactions'));
+    expect(transactionsCall).toContain('startDate=2026-08-08');
+    expect(transactionsCall).toContain('endDate=2026-09-06');
+    expect(container.textContent).toContain('Merchant family:');
+    expect(container.textContent).toContain('Amazon');
+  });
+
   it.each([
     ['pending', { pending: true, status: 'pending' }],
     ['removed', { pending: false, status: 'removed', removed: true }],
