@@ -15,7 +15,7 @@ export function isCashBackRewardTransaction(transaction: NormalizedTransaction):
   return !transaction.pending &&
     !transaction.removed &&
     transaction.cashFlowAmount > 0 &&
-    transaction.classification === 'income' &&
+    transaction.classification === 'merchant_credit' &&
     !transaction.categoryDetailed.includes('REFUND') &&
     matchesCashBackReward(transaction.name, transaction.normalizedMerchant);
 }

@@ -325,9 +325,10 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'internal_transfer';
   } else if (isPayPalCashBackReward) {
     // PayPal is usually a person-to-person signal, but explicit cash-back
-    // wording is stronger evidence that this credit is a card reward.
-    classification = 'income';
-    normalizedCategory = 'INCOME';
+    // wording is stronger evidence that this is a reward reducing net spend,
+    // not household earned income.
+    classification = 'merchant_credit';
+    normalizedCategory = 'REWARDS';
   } else if (isP2P) {
     classification = 'person_to_person';
   } else if (isIncomeTaxRefund) {
@@ -342,8 +343,8 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'income';
     normalizedCategory = 'INCOME';
   } else if (isCashBackReward) {
-    classification = 'income';
-    normalizedCategory = 'INCOME';
+    classification = 'merchant_credit';
+    normalizedCategory = 'REWARDS';
   } else if (isInvestmentTransfer) {
     classification = 'investment_transfer';
   } else if (isConfirmedInternalTransfer) {

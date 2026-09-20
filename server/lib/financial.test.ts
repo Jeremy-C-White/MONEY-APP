@@ -41,7 +41,7 @@ describe('PayPal account-role classification', () => {
     expect(tx.spendingAdjustment).toBe(0);
   });
 
-  it('recognizes an explicit PayPal cash-back credit as reward income', () => {
+  it('recognizes an explicit PayPal cash-back credit as a reward reducing net spend', () => {
     const tx = classifyTransaction(buildRow({
       name: 'PayPal Cashback Reward',
       cashFlowAmount: '18.75',
@@ -52,9 +52,11 @@ describe('PayPal account-role classification', () => {
       accountSubtype: 'paypal',
     }));
 
-    expect(tx.classification).toBe('income');
-    expect(tx.countsTowardIncome).toBe(true);
-    expect(tx.incomeAdjustment).toBe(18.75);
+    expect(tx.classification).toBe('merchant_credit');
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.incomeAdjustment).toBe(0);
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-18.75);
   });
 
   it('treats the Wells Fargo PPCR repayment side as a credit-card payment', () => {
@@ -980,23 +982,41 @@ describe('Classification corrections', () => {
     expect(tx.countsTowardIncome).toBe(true);
   });
 
-  it('classifies credit card cash-back rewards as income', () => {
+  it('classifies credit card cash-back rewards as merchant credits', () => {
     const tx = classifyTransaction(buildRow({
       name: 'CITICARDS CASH REWARD',
       cashFlowAmount: '25.50',
       catPrimary: 'OTHER',
       catDetailed: 'OTHER_OTHER',
     }));
-    expect(tx.classification).toBe('income');
-    expect(tx.countsTowardIncome).toBe(true);
-    expect(tx.incomeAdjustment).toBe(25.50);
-    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.classification).toBe('merchant_credit');
+    expect(tx.normalizedCategory).toBe('REWARDS');
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.incomeAdjustment).toBe(0);
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-25.50);
+  });
+
+  it('keeps rewards out of income while reducing net household spending', () => {
+    const purchase = classifyTransaction(buildRow({
+      txId: 'purchase', name: 'Grocery Store', cashFlowAmount: '-100',
+    }));
+    const reward = classifyTransaction(buildRow({
+      txId: 'reward', name: 'CITICARDS CASH REWARD', cashFlowAmount: '25.50',
+      catPrimary: 'OTHER', catDetailed: 'OTHER_OTHER',
+    }));
+    const report = buildVerificationReport([purchase, reward], 'America/New_York');
+
+    expect(report.summary.allTime.income).toBe(0);
+    expect(report.summary.allTime.spending).toBe(74.5);
+    expect(report.summary.allTime.netCashFlow).toBe(-74.5);
+    expect(report.reconciliation.merchantCreditAmount).toBe(25.5);
   });
 
   it.each([
     ['Reward Redemption', 14.39],
     ['Merchant Offers Credit', 20],
-  ])('classifies the exact issuer reward wording as income: %s', (name, amount) => {
+  ])('classifies the exact issuer reward wording as merchant credit: %s', (name, amount) => {
     const tx = classifyTransaction(buildRow({
       name,
       cashFlowAmount: String(amount),
@@ -1004,10 +1024,11 @@ describe('Classification corrections', () => {
       catDetailed: 'OTHER_OTHER',
     }));
 
-    expect(tx.classification).toBe('income');
-    expect(tx.countsTowardIncome).toBe(true);
-    expect(tx.incomeAdjustment).toBe(amount);
-    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.classification).toBe('merchant_credit');
+    expect(tx.countsTowardIncome).toBe(false);
+    expect(tx.incomeAdjustment).toBe(0);
+    expect(tx.countsTowardSpending).toBe(true);
+    expect(tx.spendingAdjustment).toBe(-amount);
   });
 
   it('keeps a provisional dispute credit out of income', () => {
@@ -1035,7 +1056,7 @@ describe('Classification corrections', () => {
       catPrimary: 'OTHER',
       catDetailed: 'OTHER_OTHER',
     }));
-    expect(tx.classification).toBe('income');
+    expect(tx.classification).toBe('merchant_credit');
   });
 
   it('negative case: cash-back wording does not override an already-refund classification (guard)', () => {
