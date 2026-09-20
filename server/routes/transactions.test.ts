@@ -1,5 +1,6 @@
 import type { AddressInfo } from 'node:net';
 import express from 'express';
+import { Timestamp, type Firestore } from 'firebase-admin/firestore';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { EnrichedTransaction } from '../lib/transaction-enrichment';
 import { createTransactionRouter } from './transactions';
@@ -31,7 +32,7 @@ describe('transaction domain router', () => {
   async function request(
     transactions: EnrichedTransaction[],
     path: string,
-    db: any = {}
+    db: Firestore = {} as Firestore
   ): Promise<Response> {
     const app = express();
     app.use(express.json());
@@ -48,7 +49,7 @@ describe('transaction domain router', () => {
       },
       classificationRules: { deleteRule: vi.fn(), invalidateCache: vi.fn() },
       invalidateDashboard: vi.fn(),
-      now: () => 'now',
+      now: () => Timestamp.fromMillis(0),
     }));
     const server = app.listen(0);
     servers.push(server);
@@ -83,7 +84,7 @@ describe('transaction domain router', () => {
       collection: () => ({
         doc: () => ({ collection: () => ({ get: vi.fn().mockResolvedValue({ docs: documents }) }) }),
       }),
-    };
+    } as unknown as Firestore;
     const response = await request([], '/api/merchant-labels', db);
 
     expect(response.status).toBe(200);

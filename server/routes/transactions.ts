@@ -21,20 +21,14 @@ import {
   TransactionOverrideRequestError,
   type TransactionOverrideServiceDependencies,
 } from '../lib/transaction-overrides';
+import { authenticatedUserId, type RouteInfrastructure } from './types';
 
-type TransactionRouterDependencies = {
-  requireAuth: express.RequestHandler;
-  db: any;
+type TransactionRouterDependencies = RouteInfrastructure & {
   loadTransactions: (uid: string) => Promise<EnrichedTransaction[]>;
   transactionOverrides: TransactionOverrideServiceDependencies;
   classificationRules: ClassificationRuleServiceDependencies;
   invalidateDashboard: (uid: string) => void;
-  now: () => unknown;
 };
-
-function userId(req: express.Request): string {
-  return (req as express.Request & { user: { uid: string } }).user.uid;
-}
 
 export function createTransactionRouter(dependencies: TransactionRouterDependencies): express.Router {
   const router = express.Router();
@@ -50,7 +44,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.get('/api/transactions/overrides', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const snapshot = await db.collection('users').doc(uid)
         .collection('transaction_overrides')
         .orderBy('reviewedAt', 'desc')
@@ -75,7 +69,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.get('/api/classification-rules', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const snapshot = await db.collection('users').doc(uid)
         .collection('classification_rules')
         .get();
@@ -93,7 +87,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.delete('/api/classification-rules/:ruleId', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const ruleId = req.params.ruleId;
       await removeClassificationRule(classificationRules, uid, ruleId);
       res.json({ success: true, ruleId });
@@ -108,7 +102,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.get('/api/merchant-labels', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const snapshot = await db.collection('users').doc(uid).collection('merchant_labels').get();
       const labels = snapshot.docs.flatMap((document: any) => {
         const rule = parseMerchantLabelRule(document.id, document.data());
@@ -125,7 +119,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.put('/api/merchant-labels', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const currentLabel = typeof req.body?.currentLabel === 'string' ? req.body.currentLabel.trim() : '';
       if (!currentLabel) throw new MerchantLabelRequestError('Choose a household label to rename.', 400);
       const label = normalizeMerchantLabel(req.body?.label);
@@ -153,7 +147,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.delete('/api/merchant-labels/:ruleId', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const ruleId = req.params.ruleId;
       const reference = db.collection('users').doc(uid).collection('merchant_labels').doc(ruleId);
       const document = await reference.get();
@@ -174,7 +168,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.put('/api/transactions/:transactionId/override', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const transactionId = req.params.transactionId;
       const override = await saveTransactionOverride(
         transactionOverrides,
@@ -194,7 +188,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.delete('/api/transactions/:transactionId/override', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const transactionId = req.params.transactionId;
       await removeTransactionOverride(transactionOverrides, uid, transactionId);
       res.json({ success: true, transactionId });
@@ -209,7 +203,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.put('/api/transactions/:transactionId/merchant-label', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const transactionId = req.params.transactionId;
       const transaction = (await loadTransactions(uid)).find(candidate => (
         candidate.transactionId === transactionId && !candidate.removed
@@ -245,7 +239,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.delete('/api/transactions/:transactionId/merchant-label', requireAuth, async (req, res) => {
     try {
-      const uid = userId(req);
+      const uid = authenticatedUserId(req);
       const transactionId = req.params.transactionId;
       const transaction = (await loadTransactions(uid)).find(candidate => (
         candidate.transactionId === transactionId && !candidate.removed
@@ -271,7 +265,7 @@ export function createTransactionRouter(dependencies: TransactionRouterDependenc
 
   router.get('/api/transactions', requireAuth, async (req, res) => {
     try {
-      const transactions = await loadTransactions(userId(req));
+      const transactions = await loadTransactions(authenticatedUserId(req));
       const { categoryConfidence, unlabeled, householdLabel, ...transactionFilters } = req.query;
       const filtered = filterTransactionEnrichment(transactions, {
         categoryConfidence,
