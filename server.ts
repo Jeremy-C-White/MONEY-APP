@@ -78,6 +78,7 @@ import {
   enrichTransactions,
   filterTransactionEnrichment,
   MerchantLabelRequestError,
+  normalizeMerchantLabel,
   parseMerchantLabelRule,
   type EnrichedTransaction,
 } from "./server/lib/transaction-enrichment";
@@ -2858,6 +2859,72 @@ app.delete("/api/classification-rules/:ruleId", requireAuth, async (req: express
       return res.status(error.status).json({ error: error.message });
     }
     console.error("Classification Rule Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/merchant-labels", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const snapshot = await db.collection('users').doc(uid).collection('merchant_labels').get();
+    const labels = snapshot.docs.flatMap(document => {
+      const rule = parseMerchantLabelRule(document.id, document.data());
+      return rule ? [rule] : [];
+    }).sort((left, right) => (
+      left.label.localeCompare(right.label) || left.merchantKey.localeCompare(right.merchantKey)
+    ));
+    res.json({ labels });
+  } catch (error: any) {
+    console.error("Merchant Labels List Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/merchant-labels", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const currentLabel = typeof req.body?.currentLabel === 'string' ? req.body.currentLabel.trim() : '';
+    if (!currentLabel) throw new MerchantLabelRequestError('Choose a household label to rename.', 400);
+    const label = normalizeMerchantLabel(req.body?.label);
+    const collection = db.collection('users').doc(uid).collection('merchant_labels');
+    const snapshot = await collection.get();
+    const matches = snapshot.docs.filter(document => {
+      const rule = parseMerchantLabelRule(document.id, document.data());
+      return rule?.label.toLowerCase() === currentLabel.toLowerCase();
+    });
+    if (!matches.length) throw new MerchantLabelRequestError('Household label not found.', 404);
+    const now = Timestamp.now();
+    const batch = db.batch();
+    for (const document of matches) batch.update(document.ref, { label, updatedAt: now });
+    await batch.commit();
+    dashboardCache.invalidate(uid);
+    res.json({ currentLabel, label, merchantCount: matches.length });
+  } catch (error: any) {
+    if (error instanceof MerchantLabelRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Merchant Labels Rename Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/merchant-labels/:ruleId", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const ruleId = req.params.ruleId;
+    const reference = db.collection('users').doc(uid).collection('merchant_labels').doc(ruleId);
+    const document = await reference.get();
+    if (!document.exists || !parseMerchantLabelRule(ruleId, document.data())) {
+      throw new MerchantLabelRequestError('Household label rule not found.', 404);
+    }
+    await reference.delete();
+    dashboardCache.invalidate(uid);
+    res.json({ success: true, ruleId });
+  } catch (error: any) {
+    if (error instanceof MerchantLabelRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Merchant Label Delete Error:", error);
     res.status(500).json({ error: error.message });
   }
 });

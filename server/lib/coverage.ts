@@ -1,4 +1,5 @@
 import { addCivilDays, resolveInsightPeriod } from './insight-periods';
+import { analyzeCardPaymentCoverage, type CardPaymentCoverageMetric } from './card-payment-coverage';
 import type { EnrichedTransaction } from './transaction-enrichment';
 
 type CoverageAccount = {
@@ -18,7 +19,8 @@ export type CoverageReport = {
   period: { startDate: string; endDate: string };
   lowConfidence: CoverageMetric;
   personToPerson: CoverageMetric;
-  cardPayments: CoverageMetric;
+  cardPayments: CardPaymentCoverageMetric;
+  cardPaymentsBeforeHistory: CardPaymentCoverageMetric;
   accountIssues: {
     accountCount: number;
     accounts: Array<{ accountId: string; label: string; reason: 'connection' | 'stale' | 'missing' | 'activity' }>;
@@ -56,9 +58,11 @@ export function buildCoverageReport(input: {
   const personToPersonTransactions = transactions.filter(transaction => (
     transaction.classification === 'person_to_person' && transaction.cashFlowAmount < 0
   ));
-  const cardPaymentTransactions = transactions.filter(transaction => (
-    transaction.classification === 'credit_card_payment' && transaction.cashFlowAmount < 0
-  ));
+  const cardPaymentCoverage = analyzeCardPaymentCoverage({
+    transactions: input.transactions,
+    startDate: period.startDate,
+    endDate: period.endDate,
+  });
   const metric = (matches: EnrichedTransaction[], amount: (transaction: EnrichedTransaction) => number): CoverageMetric => ({
     transactionCount: matches.length,
     amount: matches.reduce((total, transaction) => total + amount(transaction), 0),
@@ -87,7 +91,8 @@ export function buildCoverageReport(input: {
     period,
     lowConfidence: metric(lowConfidenceTransactions, transaction => transaction.spendingAdjustment),
     personToPerson: metric(personToPersonTransactions, transaction => -transaction.cashFlowAmount),
-    cardPayments: metric(cardPaymentTransactions, transaction => -transaction.cashFlowAmount),
+    cardPayments: cardPaymentCoverage.withoutPurchaseDetail,
+    cardPaymentsBeforeHistory: cardPaymentCoverage.beforeLinkedHistory,
     accountIssues: { accountCount: accountIssues.length, accounts: accountIssues },
   };
 }

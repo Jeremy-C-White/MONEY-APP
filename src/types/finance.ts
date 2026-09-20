@@ -407,6 +407,19 @@ export interface ClassificationRulesResponse {
   rules: ClassificationRuleRecord[];
 }
 
+export interface MerchantLabelRuleRecord {
+  ruleId: string;
+  merchantKey: string;
+  label: string;
+  createdFromTransactionId: string;
+  createdAt: unknown;
+  updatedAt: unknown;
+}
+
+export interface MerchantLabelsResponse {
+  labels: MerchantLabelRuleRecord[];
+}
+
 export interface TransactionsResponse {
   transactions: Transaction[];
   total: number;
@@ -794,7 +807,8 @@ export interface CoverageReport {
   period: { startDate: string; endDate: string };
   lowConfidence: { transactionCount: number; amount: number };
   personToPerson: { transactionCount: number; amount: number };
-  cardPayments: { transactionCount: number; amount: number };
+  cardPayments: { transactionCount: number; amount: number; payees: string[] };
+  cardPaymentsBeforeHistory: { transactionCount: number; amount: number; payees: string[] };
   accountIssues: {
     accountCount: number;
     accounts: Array<{

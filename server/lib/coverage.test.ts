@@ -24,7 +24,7 @@ describe('buildCoverageReport', () => {
         transaction({ transactionId: 'low', categoryConfidence: 'LOW', spendingAdjustment: 250 }),
         transaction({ transactionId: 'labeled-low', categoryConfidence: 'LOW', householdLabel: 'Preschool', spendingAdjustment: 500 }),
         transaction({ transactionId: 'p2p', classification: 'person_to_person', cashFlowAmount: -75, spendingAdjustment: 75 }),
-        transaction({ transactionId: 'card', classification: 'credit_card_payment', cashFlowAmount: -400, countsTowardSpending: false, spendingAdjustment: 0 }),
+        transaction({ transactionId: 'card', accountType: 'depository', classification: 'credit_card_payment', cashFlowAmount: -400, countsTowardSpending: false, spendingAdjustment: 0 }),
         transaction({ transactionId: 'old', normalizedDate: '2025-09-19', categoryConfidence: 'LOW', spendingAdjustment: 999 }),
       ],
       accounts: [
@@ -35,7 +35,8 @@ describe('buildCoverageReport', () => {
 
     expect(report.lowConfidence).toEqual({ transactionCount: 1, amount: 250 });
     expect(report.personToPerson).toEqual({ transactionCount: 1, amount: 75 });
-    expect(report.cardPayments).toEqual({ transactionCount: 1, amount: 400 });
+    expect(report.cardPayments).toEqual({ transactionCount: 1, amount: 400, payees: ['Merchant'] });
+    expect(report.cardPaymentsBeforeHistory).toEqual({ transactionCount: 0, amount: 0, payees: [] });
     expect(report.accountIssues).toEqual({
       accountCount: 1,
       accounts: [{ accountId: 'a1', label: 'OnePay Checking', reason: 'stale' }],

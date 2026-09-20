@@ -17,6 +17,7 @@ import { AiAssistantPage } from './pages/AiAssistantPage';
 import { SandboxAcceptance } from './components/SandboxAcceptance';
 import { ClassificationRulesCard } from './components/ClassificationRulesCard';
 import { HouseholdPlanCard } from './components/HouseholdPlanCard';
+import { MerchantLabelsCard } from './components/MerchantLabelsCard';
 import { BUILD_COMMIT_SHA, shortBuildCommit } from './lib/build-version';
 import { extractStatusResponse } from './lib/api-contracts';
 import {
@@ -773,6 +774,7 @@ export default function App() {
           )}
           
           <HouseholdPlanCard apiFetch={apiFetch} onSaved={() => setRefreshKey(key => key + 1)} />
+          <MerchantLabelsCard apiFetch={apiFetch} onChanged={() => setRefreshKey(key => key + 1)} />
           <ClassificationRulesCard apiFetch={apiFetch} />
 
           <section className="mb-8 rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">

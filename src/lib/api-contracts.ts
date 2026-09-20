@@ -38,6 +38,7 @@ import type {
   YearOverYearComparison,
   RewardsYtd,
   CoverageReport,
+  MerchantLabelRuleRecord,
 } from '../types/finance';
 import { INSIGHT_PERIOD_OPTIONS } from './insight-periods';
 
@@ -769,16 +770,39 @@ function extractYearOverYearComparison(data: unknown): YearOverYearComparison {
 }
 
 function extractCoverageReport(data: unknown): CoverageReport {
-  const record = requireRecord(data, 'coverage');
+  const rawRecord = requireRecord(data, 'coverage');
+  const rawCardPayments = isRecord(rawRecord.cardPayments) ? rawRecord.cardPayments : {};
+  const record: UnknownRecord = {
+    ...rawRecord,
+    cardPayments: {
+      ...rawCardPayments,
+      payees: rawCardPayments.payees ?? [],
+    },
+    cardPaymentsBeforeHistory: rawRecord.cardPaymentsBeforeHistory ?? {
+      transactionCount: 0,
+      amount: 0,
+      payees: [],
+    },
+  };
   const metricIsValid = (metric: unknown) => (
     isRecord(metric) && typeof metric.transactionCount === 'number' && typeof metric.amount === 'number'
+  );
+  const cardPayments = requireRecord(record.cardPayments, 'coverage card payments');
+  const cardPaymentsBeforeHistory = requireRecord(
+    record.cardPaymentsBeforeHistory,
+    'coverage card payments before history'
   );
   const accountIssues = requireRecord(record.accountIssues, 'coverage account issues');
   if (
     !isDateRange(record.period) ||
     !metricIsValid(record.lowConfidence) ||
     !metricIsValid(record.personToPerson) ||
-    !metricIsValid(record.cardPayments) ||
+    !metricIsValid(cardPayments) ||
+    !Array.isArray(cardPayments.payees) ||
+    cardPayments.payees.some(payee => typeof payee !== 'string') ||
+    !metricIsValid(cardPaymentsBeforeHistory) ||
+    !Array.isArray(cardPaymentsBeforeHistory.payees) ||
+    cardPaymentsBeforeHistory.payees.some(payee => typeof payee !== 'string') ||
     typeof accountIssues.accountCount !== 'number' ||
     !Array.isArray(accountIssues.accounts) ||
     accountIssues.accounts.some(account => !(
@@ -788,7 +812,11 @@ function extractCoverageReport(data: unknown): CoverageReport {
       ['connection', 'stale', 'missing', 'activity'].includes(String(account.reason))
     ))
   ) throw new Error('Invalid coverage response.');
-  return record as unknown as CoverageReport;
+  return {
+    ...record,
+    cardPayments,
+    cardPaymentsBeforeHistory,
+  } as unknown as CoverageReport;
 }
 
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
@@ -1108,6 +1136,18 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
     yearOverYear: extractYearOverYearComparison(record.yearOverYear),
     coverage: record.coverage === undefined ? null : extractCoverageReport(record.coverage),
   };
+}
+
+export function extractMerchantLabelsResponse(data: unknown): MerchantLabelRuleRecord[] {
+  const labels = requireArrayField<MerchantLabelRuleRecord>(data, 'labels', 'merchant labels');
+  if (labels.some(label => !(
+    isRecord(label) &&
+    typeof label.ruleId === 'string' &&
+    typeof label.merchantKey === 'string' &&
+    typeof label.label === 'string' &&
+    typeof label.createdFromTransactionId === 'string'
+  ))) throw new Error('Invalid merchant labels response.');
+  return labels;
 }
 
 export function parseAiChatApiResponse(data: unknown): { response: string } {

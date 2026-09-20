@@ -57,14 +57,19 @@ export function parseMerchantLabelRule(ruleId: string, value: unknown): Merchant
   };
 }
 
+export function normalizeMerchantLabel(rawLabel: unknown): string {
+  const label = typeof rawLabel === 'string' ? rawLabel.trim().replace(/\s+/g, ' ') : '';
+  if (!label) throw new MerchantLabelRequestError('Enter a household label.', 400);
+  if (label.length > 40) throw new MerchantLabelRequestError('Household labels must be 40 characters or fewer.', 400);
+  return label;
+}
+
 export function buildMerchantLabelRule(
   transaction: NormalizedTransaction,
   rawLabel: unknown,
   now: unknown
 ): MerchantLabelRule {
-  const label = typeof rawLabel === 'string' ? rawLabel.trim().replace(/\s+/g, ' ') : '';
-  if (!label) throw new MerchantLabelRequestError('Enter a household label.', 400);
-  if (label.length > 40) throw new MerchantLabelRequestError('Household labels must be 40 characters or fewer.', 400);
+  const label = normalizeMerchantLabel(rawLabel);
   if (transaction.pending || transaction.removed) {
     throw new MerchantLabelRequestError('Only posted transactions can create a household label.', 400);
   }

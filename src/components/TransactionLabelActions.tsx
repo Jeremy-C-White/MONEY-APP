@@ -7,11 +7,13 @@ export function TransactionLabelActions({
   apiFetch,
   onChanged,
   emphasized = false,
+  suggestions = [],
 }: {
   transaction: Transaction;
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   onChanged: () => void | Promise<void>;
   emphasized?: boolean;
+  suggestions?: string[];
 }) {
   const [editing, setEditing] = useState(false);
   const [label, setLabel] = useState(transaction.householdLabel || '');
@@ -106,6 +108,7 @@ export function TransactionLabelActions({
           maxLength={40}
           autoFocus
           placeholder="For example: Preschool or Kids"
+          list={`label-suggestions-${transaction.transactionId}`}
           onChange={event => setLabel(event.target.value)}
           onKeyDown={event => { if (event.key === 'Enter') void save(); }}
           className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -118,8 +121,11 @@ export function TransactionLabelActions({
         </button>
       </div>
       <p className="mt-2 text-[11px] leading-4 text-slate-500">
-        Applies to past and future purchases from this merchant. Plaid's category stays underneath.
+        Updates past and future reports for this merchant. Plaid's category stays underneath.
       </p>
+      <datalist id={`label-suggestions-${transaction.transactionId}`}>
+        {suggestions.map(suggestion => <option key={suggestion.toLowerCase()} value={suggestion} />)}
+      </datalist>
       {error && <p className="mt-1 text-xs font-medium text-rose-600">{error}</p>}
     </div>
   );

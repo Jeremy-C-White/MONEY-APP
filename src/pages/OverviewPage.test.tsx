@@ -218,7 +218,8 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       period: { startDate: '2025-09-07', endDate: '2026-09-06' },
       lowConfidence: { transactionCount: 3, amount: 420 },
       personToPerson: { transactionCount: 5, amount: 700 },
-      cardPayments: { transactionCount: 8, amount: 2100 },
+      cardPayments: { transactionCount: 8, amount: 2100, payees: ['Apple Card', "Sam's Club"] },
+      cardPaymentsBeforeHistory: { transactionCount: 3, amount: 900, payees: ['Capital One'] },
       accountIssues: {
         accountCount: 1,
         accounts: [{ accountId: 'onepay', label: 'OnePay Checking', reason: 'stale' }],
@@ -308,6 +309,9 @@ describe('OverviewPage', () => {
     expect(container.textContent).toContain('How complete is the picture?');
     expect(container.textContent).toContain("Plaid wasn't sure");
     expect(container.textContent).toContain('Card payments and person-to-person transfers are context, not extra spending.');
+    expect(container.textContent).toContain('Card purchases not visible');
+    expect(container.textContent).toContain('At least $2,100.00');
+    expect(container.textContent).toContain('before linked-card history began and is not counted above');
 
     const buttons = Array.from(container.querySelectorAll('button'));
     await act(async () => buttons.find(button => button.textContent?.includes("Plaid wasn't sure"))?.click());

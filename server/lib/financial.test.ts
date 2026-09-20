@@ -409,7 +409,7 @@ describe('Confirmed transfer reconciliation', () => {
     expect(tx.classification).not.toBe('internal_transfer');
   });
 
-  it('classifies confirmed outgoing Visa Direct app transfers as P2P spending', () => {
+  it('classifies the owner PayPal Visa Direct balance load as an internal transfer', () => {
     const tx = classifyTransaction(buildRow({
       name: 'MONEY TRANSFER AUTHORIZED ON 07/30 White Jeremy Visa Direct CA S585211486237120 CARD 3625',
       cashFlowAmount: '-150',
@@ -417,9 +417,21 @@ describe('Confirmed transfer reconciliation', () => {
       catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS'
     }));
 
+    expect(tx.classification).toBe('internal_transfer');
+    expect(tx.countsTowardSpending).toBe(false);
+    expect(tx.spendingAdjustment).toBe(0);
+  });
+
+  it('keeps a Visa Direct payment to another person as P2P spending', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'MONEY TRANSFER AUTHORIZED ON 07/30 Different Person Visa Direct CA CARD 3625',
+      cashFlowAmount: '-150',
+      catPrimary: 'TRANSFER_OUT',
+      catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS'
+    }));
+
     expect(tx.classification).toBe('person_to_person');
     expect(tx.countsTowardSpending).toBe(true);
-    expect(tx.spendingAdjustment).toBe(150);
   });
 
   it('does not treat an unrelated Visa Direct transfer as confirmed P2P', () => {

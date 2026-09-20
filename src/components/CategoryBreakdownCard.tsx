@@ -164,10 +164,13 @@ export function CategoryBreakdownCard({
                   <button type="button" onClick={() => open(category.householdLabel ? { householdLabel: category.householdLabel } : { category: category.category })} className="flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors hover:bg-indigo-50">
                     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">{index + 1}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{category.householdLabel || getCategoryLabel(category.category)}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-sm font-semibold text-slate-800">{category.householdLabel || getCategoryLabel(category.category)}</span>
+                        {category.householdLabel && <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">Household label</span>}
+                      </span>
                       {category.householdLabel && (
                         <span className="mt-0.5 block truncate text-[11px] text-indigo-600">
-                          Your label · Plaid: {category.sourceCategories.map(getCategoryLabel).join(', ')}
+                          Plaid underneath: {category.sourceCategories.map(getCategoryLabel).join(', ')} · updates past and future reports
                         </span>
                       )}
                       <span className="mt-0.5 block text-xs text-slate-500"><ComparisonNote previous={category.previousSpending} difference={category.difference} /> · {category.transactionCount} {category.transactionCount === 1 ? 'purchase' : 'purchases'}</span>

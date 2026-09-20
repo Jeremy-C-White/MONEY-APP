@@ -101,9 +101,11 @@ export function CoverageCard({
         />
         <MetricButton
           icon={<CreditCard className="h-4 w-4" />}
-          title="Card payments"
-          value={formatCurrency(coverage.cardPayments.amount)}
-          detail={`${coverage.cardPayments.transactionCount} payment rows; linked card purchases provide the detail.`}
+          title="Card purchases not visible"
+          value={coverage.cardPayments.amount > 0 ? `At least ${formatCurrency(coverage.cardPayments.amount)}` : 'All linked'}
+          detail={coverage.cardPayments.amount > 0
+            ? `${coverage.cardPayments.transactionCount} payments with no linked-card match · ${coverage.cardPayments.payees.join(', ')}`
+            : 'Every card-payment payee has a linked-card match.'}
           onClick={() => onViewTransactions({ ...dates, classification: 'credit_card_payment' })}
         />
         <MetricButton
@@ -116,6 +118,11 @@ export function CoverageCard({
           onClick={onOpenAccounts}
         />
       </div>
+      {coverage.cardPaymentsBeforeHistory.amount > 0 && (
+        <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+          {formatCurrency(coverage.cardPaymentsBeforeHistory.amount)} across {coverage.cardPaymentsBeforeHistory.transactionCount} additional {coverage.cardPaymentsBeforeHistory.transactionCount === 1 ? 'payment occurred' : 'payments occurred'} before linked-card history began and is not counted above.
+        </p>
+      )}
     </section>
   );
 }

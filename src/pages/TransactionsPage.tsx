@@ -9,7 +9,7 @@ import {
   getMerchantDisplayLabel,
   formatFriendlyDate
 } from '../lib/formatters';
-import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
+import { extractTransactionsResponse, extractAccountsResponse, extractMerchantLabelsResponse } from '../lib/api-contracts';
 import type { Transaction, AccountSummary } from '../types/finance';
 import { TransactionOverrideActions } from '../components/TransactionOverrideActions';
 import { TransactionLabelActions } from '../components/TransactionLabelActions';
@@ -69,6 +69,7 @@ export function TransactionsPage({
   
   const [accounts, setAccounts] = useState<AccountSummary[]>([]);
   const [categories, setCategories] = useState<{category: string}[]>([]);
+  const [labelSuggestions, setLabelSuggestions] = useState<string[]>([]);
   
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -107,8 +108,21 @@ export function TransactionsPage({
       }
     };
 
+    const fetchLabels = async () => {
+      try {
+        const res = await apiFetch('/api/merchant-labels');
+        if (res.ok) {
+          const labels = extractMerchantLabelsResponse(await res.json()).map(rule => rule.label);
+          setLabelSuggestions([...new Set(labels)].sort((left, right) => left.localeCompare(right)));
+        }
+      } catch (e) {
+        console.warn("Failed to load household label suggestions", e);
+      }
+    };
+
     fetchAccounts();
     fetchCategories();
+    fetchLabels();
   }, [apiFetch]);
 
   useEffect(() => {
@@ -517,6 +531,7 @@ export function TransactionsPage({
                     apiFetch={apiFetch}
                     onChanged={loadTransactions}
                     emphasized={viewMode === 'low_confidence'}
+                    suggestions={labelSuggestions}
                   />
                   
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between font-medium">
@@ -564,6 +579,7 @@ export function TransactionsPage({
                           apiFetch={apiFetch}
                           onChanged={loadTransactions}
                           emphasized={viewMode === 'low_confidence'}
+                          suggestions={labelSuggestions}
                         />
                       </td>
                       <td className="px-6 py-4">

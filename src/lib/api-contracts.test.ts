@@ -13,6 +13,7 @@ import {
   extractConnectedAccountsResponse,
   extractTransactionOverridesResponse,
   extractClassificationRulesResponse,
+  extractMerchantLabelsResponse,
   extractRecurringObligationsResponse,
   extractStatusResponse,
   extractHouseholdPlanningResponse,
@@ -864,6 +865,14 @@ describe('presentation formatters', () => {
 
     expect(rules).toHaveLength(1);
     expect(rules[0]).toMatchObject({ ruleId: 'rule_1', timesApplied: 2 });
+  });
+
+  it('validates household merchant labels', () => {
+    const labels = extractMerchantLabelsResponse({ labels: [{
+      ruleId: 'label_1', merchantKey: 'brookwood preschool', label: 'Preschool',
+      createdFromTransactionId: 'tx_1', createdAt: null, updatedAt: null,
+    }] });
+    expect(labels[0].label).toBe('Preschool');
   });
 
   it('labels unclassified deposits neutrally and keeps them in review', () => {

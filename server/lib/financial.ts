@@ -258,6 +258,17 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     combinedDescLower.includes('paypal') &&
     combinedDescLower.includes('add to balance');
 
+  // Historical PayPal balance funding also appeared on Wells Fargo as a Visa
+  // Direct transfer to the owner's own name. Those loads funded a connected
+  // balance account whose purchases are already visible, so treating them as
+  // P2P spending double counts the household's outflow. Keep this exception
+  // deliberately scoped to the known owner/card descriptor.
+  const isPayPalVisaDirectSelfLoad = cashFlowAmount < 0 &&
+    accountType === 'depository' &&
+    catPrimary === 'TRANSFER_OUT' &&
+    catDetailed === 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS' &&
+    /money transfer authorized.*\bwhite jeremy\b.*\bvisa direct\b.*\bcard 3625\b/.test(combinedDescLower);
+
   // Historical PayPal prepaid-card funding used a Verizon direct-deposit
   // description even though it was an owner-directed card load, not a third
   // household paycheck. Scope this exception to the PayPal deposit account so
@@ -306,6 +317,8 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     // provider keywords such as "PayPal" in an account or transaction name.
     classification = 'credit_card_payment';
   } else if (isPayPalBalanceLoad) {
+    classification = 'internal_transfer';
+  } else if (isPayPalVisaDirectSelfLoad) {
     classification = 'internal_transfer';
   } else if (isPayPalVerizonPrepaidLoad) {
     classification = 'internal_transfer';
