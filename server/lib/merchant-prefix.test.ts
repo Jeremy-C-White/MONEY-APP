@@ -33,6 +33,14 @@ describe('deriveMerchantPrefix', () => {
       .toBe('local gym payment');
   });
 
+  it('keeps a leading number when it is part of the merchant name', () => {
+    expect(deriveMerchantPrefix('72 MARINE SALES')).toBe('72 marine sales');
+    expect(buildMerchantKeyForTransaction({
+      name: '72 MARINE SALES',
+      normalizedMerchant: '72 MARINE SALES',
+    })).toBe('72 marine sales');
+  });
+
   it('rejects a derivation shorter than the minimum length or token count', () => {
     expect(deriveMerchantPrefix('SQ *A1 208402')).toBeNull();
     expect(deriveMerchantPrefix('AMZN 4728901234')).toBeNull();

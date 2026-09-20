@@ -9,13 +9,13 @@ const BARE_DAY_NUMBER = /^\d{1,2}$/;
 // Transaction-specific noise: a long digit run, a formatted or split date,
 // or a reference code mixing letters and digits. Anything before the first
 // such token is what repeats across transactions from the same merchant.
-function isNoiseToken(token: string): boolean {
+function isNoiseToken(token: string, tokenIndex: number): boolean {
   const stripped = token.replace(/[^a-zA-Z0-9/-]/g, '');
   if (!stripped) return false;
   if (DATE_LIKE_TOKEN.test(stripped)) return true;
   if (DIGIT_RUN.test(stripped)) return true;
   if (MONTH_ABBREVIATION.test(stripped)) return true;
-  if (BARE_DAY_NUMBER.test(stripped)) return true;
+  if (tokenIndex > 0 && BARE_DAY_NUMBER.test(stripped)) return true;
   return /[a-zA-Z]/.test(stripped) && /[0-9]/.test(stripped);
 }
 
@@ -26,8 +26,8 @@ export function normalizeMerchantKey(value: unknown): string {
 export function deriveMerchantPrefix(rawName: unknown): string | null {
   const tokens = String(rawName || '').trim().split(/\s+/).filter(Boolean);
   const kept: string[] = [];
-  for (const token of tokens) {
-    if (isNoiseToken(token)) break;
+  for (const [index, token] of tokens.entries()) {
+    if (isNoiseToken(token, index)) break;
     kept.push(token);
   }
 
@@ -63,7 +63,7 @@ export function buildMerchantKeyForTransaction(transaction: {
     .trim()
     .split(/\s+/)
     .filter(Boolean)
-    .some(isNoiseToken);
+    .some((token, index) => isNoiseToken(token, index));
   return merchantKey && !hasNoise ? merchantKey : null;
 }
 
