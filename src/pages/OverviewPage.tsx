@@ -7,7 +7,8 @@ import { OverviewNowCard } from '../components/OverviewNowCard';
 import { CategoryBreakdownCard, type SpendingDrilldown } from '../components/CategoryBreakdownCard';
 import { formatCurrency, formatMonthLabel } from '../lib/formatters';
 import { extractOverviewResponse } from '../lib/api-contracts';
-import type { DashboardOverviewResponse, SpendingPeriod } from '../types/finance';
+import { INSIGHT_PERIOD_OPTIONS } from '../lib/insight-periods';
+import type { DashboardOverviewResponse, WalmartInsightPeriod } from '../types/finance';
 
 export function OverviewPage({
   apiFetch,
@@ -25,8 +26,8 @@ export function OverviewPage({
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [trendRange, setTrendRange] = useState<'6m' | '12m' | '24m' | 'ytd'>('12m');
-  const [spendingPeriod, setSpendingPeriod] = useState<SpendingPeriod>('last_30_days');
+  const [trendRange, setTrendRange] = useState<WalmartInsightPeriod>('last_12_months');
+  const [spendingPeriod, setSpendingPeriod] = useState<WalmartInsightPeriod>('last_30_days');
   const [snapshotting, setSnapshotting] = useState(false);
   const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
   const [snapshotError, setSnapshotError] = useState<string | null>(null);
@@ -114,6 +115,7 @@ export function OverviewPage({
         safeToSpend={overview?.safeToSpend || null}
         financialPosition={overview?.financialPosition || null}
         insights={overview?.householdInsights || null}
+        rewardsYtd={overview?.rewardsYtd || null}
         loading={loading && !overview}
         onEditBuffer={onOpenPlanSettings}
       />
@@ -132,13 +134,13 @@ export function OverviewPage({
             <h3 className="mt-1 text-lg font-medium text-slate-900">How your money has moved</h3>
           </div>
           <div className="flex rounded-lg bg-slate-100 p-1">
-            {(['6m', '12m', '24m', 'ytd'] as const).map(range => (
+            {INSIGHT_PERIOD_OPTIONS.map(option => (
               <button
-                key={range}
-                onClick={() => setTrendRange(range)}
-                className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium uppercase ${trendRange === range ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                key={option.value}
+                onClick={() => setTrendRange(option.value)}
+                className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${trendRange === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
               >
-                {range}
+                {option.label}
               </button>
             ))}
           </div>
@@ -190,19 +192,14 @@ export function OverviewPage({
               <p className="mt-1 text-xs text-slate-500">Top five by default, with more detail when you want it</p>
             </div>
             <div className="flex rounded-lg bg-slate-100 p-1">
-              {([
-                ['last_7_days', '7D'],
-                ['last_30_days', '30D'],
-                ['last_3_months', '3M'],
-                ['last_12_months', '12M'],
-              ] as const).map(([period, label]) => (
+              {INSIGHT_PERIOD_OPTIONS.map(option => (
                 <button
-                  key={period}
+                  key={option.value}
                   type="button"
-                  onClick={() => setSpendingPeriod(period)}
-                  className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${spendingPeriod === period ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                  onClick={() => setSpendingPeriod(option.value)}
+                  className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${spendingPeriod === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                 >
-                  {label}
+                  {option.label}
                 </button>
               ))}
             </div>

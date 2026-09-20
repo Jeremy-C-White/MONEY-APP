@@ -645,6 +645,12 @@ describe('API response contracts', () => {
       financialPosition: financialPositionPayload,
       cashFlowForecast: cashFlowForecastPayload,
       safeToSpend: safeToSpendPayload,
+      rewardsYtd: {
+        amount: 126.25,
+        transactionCount: 8,
+        startDate: '2026-01-01',
+        endDate: '2026-09-04',
+      },
       yearOverYear: {
         status: 'not_comparable',
         currentPeriod: { startDate: '2026-09-01', endDate: '2026-09-04' },

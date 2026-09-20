@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { AlertCircle, RefreshCcw, Search, Filter, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   formatCurrency,
-  getClassificationLabel,
   getCategoryLabel,
   getCategoryDisplayLabel,
   isNeedsReviewClassification,
@@ -14,10 +13,21 @@ import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api
 import type { Transaction, AccountSummary } from '../types/finance';
 import { TransactionOverrideActions } from '../components/TransactionOverrideActions';
 
-const CLASSIFICATIONS = [
-  'spending', 'income', 'internal_transfer', 'investment_transfer', 'cash_withdrawal',
-  'person_to_person', 'credit_card_payment', 'refund', 'merchant_credit',
-  'interest_earned', 'interest_paid', 'bank_fee', 'unclassified_deposit', 'zero_amount', 'other'
+const CLASSIFICATION_OPTIONS = [
+  { value: 'spending', label: 'Purchases and bills' },
+  { value: 'income', label: 'Income' },
+  { value: 'internal_transfer', label: 'Transfers between your accounts' },
+  { value: 'investment_transfer', label: 'Money moved to investments' },
+  { value: 'cash_withdrawal', label: 'Cash withdrawals' },
+  { value: 'person_to_person', label: 'Transfers between people' },
+  { value: 'credit_card_payment', label: 'Card payments' },
+  { value: 'refund,merchant_credit', label: 'Refunds and credits' },
+  { value: 'interest_earned', label: 'Interest received' },
+  { value: 'interest_paid', label: 'Interest paid' },
+  { value: 'bank_fee', label: 'Bank fees' },
+  { value: 'unclassified_deposit', label: 'Deposits to review' },
+  { value: 'zero_amount', label: 'Zero-dollar entries' },
+  { value: 'other', label: 'Needs review' },
 ];
 
 export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
@@ -46,6 +56,7 @@ export function TransactionsPage({
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const [reviewCount, setReviewCount] = useState<number | null>(null);
   
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -94,6 +105,34 @@ export function TransactionsPage({
     fetchAccounts();
     fetchCategories();
   }, [apiFetch]);
+
+  useEffect(() => {
+    const fetchReviewCount = async () => {
+      try {
+        const params = new URLSearchParams({
+          status: 'posted',
+          classification: 'other,unclassified_deposit',
+          page: '1',
+          limit: '1',
+        });
+        const res = await apiFetch(`/api/transactions?${params.toString()}`);
+        if (!res.ok) return;
+        const parsed = extractTransactionsResponse(await res.json());
+        setReviewCount(parsed.total);
+      } catch {
+        // Keep the tab visible if the lightweight count cannot be refreshed.
+      }
+    };
+
+    void fetchReviewCount();
+  }, [apiFetch, refreshKey]);
+
+  useEffect(() => {
+    if (reviewCount === 0 && viewMode === 'needs_review') {
+      setViewMode('posted');
+      setPage(1);
+    }
+  }, [reviewCount, viewMode]);
 
   // Debounce search
   useEffect(() => {
@@ -186,6 +225,7 @@ export function TransactionsPage({
       
       setTransactions(parsed.transactions);
       setTotal(parsed.total);
+      if (viewMode === 'needs_review') setReviewCount(parsed.total);
       setTotalPages(parsed.totalPages);
       setPage(parsed.page);
       
@@ -236,12 +276,14 @@ export function TransactionsPage({
           >
             Pending
           </button>
-          <button 
-            className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'needs_review' ? activeTabClasses : inactiveTabClasses}`}
-            onClick={() => selectViewMode('needs_review')}
-          >
-            Needs Review
-          </button>
+          {reviewCount !== 0 && (
+            <button
+              className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'needs_review' ? activeTabClasses : inactiveTabClasses}`}
+              onClick={() => selectViewMode('needs_review')}
+            >
+              Needs Review
+            </button>
+          )}
           <button
             className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('overridden')}
@@ -290,8 +332,8 @@ export function TransactionsPage({
                 onChange={(e) => updateFilter(setFilterClassification, e.target.value)}
               >
                 <option value="">All Classifications</option>
-                {CLASSIFICATIONS.map(c => (
-                  <option key={c} value={c}>{getClassificationLabel(c)}</option>
+                {CLASSIFICATION_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             )}

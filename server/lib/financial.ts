@@ -152,6 +152,20 @@ export function serialDateToYYYYMMDD(serial: number | string): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+export function matchesCashBackReward(
+  name: string,
+  merchantName = '',
+  originalDescription = ''
+): boolean {
+  const combined = `${name} ${merchantName} ${originalDescription}`.toLowerCase();
+  const exactName = name.trim().toLowerCase();
+  return combined.includes('cash reward') ||
+    combined.includes('cashback') ||
+    combined.includes('cash back') ||
+    exactName === 'reward redemption' ||
+    exactName === 'merchant offers credit';
+}
+
 export function classifyTransaction(row: any[]): NormalizedTransaction {
   const txId = row[0] || '';
   const dateSerial = row[8] || '';
@@ -269,11 +283,8 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
   // Credit card cash-back rewards read as plain unclassified inflows
   // (OTHER_OTHER) with no other signal tying them to income.
   const isCashBackReward = cashFlowAmount > 0 &&
-    (combinedDescLower.includes('cash reward') ||
-      combinedDescLower.includes('cashback') ||
-      combinedDescLower.includes('cash back') ||
-      name.trim().toLowerCase() === 'reward redemption' ||
-      name.trim().toLowerCase() === 'merchant offers credit');
+    matchesCashBackReward(name, merchantName, originalDescription);
+  const isPayPalCashBackReward = isCashBackReward && combinedDescLower.includes('paypal');
 
   // TRANSFER_IN_DEPOSIT establishes how money entered the account, not its
   // economic purpose. Keep these deposits grouped for review without
@@ -298,6 +309,11 @@ export function classifyTransaction(row: any[]): NormalizedTransaction {
     classification = 'internal_transfer';
   } else if (isPayPalVerizonPrepaidLoad) {
     classification = 'internal_transfer';
+  } else if (isPayPalCashBackReward) {
+    // PayPal is usually a person-to-person signal, but explicit cash-back
+    // wording is stronger evidence that this credit is a card reward.
+    classification = 'income';
+    normalizedCategory = 'INCOME';
   } else if (isP2P) {
     classification = 'person_to_person';
   } else if (isIncomeTaxRefund) {

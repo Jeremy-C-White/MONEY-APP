@@ -173,6 +173,12 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       blockers: [],
       warning: null,
     },
+    rewardsYtd: {
+      amount: 126.25,
+      transactionCount: 8,
+      startDate: '2026-01-01',
+      endDate: '2026-09-06',
+    },
     verdicts: {
       monthProgress: {
         month: '2026-09',
@@ -341,6 +347,8 @@ describe('OverviewPage', () => {
   it('renders the pacing comparison only once', async () => {
     await renderOverview();
     expect(container.textContent?.match(/same point last month/g)).toHaveLength(1);
+    expect(container.textContent).toContain('Rewards this year');
+    expect(container.textContent).toContain('$126.25');
   });
 
   it('captures a net-worth snapshot independently from transaction sync', async () => {

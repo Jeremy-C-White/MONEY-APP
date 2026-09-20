@@ -19,12 +19,12 @@ interface AiAssistantPageProps {
 }
 
 const SUGGESTED_PROMPTS = [
-  'What is my current Safe to Spend and how is it calculated?',
   'Which recurring bills or subscriptions are due this month?',
   'What are my highest spending categories?',
   'How much have I spent on groceries and dining out?',
-  'Summarize my connected account balances.',
-  'Can you delete or edit my transactions?',
+  'What did we spend at restaurants last month versus the month before?',
+  'How much cash back have we gotten this year?',
+  "What's new this month that wasn't last month?",
 ];
 
 const INITIAL_GREETING: AiChatMessageItem = {

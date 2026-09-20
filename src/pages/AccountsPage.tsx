@@ -48,6 +48,16 @@ const ROLE_LABELS: Record<AccountRole, string> = {
   unassigned: 'Unassigned',
 };
 
+const ROLE_DESCRIPTIONS: Record<AccountRole, string> = {
+  operating: 'Everyday bills and spending',
+  reserve: 'Cash set aside for later',
+  retirement: 'Long-term retirement savings',
+  investment: 'Investments outside retirement',
+  health_savings: 'Money reserved for healthcare',
+  debt: 'Balances you still owe',
+  unassigned: 'Purpose has not been confirmed',
+};
+
 const OWNER_ROLE_OPTIONS: AccountRole[] = [
   'operating', 'reserve', 'retirement', 'investment', 'health_savings', 'debt', 'unassigned',
 ];
@@ -555,27 +565,6 @@ export function AccountsPage({
         </div>
       )}
 
-      <section aria-label="Account summary" className="grid grid-cols-3 gap-2 sm:gap-4 mb-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-          <p className="text-[11px] sm:text-sm font-medium text-slate-500 leading-tight">Known accounts</p>
-          <p data-testid="known-accounts-count" className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">
-            {counts.known}
-          </p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-          <p className="text-[11px] sm:text-sm font-medium text-slate-500 leading-tight">Institutions</p>
-          <p data-testid="institutions-count" className="text-2xl sm:text-3xl font-bold text-slate-900 mt-2">
-            {counts.institutions}
-          </p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-3 sm:p-5 shadow-sm min-w-0">
-          <p className="text-[11px] sm:text-sm font-medium text-slate-500 leading-tight">Need attention</p>
-          <p data-testid="need-attention-count" className={`text-2xl sm:text-3xl font-bold mt-2 ${counts.attention > 0 ? 'text-amber-700' : 'text-slate-900'}`}>
-            {counts.attention}
-          </p>
-        </div>
-      </section>
-
       {roleSummary && (
         <section aria-label="Money by purpose" className="mb-7">
           <div className="mb-3 px-1">
@@ -596,9 +585,7 @@ export function AccountsPage({
                     <p className="mt-1 truncate text-lg font-bold text-slate-900">
                       {formatCurrency(bucket.total)}
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {bucket.knownBalanceCount}/{bucket.accountCount} balances
-                    </p>
+                    <p className="mt-1 text-xs leading-snug text-slate-500">{ROLE_DESCRIPTIONS[role]}</p>
                   </div>
                 );
               })}
@@ -611,6 +598,22 @@ export function AccountsPage({
           )}
         </section>
       )}
+
+      <section aria-label="Account summary" className="mb-7 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm sm:px-5">
+        <p data-testid="account-status" className="text-sm font-semibold text-slate-800">
+          {counts.known} {counts.known === 1 ? 'account' : 'accounts'} across {counts.institutions}{' '}
+          {counts.institutions === 1 ? 'institution' : 'institutions'}
+          <span className="text-slate-400"> · </span>
+          <span className={counts.attention > 0 ? 'text-amber-700' : 'text-emerald-700'}>
+            {counts.attention > 0
+              ? `${counts.attention} ${counts.attention === 1 ? 'needs' : 'need'} attention`
+              : 'Everything is connected'}
+          </span>
+        </p>
+        {counts.attention > 0 && (
+          <p className="mt-1 text-xs text-slate-500">Needs attention means a connection may need you to sign in again or approve access.</p>
+        )}
+      </section>
 
       {financialPosition && (
         <>

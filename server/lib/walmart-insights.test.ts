@@ -34,7 +34,7 @@ describe('buildWalmartInsights', () => {
       now: new Date('2026-09-04T12:00:00Z'),
     });
 
-    expect(report.startDate).toBe('2025-10-01');
+    expect(report.startDate).toBe('2025-09-05');
     expect(report.latestTransactionDate).toBe('2026-08-29');
     expect(report.summary).toEqual({
       totalSpend: 90,
@@ -78,7 +78,7 @@ describe('buildWalmartInsights', () => {
       orderCount: 2,
     }]);
     expect(report.trend).toContainEqual({
-      periodStart: '2026-08-01',
+      periodStart: '2026-08-05',
       totalSpend: 90,
       retailSpend: 50,
       fuelSpend: 40,
@@ -93,16 +93,16 @@ describe('buildWalmartInsights', () => {
     }]);
   });
 
-  it('supports all-time history without including incomplete order stubs', () => {
+  it('keeps older history outside the exact rolling 12-month window', () => {
     const report = buildWalmartInsights(orders, items, {
-      period: 'all_time',
+      period: 'last_12_months',
       now: new Date('2026-09-04T12:00:00Z'),
     });
 
-    expect(report.startDate).toBeNull();
-    expect(report.summary.totalSpend).toBe(115);
-    expect(report.summary.orderCount).toBe(3);
-    expect(report.topItems.some(item => item.productName === 'Old Product')).toBe(true);
+    expect(report.startDate).toBe('2025-09-05');
+    expect(report.summary.totalSpend).toBe(90);
+    expect(report.summary.orderCount).toBe(2);
+    expect(report.topItems.some(item => item.productName === 'Old Product')).toBe(false);
   });
 
   it('supports daily and weekly trend periods for recent activity', () => {
@@ -137,7 +137,7 @@ describe('buildWalmartInsights', () => {
     ];
 
     const report = buildWalmartInsights(returnOrders, returnItems, {
-      period: 'this_year',
+      period: 'last_12_months',
       now: new Date('2026-09-04T12:00:00Z'),
     });
 
@@ -180,7 +180,7 @@ describe('buildWalmartInsights', () => {
     ];
 
     const report = buildWalmartInsights(priceOrders, priceItems, {
-      period: 'this_year',
+      period: 'last_12_months',
       now: new Date('2026-09-04T12:00:00Z'),
     });
 

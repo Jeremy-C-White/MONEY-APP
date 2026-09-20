@@ -121,7 +121,7 @@ describe('Aggregations Pass 1C', () => {
   });
 });
 
-describe('Trend Ranges and Boundaries', () => {
+describe('Shared insight trend periods and boundaries', () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -129,54 +129,53 @@ describe('Trend Ranges and Boundaries', () => {
     vi.useRealTimers();
   });
 
-  it('6m trend returns exactly 6 months', () => {
+  it('7D returns one daily point for each day in the exact rolling window', () => {
     vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
     const txs = [
       mockTx({ normalizedDate: '2026-08-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }),
-      mockTx({ normalizedDate: '2026-02-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }),
-      mockTx({ normalizedDate: '2026-01-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }) // Outside 6m (Mar-Aug)
+      mockTx({ normalizedDate: '2026-08-08', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }),
     ];
-    const trends = aggregateTrends(txs, '6m', 'America/New_York');
-    expect(trends.length).toBe(6);
-    expect(trends[0].month).toBe('2026-03');
-    expect(trends[5].month).toBe('2026-08');
+    const trends = aggregateTrends(txs, 'last_7_days', 'America/New_York');
+    expect(trends).toHaveLength(7);
+    expect(trends[0].month).toBe('2026-08-09');
+    expect(trends[6].month).toBe('2026-08-15');
+    expect(trends.reduce((sum, point) => sum + point.spending, 0)).toBe(10);
   });
 
-  it('12m trend returns exactly 12 months', () => {
+  it('30D returns five weekly points covering the exact rolling window', () => {
     vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
-    const txs = [
-      mockTx({ normalizedDate: '2025-08-10', classification: 'spending', countsTowardSpending: true, spendingAdjustment: 10 }) // Outside 12m (Sep-Aug)
-    ];
-    const trends = aggregateTrends(txs, '12m', 'America/New_York');
-    expect(trends.length).toBe(12);
-    expect(trends[0].month).toBe('2025-09');
-    expect(trends[11].month).toBe('2026-08');
+    const trends = aggregateTrends([], 'last_30_days', 'America/New_York');
+    expect(trends).toHaveLength(5);
+    expect(trends[0].month).toBe('2026-07-17');
+    expect(trends[4].month).toBe('2026-08-14');
+    expect(trends.every(point => point.granularity === 'week')).toBe(true);
   });
 
-  it('24m trend returns exactly 24 months', () => {
+  it('3M returns three rolling monthly points', () => {
     vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
-    const trends = aggregateTrends([], '24m', 'America/New_York');
-
-    expect(trends).toHaveLength(24);
-    expect(trends[0].month).toBe('2024-09');
-    expect(trends[23].month).toBe('2026-08');
+    const trends = aggregateTrends([], 'last_3_months', 'America/New_York');
+    expect(trends.map(point => point.month)).toEqual(['2026-05-16', '2026-06-16', '2026-07-16']);
   });
 
-  it('ytd trend starts at January', () => {
+  it('keeps exactly three monthly buckets across February date clamping', () => {
+    vi.setSystemTime(new Date('2026-03-30T16:00:00Z'));
+    const trends = aggregateTrends([], 'last_3_months', 'America/New_York');
+    expect(trends.map(point => point.month)).toEqual(['2025-12-31', '2026-01-31', '2026-03-01']);
+  });
+
+  it('12M returns twelve rolling monthly points', () => {
     vi.setSystemTime(new Date('2026-08-15T12:00:00Z'));
-    const txs = [];
-    const trends = aggregateTrends(txs, 'ytd', 'America/New_York');
-    expect(trends.length).toBe(8);
-    expect(trends[0].month).toBe('2026-01');
-    expect(trends[7].month).toBe('2026-08');
+    const trends = aggregateTrends([], 'last_12_months', 'America/New_York');
+    expect(trends).toHaveLength(12);
+    expect(trends[0].month).toBe('2025-08-16');
+    expect(trends[11].month).toBe('2026-07-16');
   });
 
   it('America/New_York month boundary', () => {
     // 2026-08-01T02:00:00Z is Aug 1 02:00 UTC, which is Jul 31 22:00 in New York
     vi.setSystemTime(new Date('2026-08-01T02:00:00Z'));
-    const trends = aggregateTrends([], 'ytd', 'America/New_York');
-    // Current month should be July (07)
-    expect(trends[trends.length - 1].month).toBe('2026-07');
+    const trends = aggregateTrends([], 'last_7_days', 'America/New_York');
+    expect(trends[trends.length - 1].month).toBe('2026-07-31');
   });
 });
 describe('Month-to-date pacing', () => {

@@ -36,7 +36,9 @@ import type {
   MerchantComparisonReport,
   SpendingBreakdownReport,
   YearOverYearComparison,
+  RewardsYtd,
 } from '../types/finance';
+import { INSIGHT_PERIOD_OPTIONS } from './insight-periods';
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -549,7 +551,7 @@ export function extractWalmartInsightsResponse(data: unknown): WalmartInsightsRe
     typeof record.source.spreadsheetTitle !== 'string' ||
     typeof record.source.spreadsheetUrl !== 'string' ||
     typeof record.source.sheetReadAt !== 'string' ||
-    !['last_7_days', 'last_30_days', 'last_3_months', 'last_12_months', 'this_year', 'all_time'].includes(String(record.period)) ||
+    !INSIGHT_PERIOD_OPTIONS.some(option => option.value === record.period) ||
     !(typeof record.startDate === 'string' || record.startDate === null) ||
     !(typeof record.endDate === 'string' || record.endDate === null) ||
     !(typeof record.latestTransactionDate === 'string' || record.latestTransactionDate === null) ||
@@ -1043,6 +1045,15 @@ export function extractSavingsContributions(data: unknown): SavingsContributions
 
 export function extractOverviewResponse(data: unknown): DashboardOverviewResponse {
   const record = requireRecord(data, 'dashboard overview');
+  const rewardsYtd = requireRecord(record.rewardsYtd, 'year-to-date rewards');
+  if (
+    typeof rewardsYtd.amount !== 'number' ||
+    typeof rewardsYtd.transactionCount !== 'number' ||
+    typeof rewardsYtd.startDate !== 'string' ||
+    typeof rewardsYtd.endDate !== 'string'
+  ) {
+    throw new Error('Invalid year-to-date rewards response.');
+  }
   return {
     summary: extractSummaryResponse(record.summary),
     trends: extractTrendsResponse({ monthly: record.trends }),
@@ -1052,6 +1063,7 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
     financialPosition: extractFinancialPosition(record.financialPosition),
     cashFlowForecast: extractCashFlowForecast(record.cashFlowForecast),
     safeToSpend: extractSafeToSpend(record.safeToSpend),
+    rewardsYtd: rewardsYtd as unknown as RewardsYtd,
     yearOverYear: extractYearOverYearComparison(record.yearOverYear),
   };
 }

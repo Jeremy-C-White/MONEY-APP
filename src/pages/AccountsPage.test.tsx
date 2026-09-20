@@ -168,9 +168,10 @@ describe('AccountsPage', () => {
     expect(container.textContent).toContain('$1,200.00');
     expect(container.textContent).toContain('Updated');
 
-    expect(container.querySelector('[data-testid="known-accounts-count"]')?.textContent).toBe('4');
-    expect(container.querySelector('[data-testid="institutions-count"]')?.textContent).toBe('3');
-    expect(container.querySelector('[data-testid="need-attention-count"]')?.textContent).toBe('2');
+    expect(container.querySelector('[data-testid="account-status"]')?.textContent).toContain('4 accounts across 3 institutions · 2 need attention');
+    expect(container.textContent).toContain('Everyday bills and spending');
+    expect(container.textContent).toContain('Cash set aside for later');
+    expect(container.textContent).toContain('a connection may need you to sign in again');
 
     expect(apiFetch).toHaveBeenCalledWith('/api/connected-accounts');
     expect(apiFetch).not.toHaveBeenCalledWith('/api/accounts');

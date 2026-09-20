@@ -1,15 +1,7 @@
 import type { NormalizedTransaction } from './financial';
 import { getEffectiveCategory } from './aggregations';
 import { getMerchantFamily } from './merchant-families';
-
-export const SPENDING_PERIODS = [
-  'last_7_days',
-  'last_30_days',
-  'last_3_months',
-  'last_12_months',
-] as const;
-
-export type SpendingPeriod = typeof SPENDING_PERIODS[number];
+import { resolveInsightPeriod, type InsightPeriod } from './insight-periods';
 
 export type DateRange = { startDate: string; endDate: string };
 
@@ -22,76 +14,14 @@ export type SpendingBreakdownRow = {
 };
 
 export type SpendingBreakdownReport = {
-  period: SpendingPeriod;
+  period: InsightPeriod;
   currentPeriod: DateRange;
   previousComparablePeriod: DateRange;
   categories: Array<SpendingBreakdownRow & { category: string; percentage: number }>;
   merchants: Array<SpendingBreakdownRow & { merchant: string }>;
 };
 
-function parseCivilDate(value: string): Date {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('A valid as-of date is required.');
-  const [year, month, day] = value.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (
-    date.getUTCFullYear() !== year ||
-    date.getUTCMonth() !== month - 1 ||
-    date.getUTCDate() !== day
-  ) throw new Error('A valid as-of date is required.');
-  return date;
-}
-
-function formatCivilDate(date: Date): string {
-  return [
-    date.getUTCFullYear(),
-    String(date.getUTCMonth() + 1).padStart(2, '0'),
-    String(date.getUTCDate()).padStart(2, '0'),
-  ].join('-');
-}
-
-export function addCivilDays(value: string, days: number): string {
-  const date = parseCivilDate(value);
-  date.setUTCDate(date.getUTCDate() + days);
-  return formatCivilDate(date);
-}
-
-function shiftCivilMonths(value: string, months: number): string {
-  const date = parseCivilDate(value);
-  const day = date.getUTCDate();
-  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1));
-  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
-  target.setUTCDate(Math.min(day, lastDay));
-  return formatCivilDate(target);
-}
-
-export function resolveSpendingPeriod(period: SpendingPeriod, asOfDate: string): {
-  currentPeriod: DateRange;
-  previousComparablePeriod: DateRange;
-} {
-  parseCivilDate(asOfDate);
-  let currentStart: string;
-  let previousStart: string;
-
-  if (period === 'last_7_days' || period === 'last_30_days') {
-    const days = period === 'last_7_days' ? 7 : 30;
-    currentStart = addCivilDays(asOfDate, -(days - 1));
-    const previousEnd = addCivilDays(currentStart, -1);
-    previousStart = addCivilDays(previousEnd, -(days - 1));
-    return {
-      currentPeriod: { startDate: currentStart, endDate: asOfDate },
-      previousComparablePeriod: { startDate: previousStart, endDate: previousEnd },
-    };
-  }
-
-  const months = period === 'last_3_months' ? 3 : 12;
-  currentStart = addCivilDays(shiftCivilMonths(asOfDate, -months), 1);
-  const previousEnd = addCivilDays(currentStart, -1);
-  previousStart = shiftCivilMonths(currentStart, -months);
-  return {
-    currentPeriod: { startDate: currentStart, endDate: asOfDate },
-    previousComparablePeriod: { startDate: previousStart, endDate: previousEnd },
-  };
-}
+export const resolveSpendingPeriod = resolveInsightPeriod;
 
 function roundCurrency(value: number): number {
   return Math.round((value + Number.EPSILON) * 100) / 100;
@@ -116,10 +46,10 @@ function inRange(transaction: NormalizedTransaction, range: DateRange): boolean 
 
 export function buildSpendingBreakdown(input: {
   transactions: readonly NormalizedTransaction[];
-  period: SpendingPeriod;
+  period: InsightPeriod;
   asOfDate: string;
 }): SpendingBreakdownReport {
-  const ranges = resolveSpendingPeriod(input.period, input.asOfDate);
+  const ranges = resolveInsightPeriod(input.period, input.asOfDate);
   const currentCategories = new Map<string, Bucket>();
   const previousCategories = new Map<string, Bucket>();
   const currentMerchants = new Map<string, Bucket>();

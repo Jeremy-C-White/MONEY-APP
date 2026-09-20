@@ -22,7 +22,7 @@ const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', icon: ReceiptText },
   { id: 'chat', label: 'AI Assistant', icon: Sparkles },
-  { id: 'walmart', label: 'Walmart', icon: ShoppingBasket },
+  { id: 'walmart', label: 'Shopping', icon: ShoppingBasket },
   { id: 'accounts', label: 'Accounts', icon: Wallet },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -87,7 +87,13 @@ export function AppShell({
 
         <header className="hidden md:flex bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 h-16 items-center justify-between px-8">
           <h1 className="text-lg font-semibold text-slate-900 capitalize">
-            {activeTab === 'overview' ? 'Overview' : activeTab === 'chat' ? 'AI Assistant' : activeTab}
+            {activeTab === 'overview'
+              ? 'Overview'
+              : activeTab === 'chat'
+                ? 'AI Assistant'
+                : activeTab === 'walmart'
+                  ? 'Shopping'
+                  : activeTab}
           </h1>
 
           <button

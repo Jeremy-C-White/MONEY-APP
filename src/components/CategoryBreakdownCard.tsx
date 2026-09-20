@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, ChevronDown, ChevronUp, Store, Tags } from 'lucide-react';
 import { extractSpendingBreakdownResponse } from '../lib/api-contracts';
 import { formatCurrency, getCategoryLabel, getMerchantDisplayLabel } from '../lib/formatters';
-import type { SpendingBreakdownReport, SpendingPeriod } from '../types/finance';
+import type { SpendingBreakdownReport, WalmartInsightPeriod } from '../types/finance';
 
 export type SpendingDrilldown = {
   category?: string;
@@ -60,7 +60,7 @@ export function CategoryBreakdownCard({
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
-  period: SpendingPeriod;
+  period: WalmartInsightPeriod;
   onDrillDown: (filters: SpendingDrilldown) => void;
 }) {
   const [data, setData] = useState<SpendingBreakdownReport | null>(null);

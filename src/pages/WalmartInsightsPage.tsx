@@ -35,6 +35,7 @@ import {
   formatPercentage,
 } from '../lib/formatters';
 import { formatCompactCurrency } from '../components/TrendChart';
+import { INSIGHT_PERIOD_OPTIONS } from '../lib/insight-periods';
 import type {
   WalmartInsightPeriod,
   WalmartInsightsResponse,
@@ -44,13 +45,6 @@ import type {
 } from '../types/finance';
 
 type WalmartView = 'overview' | 'purchases' | 'fuel';
-
-const PERIOD_OPTIONS: Array<{ value: WalmartInsightPeriod; label: string }> = [
-  { value: 'last_7_days', label: '7D' },
-  { value: 'last_30_days', label: '30D' },
-  { value: 'last_3_months', label: '3M' },
-  { value: 'last_12_months', label: '12M' },
-];
 
 const VIEW_OPTIONS: Array<{ value: WalmartView; label: string }> = [
   { value: 'overview', label: 'Overview' },
@@ -468,7 +462,7 @@ export function WalmartInsightsPage({ apiFetch }: { apiFetch: (endpoint: string,
         <div><div className="flex items-center gap-2 text-sm font-semibold text-blue-600"><ShoppingBasket className="h-4 w-4" /> Walmart</div><h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">Spending at a glance</h2><p className="mt-1 text-sm text-slate-500">A simple view of shopping, fuel, and what is changing.</p></div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-xl bg-slate-100 p-1" aria-label="Walmart period">
-            {PERIOD_OPTIONS.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} aria-pressed={period === option.value} className={`min-h-11 rounded-lg px-3 text-xs font-semibold transition ${period === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{option.label}</button>)}
+            {INSIGHT_PERIOD_OPTIONS.map(option => <button key={option.value} type="button" onClick={() => setPeriod(option.value)} aria-pressed={period === option.value} className={`min-h-11 rounded-lg px-3 text-xs font-semibold transition ${period === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{option.label}</button>)}
           </div>
           <button type="button" onClick={() => void loadInsights(period, true)} disabled={loading} aria-label="Refresh Walmart insights" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 shadow-sm hover:bg-slate-50 disabled:opacity-50"><RefreshCcw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Refresh</button>
         </div>

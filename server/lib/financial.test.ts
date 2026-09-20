@@ -41,6 +41,22 @@ describe('PayPal account-role classification', () => {
     expect(tx.spendingAdjustment).toBe(0);
   });
 
+  it('recognizes an explicit PayPal cash-back credit as reward income', () => {
+    const tx = classifyTransaction(buildRow({
+      name: 'PayPal Cashback Reward',
+      cashFlowAmount: '18.75',
+      catPrimary: 'OTHER',
+      catDetailed: 'OTHER_OTHER',
+      accountName: 'PayPal Cashback Mastercard',
+      accountType: 'credit',
+      accountSubtype: 'paypal',
+    }));
+
+    expect(tx.classification).toBe('income');
+    expect(tx.countsTowardIncome).toBe(true);
+    expect(tx.incomeAdjustment).toBe(18.75);
+  });
+
   it('treats the Wells Fargo PPCR repayment side as a credit-card payment', () => {
     const tx = classifyTransaction(buildRow({
       name: 'PAYPAL INST XFER 260828 PPCR CC REPAYME JEREMY WHITE',

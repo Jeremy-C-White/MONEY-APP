@@ -10,6 +10,7 @@ import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type TransactionOverride } from "./server/lib/financial";
+import { buildRewardsYtd } from "./server/lib/rewards";
 import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap, aggregatePeriodCategoryBreakdown, CATEGORY_PERIODS, type CategoryPeriod } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
@@ -69,11 +70,7 @@ import {
   parseStoredHouseholdPlan,
   type HouseholdPlan,
 } from "./server/lib/household-plan";
-import {
-  buildSpendingBreakdown,
-  SPENDING_PERIODS,
-  type SpendingPeriod,
-} from "./server/lib/spending-breakdown";
+import { buildSpendingBreakdown } from "./server/lib/spending-breakdown";
 import { buildYearOverYearComparison } from "./server/lib/year-over-year";
 import {
   SavingsDestinationRequestError,
@@ -2332,15 +2329,15 @@ app.get("/api/dashboard/category-breakdown", requireAuth, async (req: express.Re
 app.get("/api/dashboard/spending-breakdown", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const periodParam = (req.query.period as string) || 'last_30_days';
-    if (!SPENDING_PERIODS.includes(periodParam as SpendingPeriod)) {
-      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${SPENDING_PERIODS.join(', ')}` });
+    if (!WALMART_INSIGHT_PERIODS.includes(periodParam as WalmartInsightPeriod)) {
+      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
     }
     const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
     const asOfDate = getDateForDateInTimezone(new Date(), financeTz);
     const transactions = await fetchNormalizedTransactions((req as any).user.uid);
     res.json(buildSpendingBreakdown({
       transactions,
-      period: periodParam as SpendingPeriod,
+      period: periodParam as WalmartInsightPeriod,
       asOfDate,
     }));
   } catch (error: any) {
@@ -2351,15 +2348,14 @@ app.get("/api/dashboard/spending-breakdown", requireAuth, async (req: express.Re
 
 app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const validRanges = ['6m', '12m', '24m', 'ytd'];
-    const rangeParam = req.query.range as string || '12m';
-    if (!validRanges.includes(rangeParam)) {
-      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, 24m, ytd" });
+    const rangeParam = (req.query.range as string) || 'last_12_months';
+    if (!WALMART_INSIGHT_PERIODS.includes(rangeParam as WalmartInsightPeriod)) {
+      return res.status(400).json({ error: `Invalid range parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
     }
     
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
     const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const trends = aggregateTrends(txs, rangeParam, financeTz);
+    const trends = aggregateTrends(txs, rangeParam as WalmartInsightPeriod, financeTz);
     res.json({ monthly: trends });
   } catch (error: any) {
     console.error("Dashboard Trends Error:", error);
@@ -2543,10 +2539,9 @@ async function captureDailyBalanceSnapshot(uid: string, now = new Date()) {
 
 app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
-    const validRanges = ['6m', '12m', '24m', 'ytd'];
-    const rangeParam = req.query.range as string || '12m';
-    if (!validRanges.includes(rangeParam)) {
-      return res.status(400).json({ error: "Invalid range parameter. Allowed: 6m, 12m, 24m, ytd" });
+    const rangeParam = (req.query.range as string) || 'last_12_months';
+    if (!WALMART_INSIGHT_PERIODS.includes(rangeParam as WalmartInsightPeriod)) {
+      return res.status(400).json({ error: `Invalid range parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
     }
 
     const uid = (req as any).user.uid;
@@ -2561,8 +2556,8 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
     const accountRoleOverrides = accountContext.overrides;
     const verification = buildVerificationReport(txs, financeTz);
     const asOfDate = getDateForDateInTimezone(now, financeTz);
-    const trends = aggregateTrends(txs, rangeParam, financeTz);
-    const earliestTrendMonth = trends[0]?.month || null;
+    const trends = aggregateTrends(txs, rangeParam as WalmartInsightPeriod, financeTz);
+    const earliestTrendMonth = trends[0]?.month.slice(0, 7) || null;
     const financialPosition = {
       ...accountContext.financialPosition,
       netWorthHistory: accountContext.financialPosition.netWorthHistory.filter(point => (
@@ -2595,6 +2590,7 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
         plan: householdPlan,
         asOfDate,
       }),
+      rewardsYtd: buildRewardsYtd(txs, asOfDate),
       yearOverYear: buildYearOverYearComparison({ transactions: txs, asOfDate }),
     });
   } catch (error: any) {

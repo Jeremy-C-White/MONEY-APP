@@ -116,8 +116,6 @@ export interface MerchantComparisonReport {
   merchants: MerchantComparison[];
 }
 
-export type SpendingPeriod = 'last_7_days' | 'last_30_days' | 'last_3_months' | 'last_12_months';
-
 export interface SpendingBreakdownRow {
   currentSpending: number;
   previousSpending: number | null;
@@ -127,7 +125,7 @@ export interface SpendingBreakdownRow {
 }
 
 export interface SpendingBreakdownReport {
-  period: SpendingPeriod;
+  period: WalmartInsightPeriod;
   currentPeriod: { startDate: string; endDate: string };
   previousComparablePeriod: { startDate: string; endDate: string };
   categories: Array<SpendingBreakdownRow & { category: string; percentage: number }>;
@@ -148,6 +146,7 @@ export interface YearOverYearComparison {
 
 export interface TrendPoint {
   month: string;
+  granularity?: 'day' | 'week' | 'month';
   income: number;
   spending: number;
   netCashFlow: number;
@@ -776,6 +775,7 @@ export interface DashboardOverviewResponse {
   financialPosition: FinancialPosition;
   cashFlowForecast: CashFlowForecast;
   safeToSpend: SafeToSpend;
+  rewardsYtd: RewardsYtd;
   yearOverYear: YearOverYearComparison;
 }
 
@@ -783,9 +783,14 @@ export type WalmartInsightPeriod =
   | 'last_7_days'
   | 'last_30_days'
   | 'last_3_months'
-  | 'last_12_months'
-  | 'this_year'
-  | 'all_time';
+  | 'last_12_months';
+
+export interface RewardsYtd {
+  amount: number;
+  transactionCount: number;
+  startDate: string;
+  endDate: string;
+}
 
 export interface WalmartSourceStatus {
   connected: boolean;

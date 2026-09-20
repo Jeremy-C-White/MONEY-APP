@@ -1,6 +1,12 @@
 import { NormalizedTransaction } from './financial';
-import { getMonthForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth } from './time';
+import { getDateForDateInTimezone, getMonthForDateInTimezone, getDayOfMonthInTimezone, getDaysInMonth } from './time';
 import { getMerchantFamily } from './merchant-families';
+import {
+  insightBucketForDate,
+  insightBucketStarts,
+  insightGranularity,
+  type InsightPeriod,
+} from './insight-periods';
 
 export function getPreviousMonthString(currentMonthStr: string): string {
   const parts = currentMonthStr.split('-');
@@ -398,70 +404,34 @@ export function aggregatePeriodCategoryBreakdown(
   return { period, startMonth, endMonth, categories, merchants };
 }
 
-export function aggregateTrends(txs: NormalizedTransaction[], range: string = '12m', financeTimezone: string = 'America/New_York') {
-  const now = new Date();
-  const currentMonthPrefix = getMonthForDateInTimezone(now, financeTimezone);
-  const currentYear = currentMonthPrefix.substring(0, 4);
+export function aggregateTrends(
+  txs: NormalizedTransaction[],
+  period: InsightPeriod = 'last_12_months',
+  financeTimezone: string = 'America/New_York'
+) {
+  const asOfDate = getDateForDateInTimezone(new Date(), financeTimezone);
+  const granularity = insightGranularity(period);
+  const bucketStarts = insightBucketStarts(period, asOfDate);
 
-  let cutoffMonth = '';
-  if (range === '6m') {
-    let m = currentMonthPrefix;
-    for (let i = 0; i < 5; i++) m = getPreviousMonthString(m);
-    cutoffMonth = m;
-  } else if (range === '12m') {
-    let m = currentMonthPrefix;
-    for (let i = 0; i < 11; i++) m = getPreviousMonthString(m);
-    cutoffMonth = m;
-  } else if (range === '24m') {
-    let m = currentMonthPrefix;
-    for (let i = 0; i < 23; i++) m = getPreviousMonthString(m);
-    cutoffMonth = m;
-  } else if (range === 'ytd') {
-    cutoffMonth = `${currentYear}-01`;
-  } else {
-    // Default to 12m
-    let m = currentMonthPrefix;
-    for (let i = 0; i < 11; i++) m = getPreviousMonthString(m);
-    cutoffMonth = m;
+  const buckets = new Map(bucketStarts.map(start => [start, { income: 0, spending: 0, netCashFlow: 0 }]));
+
+  for (const transaction of txs) {
+    if (transaction.removed || transaction.pending) continue;
+    const bucket = insightBucketForDate(transaction.normalizedDate, period, asOfDate, bucketStarts);
+    if (!bucket) continue;
+    const values = buckets.get(bucket);
+    if (!values) continue;
+    if (transaction.countsTowardIncome) values.income += transaction.incomeAdjustment;
+    if (transaction.countsTowardSpending) values.spending += transaction.spendingAdjustment;
   }
 
-  const monthly: Record<string, { income: number, spending: number, netCashFlow: number }> = {};
-  
-  // Initialize all months in range to 0
-  let iterMonth = cutoffMonth;
-  while (iterMonth <= currentMonthPrefix) {
-    monthly[iterMonth] = { income: 0, spending: 0, netCashFlow: 0 };
-    
-    // increment iterMonth
-    const parts = iterMonth.split('-');
-    let y = parseInt(parts[0]);
-    let m = parseInt(parts[1]);
-    if (m === 12) {
-      y++;
-      m = 1;
-    } else {
-      m++;
-    }
-    iterMonth = `${y}-${String(m).padStart(2, '0')}`;
-  }
-  
-  for (const t of txs) {
-    if (t.removed || t.pending) continue;
-    
-    const month = t.normalizedDate.substring(0, 7);
-    if (!monthly[month]) continue; // Skip if out of range or invalid
-    
-    if (t.countsTowardIncome) monthly[month].income += t.incomeAdjustment;
-    if (t.countsTowardSpending) monthly[month].spending += t.spendingAdjustment;
-  }
-  
-  for (const m of Object.keys(monthly)) {
-    monthly[m].netCashFlow = monthly[m].income - monthly[m].spending;
-  }
-  
-  return Object.entries(monthly)
-    .map(([month, stats]) => ({ month, ...stats }))
-    .sort((a, b) => a.month.localeCompare(b.month));
+  return [...buckets.entries()].map(([month, values]) => ({
+    month,
+    granularity,
+    income: values.income,
+    spending: values.spending,
+    netCashFlow: values.income - values.spending,
+  }));
 }
 
 export function filterTransactions(txs: NormalizedTransaction[], filters: any) {

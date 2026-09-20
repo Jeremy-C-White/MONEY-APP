@@ -13,6 +13,7 @@ import {
 import type { TrendPoint } from '../types/finance';
 import {
   formatCurrency,
+  formatFriendlyDate,
   formatMonthLabel,
   formatMonthShort,
   formatMonthShortWithYear,
@@ -32,17 +33,30 @@ export function formatCompactCurrency(value: number): string {
 
 function chartMonthLabel(data: TrendPoint[], index: number): string {
   const point = data[index];
+  if (point.granularity === 'day' || point.granularity === 'week') {
+    const date = new Date(`${point.month}T00:00:00Z`);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+  }
+  const month = point.month.slice(0, 7);
   const crossedIntoNewYear = index > 0 && (
     point.month.slice(0, 4) !== data[index - 1].month.slice(0, 4)
   );
   return crossedIntoNewYear
-    ? formatMonthShortWithYear(point.month)
-    : formatMonthShort(point.month);
+    ? formatMonthShortWithYear(month)
+    : formatMonthShort(month);
 }
 
 function CashFlowTooltip({ active, payload, label }: any) {
   if (!active || !Array.isArray(payload) || payload.length === 0) return null;
-  const month = payload[0]?.payload?.month || label;
+  const point = payload[0]?.payload;
+  const periodStart = point?.month || label;
+  const periodLabel = point?.granularity === 'day' || point?.granularity === 'week'
+    ? formatFriendlyDate(periodStart)
+    : formatMonthLabel(String(periodStart).slice(0, 7));
 
   const labels: Record<string, string> = {
     income: 'Income',
@@ -53,7 +67,7 @@ function CashFlowTooltip({ active, payload, label }: any) {
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
       <p className="mb-2 text-xs font-semibold text-slate-700">
-        {formatMonthLabel(month)}
+        {periodLabel}
       </p>
       <div className="space-y-1">
         {payload.map((entry: any) => (
@@ -97,7 +111,7 @@ export function TrendChart({ data, loading }: { data: TrendPoint[]; loading?: bo
       <div
         className="h-full w-full"
         role="img"
-        aria-label="Monthly income, spending, and income minus spending chart"
+        aria-label="Income, spending, and income minus spending chart"
       >
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={chartData} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
@@ -146,14 +160,16 @@ export function TrendChart({ data, loading }: { data: TrendPoint[]; loading?: bo
       </div>
 
       <table className="sr-only">
-        <caption>Monthly cash flow values</caption>
+        <caption>Cash flow values for the selected period</caption>
         <thead>
           <tr><th>Month</th><th>Income</th><th>Spending</th><th>Income minus spending</th></tr>
         </thead>
         <tbody>
           {data.map(point => (
             <tr key={point.month}>
-              <th>{formatMonthLabel(point.month)}</th>
+              <th>{point.granularity === 'day' || point.granularity === 'week'
+                ? formatFriendlyDate(point.month)
+                : formatMonthLabel(point.month.slice(0, 7))}</th>
               <td>{formatCurrency(point.income)}</td>
               <td>{formatCurrency(point.spending)}</td>
               <td>{formatCurrency(point.netCashFlow)}</td>

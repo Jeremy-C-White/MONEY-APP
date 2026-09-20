@@ -76,7 +76,28 @@ describe('TransactionsPage', () => {
     expect(container.textContent).toContain('1234');
     // Validates pagination metadata
     expect(container.textContent).toContain('1 transactions');
+    expect(container.textContent).toContain('Transfers between people');
+    expect(container.textContent).toContain('Refunds and credits');
+    expect(container.textContent).toContain('Card payments');
     expect([...container.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Review')).toBe(true);
+  });
+
+  it('hides the review queue when no transactions need a decision', async () => {
+    const emptyResponse = { ...mockRes, transactions: [], total: 0, totalPages: 0 };
+    const apiFetch = vi.fn().mockImplementation(async (url) => {
+      if (url.includes('/api/transactions')) return { ok: true, json: async () => emptyResponse };
+      if (url.includes('/api/accounts')) return { ok: true, json: async () => [] };
+      if (url.includes('/api/dashboard/categories')) return { ok: true, json: async () => ({ categories: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+
+    await act(async () => {
+      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} />);
+    });
+
+    await vi.waitFor(() => {
+      expect([...container.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Needs Review')).toBe(false);
+    });
   });
 
   it('uses exact server dates and merchant-family matching from an overview drill-down', async () => {
@@ -106,7 +127,7 @@ describe('TransactionsPage', () => {
     });
     const transactionsCall = apiFetch.mock.calls
       .map(([url]) => String(url))
-      .find(url => url.includes('/api/transactions'));
+      .find(url => url.includes('/api/transactions') && url.includes('merchantFamily=Amazon'));
     expect(transactionsCall).toContain('startDate=2026-08-08');
     expect(transactionsCall).toContain('endDate=2026-09-06');
     expect(container.textContent).toContain('Merchant family:');

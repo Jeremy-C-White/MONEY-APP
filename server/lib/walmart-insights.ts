@@ -1,13 +1,14 @@
-export const WALMART_INSIGHT_PERIODS = [
-  'last_7_days',
-  'last_30_days',
-  'last_3_months',
-  'last_12_months',
-  'this_year',
-  'all_time',
-] as const;
+import {
+  INSIGHT_PERIODS,
+  insightBucketForDate,
+  insightBucketStarts,
+  insightGranularity,
+  resolveInsightPeriod,
+  type InsightPeriod,
+} from './insight-periods';
 
-export type WalmartInsightPeriod = typeof WALMART_INSIGHT_PERIODS[number];
+export const WALMART_INSIGHT_PERIODS = INSIGHT_PERIODS;
+export type WalmartInsightPeriod = InsightPeriod;
 export type WalmartSheetRow = Array<string | number | boolean | null | undefined>;
 
 export interface WalmartMonthlyInsight {
@@ -435,40 +436,8 @@ function cleanItems(
   return { items: cleaned, canceledRows, statusDuplicateRows };
 }
 
-function periodStart(period: WalmartInsightPeriod, now: Date): string | null {
-  if (period === 'all_time') return null;
-  if (period === 'this_year') return `${now.getUTCFullYear()}-01-01`;
-  if (period === 'last_7_days') return addDays(now.toISOString().slice(0, 10), -6);
-  if (period === 'last_30_days') return addDays(now.toISOString().slice(0, 10), -29);
-  if (period === 'last_3_months') {
-    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 1));
-    return start.toISOString().slice(0, 10);
-  }
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 11, 1));
-  return start.toISOString().slice(0, 10);
-}
-
-function addDays(date: string, days: number): string {
-  const value = new Date(`${date}T00:00:00Z`);
-  value.setUTCDate(value.getUTCDate() + days);
-  return value.toISOString().slice(0, 10);
-}
-
-function daysBetween(start: string, end: string): number {
-  return Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / 86_400_000);
-}
-
 function trendGranularityFor(period: WalmartInsightPeriod): WalmartInsights['trendGranularity'] {
-  if (period === 'last_7_days') return 'day';
-  if (period === 'last_30_days') return 'week';
-  return 'month';
-}
-
-function trendKey(date: string, startDate: string | null, granularity: WalmartInsights['trendGranularity']): string {
-  if (granularity === 'day') return date;
-  if (granularity === 'month') return `${date.slice(0, 7)}-01`;
-  if (!startDate) return date;
-  return addDays(startDate, Math.floor(daysBetween(startDate, date) / 7) * 7);
+  return insightGranularity(period);
 }
 
 function channelFor(order: ParsedOrder): WalmartRecentOrder['channel'] {
@@ -493,8 +462,9 @@ export function buildWalmartInsights(
 ): WalmartInsights {
   const period = options.period || 'last_12_months';
   const now = options.now || new Date();
-  const startDate = periodStart(period, now);
   const endDate = now.toISOString().slice(0, 10);
+  const periodRange = resolveInsightPeriod(period, endDate);
+  const startDate = periodRange.currentPeriod.startDate;
   const trendGranularity = trendGranularityFor(period);
   const { orders: allOrders, incomplete } = parseOrders(orderRows);
   const latestTransactionDate = allOrders
@@ -503,7 +473,7 @@ export function buildWalmartInsights(
   const parsedItems = parseItems(itemRows);
   const resolveProductIdentity = buildWalmartProductIdentityResolver(parsedItems);
 
-  const inPeriod = (date: string) => (!startDate || date >= startDate) && date <= endDate;
+  const inPeriod = (date: string) => date >= startDate && date <= endDate;
   const datedOrders = allOrders.filter(order => inPeriod(order.date));
   const purchaseOrders = datedOrders.filter(order => order.total > 0);
   const returnOrders = datedOrders.filter(order => order.total < 0);
@@ -529,13 +499,10 @@ export function buildWalmartInsights(
   const fuelGallons = fuelItems.reduce((sum, item) => sum + item.quantity * item.copies, 0);
   const fuelOrders = new Set(fuelItems.map(item => item.orderNumber));
 
-  const previousRange = startDate ? (() => {
-    const durationDays = daysBetween(startDate, endDate) + 1;
-    return {
-      start: addDays(startDate, -durationDays),
-      end: addDays(startDate, -1),
-    };
-  })() : null;
+  const previousRange = {
+    start: periodRange.previousComparablePeriod.startDate,
+    end: periodRange.previousComparablePeriod.endDate,
+  };
   const previousTotalSpend = previousRange
     ? allOrders
       .filter(order => order.date >= previousRange.start && order.date <= previousRange.end && order.total !== 0)
@@ -546,32 +513,21 @@ export function buildWalmartInsights(
     : null;
 
   const trendMap = new Map<string, WalmartTrendPoint>();
-  if (startDate) {
-    const stepDays = trendGranularity === 'day' ? 1 : trendGranularity === 'week' ? 7 : null;
-    if (stepDays) {
-      for (let date = startDate; date <= endDate; date = addDays(date, stepDays)) {
-        trendMap.set(date, { periodStart: date, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 });
-      }
-    } else {
-      for (
-        let cursor = new Date(`${startDate.slice(0, 7)}-01T00:00:00Z`);
-        cursor.toISOString().slice(0, 10) <= endDate;
-        cursor = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1))
-      ) {
-        const date = cursor.toISOString().slice(0, 10);
-        trendMap.set(date, { periodStart: date, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 });
-      }
-    }
+  const trendStarts = insightBucketStarts(period, endDate);
+  for (const date of trendStarts) {
+    trendMap.set(date, { periodStart: date, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 });
   }
   for (const order of financialOrders) {
-    const key = trendKey(order.date, startDate, trendGranularity);
+    const key = insightBucketForDate(order.date, period, endDate, trendStarts);
+    if (!key) continue;
     const entry = trendMap.get(key) || { periodStart: key, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 };
     entry.totalSpend += order.total;
     if (order.total > 0) entry.orderCount += 1;
     trendMap.set(key, entry);
   }
   for (const item of fuelItems) {
-    const key = trendKey(item.date, startDate, trendGranularity);
+    const key = insightBucketForDate(item.date, period, endDate, trendStarts);
+    if (!key) continue;
     const entry = trendMap.get(key) || { periodStart: key, totalSpend: 0, retailSpend: 0, fuelSpend: 0, orderCount: 0 };
     entry.fuelSpend += item.price * item.copies;
     trendMap.set(key, entry);

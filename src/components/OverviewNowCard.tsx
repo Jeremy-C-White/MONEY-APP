@@ -1,6 +1,6 @@
 import React from 'react';
 import { Landmark, PiggyBank, ShieldCheck, WalletCards } from 'lucide-react';
-import type { FinancialPosition, HouseholdInsights, SafeToSpend } from '../types/finance';
+import type { FinancialPosition, HouseholdInsights, RewardsYtd, SafeToSpend } from '../types/finance';
 import { formatCurrency, formatFriendlyDate } from '../lib/formatters';
 
 function PositionValue({ label, value, icon, description }: {
@@ -26,12 +26,14 @@ export function OverviewNowCard({
   safeToSpend,
   financialPosition,
   insights,
+  rewardsYtd,
   loading,
   onEditBuffer,
 }: {
   safeToSpend: SafeToSpend | null;
   financialPosition: FinancialPosition | null;
   insights: HouseholdInsights | null;
+  rewardsYtd: RewardsYtd | null;
   loading?: boolean;
   onEditBuffer?: () => void;
 }) {
@@ -84,18 +86,29 @@ export function OverviewNowCard({
       )}
       {insights && (
         <div className="mt-5 border-t border-slate-100 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold text-slate-800">This week</p>
-            <p className={`text-xs font-semibold ${insights.weekly.spendingDifference > 0 ? 'text-rose-600' : insights.weekly.spendingDifference < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
-              {insights.weekly.spendingDifference === 0
-                ? 'Level with the same days last week'
-                : `${formatCurrency(Math.abs(insights.weekly.spendingDifference))} ${insights.weekly.spendingDifference > 0 ? 'more' : 'less'} than the same days last week`}
-            </p>
-          </div>
-          <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
-            <p className="text-xl font-semibold text-slate-950">{formatCurrency(insights.weekly.current.spending)} <span className="text-xs font-normal text-slate-500">posted spending</span></p>
-            {insights.weekly.pendingSpending > 0 && (
-              <p className="text-sm font-medium text-amber-700">{formatCurrency(insights.weekly.pendingSpending)} pending</p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-800">This week</p>
+                <p className={`text-xs font-semibold ${insights.weekly.spendingDifference > 0 ? 'text-rose-600' : insights.weekly.spendingDifference < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                  {insights.weekly.spendingDifference === 0
+                    ? 'Level with the same days last week'
+                    : `${formatCurrency(Math.abs(insights.weekly.spendingDifference))} ${insights.weekly.spendingDifference > 0 ? 'more' : 'less'} than the same days last week`}
+                </p>
+              </div>
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                <p className="text-xl font-semibold text-slate-950">{formatCurrency(insights.weekly.current.spending)} <span className="text-xs font-normal text-slate-500">posted spending</span></p>
+                {insights.weekly.pendingSpending > 0 && (
+                  <p className="text-sm font-medium text-amber-700">{formatCurrency(insights.weekly.pendingSpending)} pending</p>
+                )}
+              </div>
+            </div>
+            {rewardsYtd && (
+              <div className="min-w-36 rounded-xl bg-emerald-50 px-4 py-3 text-right">
+                <p className="text-xs font-medium text-emerald-700">Rewards this year</p>
+                <p className="mt-1 text-lg font-semibold text-emerald-950">{formatCurrency(rewardsYtd.amount)}</p>
+                <p className="mt-0.5 text-[11px] text-emerald-700">Cash back received</p>
+              </div>
             )}
           </div>
         </div>
