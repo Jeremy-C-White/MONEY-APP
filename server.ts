@@ -72,6 +72,15 @@ import {
 } from "./server/lib/household-plan";
 import { buildSpendingBreakdown } from "./server/lib/spending-breakdown";
 import { buildYearOverYearComparison } from "./server/lib/year-over-year";
+import { buildCoverageReport } from "./server/lib/coverage";
+import {
+  buildMerchantLabelRule,
+  enrichTransactions,
+  filterTransactionEnrichment,
+  MerchantLabelRequestError,
+  parseMerchantLabelRule,
+  type EnrichedTransaction,
+} from "./server/lib/transaction-enrichment";
 import {
   SavingsDestinationRequestError,
   buildSavingsContributions,
@@ -1911,7 +1920,7 @@ async function startServer() {
 async function fetchNormalizedTransactions(
   uid: string,
   options: { allowCredentialCleanup?: boolean } = {}
-): Promise<NormalizedTransaction[]> {
+): Promise<EnrichedTransaction[]> {
   return dashboardCache.getOrLoad(uid, async () => {
     const userRef = db.collection('users').doc(uid);
     const userDoc = await userRef.get();
@@ -1934,10 +1943,12 @@ async function fetchNormalizedTransactions(
       : withGoogleAuth(uid, fetchRows);
     const overridesPromise = userRef.collection('transaction_overrides').get();
     const rulesPromise = userRef.collection('classification_rules').get();
-    const [getRes, overridesSnapshot, rulesSnapshot] = await Promise.all([
+    const labelsPromise = userRef.collection('merchant_labels').get();
+    const [getRes, overridesSnapshot, rulesSnapshot, labelsSnapshot] = await Promise.all([
       rowsPromise,
       overridesPromise,
       rulesPromise,
+      labelsPromise,
     ]);
 
     const overrides = new Map<string, TransactionOverride>();
@@ -1952,11 +1963,16 @@ async function fetchNormalizedTransactions(
     });
 
     const rows = getRes.data.values || [];
-    return applyClassificationSuggestions(
+    const normalized = applyClassificationSuggestions(
       deduplicateAndNormalizeTransactions(rows, overrides),
       rules
     );
-  });
+    const labels = labelsSnapshot.docs.flatMap(document => {
+      const label = parseMerchantLabelRule(document.id, document.data());
+      return label ? [label] : [];
+    });
+    return enrichTransactions(normalized, rows, labels);
+  }) as Promise<EnrichedTransaction[]>;
 }
 
 const transactionOverrideDependencies: TransactionOverrideServiceDependencies = {
@@ -2592,6 +2608,11 @@ app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res
       }),
       rewardsYtd: buildRewardsYtd(txs, asOfDate),
       yearOverYear: buildYearOverYearComparison({ transactions: txs, asOfDate }),
+      coverage: buildCoverageReport({
+        transactions: txs,
+        accounts: accountContext.accounts,
+        asOfDate,
+      }),
     });
   } catch (error: any) {
     console.error("Dashboard Overview Error:", error);
@@ -2877,13 +2898,86 @@ app.delete("/api/transactions/:transactionId/override", requireAuth, async (req:
   }
 });
 
+app.put("/api/transactions/:transactionId/merchant-label", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const transactionId = req.params.transactionId;
+    const transaction = (await fetchNormalizedTransactions(uid)).find(candidate => (
+      candidate.transactionId === transactionId && !candidate.removed
+    ));
+    if (!transaction) throw new MerchantLabelRequestError('Transaction not found.', 404);
+
+    const now = Timestamp.now();
+    const rule = buildMerchantLabelRule(transaction, req.body?.label, now);
+    const reference = db.collection('users').doc(uid).collection('merchant_labels').doc(rule.ruleId);
+    const existing = await reference.get();
+    await reference.set({
+      merchantKey: rule.merchantKey,
+      label: rule.label,
+      createdFromTransactionId: existing.exists
+        ? existing.data()?.createdFromTransactionId || rule.createdFromTransactionId
+        : rule.createdFromTransactionId,
+      createdAt: existing.exists ? existing.data()?.createdAt || now : now,
+      updatedAt: now,
+    });
+    dashboardCache.invalidate(uid);
+    res.json({
+      transactionId,
+      rule: { ...rule, createdAt: existing.data()?.createdAt || now },
+    });
+  } catch (error: any) {
+    if (error instanceof MerchantLabelRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Merchant Label Write Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/transactions/:transactionId/merchant-label", requireAuth, async (req: express.Request, res: express.Response) => {
+  try {
+    const uid = (req as any).user.uid;
+    const transactionId = req.params.transactionId;
+    const transaction = (await fetchNormalizedTransactions(uid)).find(candidate => (
+      candidate.transactionId === transactionId && !candidate.removed
+    ));
+    if (!transaction) throw new MerchantLabelRequestError('Transaction not found.', 404);
+    if (!transaction.merchantLabelRuleId) {
+      throw new MerchantLabelRequestError('This merchant does not have a household label.', 404);
+    }
+    await db.collection('users').doc(uid)
+      .collection('merchant_labels')
+      .doc(transaction.merchantLabelRuleId)
+      .delete();
+    dashboardCache.invalidate(uid);
+    res.json({ success: true, transactionId });
+  } catch (error: any) {
+    if (error instanceof MerchantLabelRequestError) {
+      return res.status(error.status).json({ error: error.message });
+    }
+    console.error("Merchant Label Delete Error:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get("/api/transactions", requireAuth, async (req: express.Request, res: express.Response) => {
   try {
     const txs = await fetchNormalizedTransactions((req as any).user.uid);
+    const {
+      categoryConfidence,
+      unlabeled,
+      householdLabel,
+      ...transactionFilters
+    } = req.query;
+    const filtered = filterTransactionEnrichment(txs, {
+      categoryConfidence,
+      unlabeled,
+      householdLabel,
+    });
 
     // This in-memory sort/pagination is appropriate for the current cached ledger size.
     // If the ledger grows substantially, it should move closer to the data/cache layer.
-    res.json(buildTransactionsPage(txs, req.query));
+    res.json(buildTransactionsPage(filtered, transactionFilters));
   } catch (error: any) {
     console.error("Transactions Error:", error);
     res.status(500).json({ error: error.message });

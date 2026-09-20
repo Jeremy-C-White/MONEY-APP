@@ -214,6 +214,16 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
       addedAccountCount: 1,
       removedAccountCount: 0,
     },
+    coverage: {
+      period: { startDate: '2025-09-07', endDate: '2026-09-06' },
+      lowConfidence: { transactionCount: 3, amount: 420 },
+      personToPerson: { transactionCount: 5, amount: 700 },
+      cardPayments: { transactionCount: 8, amount: 2100 },
+      accountIssues: {
+        accountCount: 1,
+        accounts: [{ accountId: 'onepay', label: 'OnePay Checking', reason: 'stale' }],
+      },
+    },
     ...overrides,
   };
 }
@@ -255,6 +265,9 @@ describe('OverviewPage', () => {
     }) as Response);
     const onOpenPlanSettings = vi.fn();
     const onViewTransactions = vi.fn();
+    const onOpenLowConfidence = vi.fn();
+    const onOpenAccounts = vi.fn();
+    const onOpenShopping = vi.fn();
 
     await act(async () => {
       root.render(
@@ -264,11 +277,14 @@ describe('OverviewPage', () => {
           onReviewTransactions={vi.fn()}
           onViewTransactions={onViewTransactions}
           onOpenPlanSettings={onOpenPlanSettings}
+          onOpenLowConfidence={onOpenLowConfidence}
+          onOpenAccounts={onOpenAccounts}
+          onOpenShopping={onOpenShopping}
         />
       );
     });
 
-    return { apiFetch, onOpenPlanSettings, onViewTransactions };
+    return { apiFetch, onOpenPlanSettings, onViewTransactions, onOpenLowConfidence, onOpenAccounts, onOpenShopping };
   }
 
   it('leads with a single Now section for the current position', async () => {
@@ -285,6 +301,26 @@ describe('OverviewPage', () => {
     expect(firstSection?.textContent).toContain('Cash & savings$4,000.00');
     expect(firstSection?.textContent).toContain('Up $100.00 since Sep 5, 2026');
     expect(firstSection?.textContent).not.toContain('Credit balances');
+  });
+
+  it('makes coverage gaps actionable without counting them as extra spending', async () => {
+    const { onOpenLowConfidence, onOpenAccounts, onViewTransactions } = await renderOverview();
+    expect(container.textContent).toContain('How complete is the picture?');
+    expect(container.textContent).toContain("Plaid wasn't sure");
+    expect(container.textContent).toContain('Card payments and person-to-person transfers are context, not extra spending.');
+
+    const buttons = Array.from(container.querySelectorAll('button'));
+    await act(async () => buttons.find(button => button.textContent?.includes("Plaid wasn't sure"))?.click());
+    await act(async () => buttons.find(button => button.textContent?.includes('Account freshness'))?.click());
+    await act(async () => buttons.find(button => button.textContent?.includes('Between people'))?.click());
+
+    expect(onOpenLowConfidence).toHaveBeenCalledTimes(1);
+    expect(onOpenAccounts).toHaveBeenCalledTimes(1);
+    expect(onViewTransactions).toHaveBeenCalledWith({
+      classification: 'person_to_person',
+      startDate: '2025-09-07',
+      endDate: '2026-09-06',
+    });
   });
 
   it('keeps the net-worth mix compact and hides zero debt', async () => {

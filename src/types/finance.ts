@@ -128,7 +128,13 @@ export interface SpendingBreakdownReport {
   period: WalmartInsightPeriod;
   currentPeriod: { startDate: string; endDate: string };
   previousComparablePeriod: { startDate: string; endDate: string };
-  categories: Array<SpendingBreakdownRow & { category: string; percentage: number }>;
+  categories: Array<SpendingBreakdownRow & {
+    category: string;
+    householdLabel: string | null;
+    sourceCategories: string[];
+    walmart: { spending: number; transactionCount: number } | null;
+    percentage: number;
+  }>;
   merchants: Array<SpendingBreakdownRow & { merchant: string }>;
 }
 
@@ -360,6 +366,10 @@ export interface Transaction {
   overrideNote: string | null;
   overrideOffsetCategory: string | null;
   classificationSuggestion?: ClassificationSuggestion | null;
+  categoryConfidence?: 'VERY_HIGH' | 'HIGH' | 'MEDIUM' | 'LOW' | 'UNKNOWN' | null;
+  householdLabel?: string | null;
+  merchantKey?: string | null;
+  merchantLabelRuleId?: string | null;
 }
 
 export interface ClassificationSuggestion {
@@ -777,6 +787,22 @@ export interface DashboardOverviewResponse {
   safeToSpend: SafeToSpend;
   rewardsYtd: RewardsYtd;
   yearOverYear: YearOverYearComparison;
+  coverage: CoverageReport | null;
+}
+
+export interface CoverageReport {
+  period: { startDate: string; endDate: string };
+  lowConfidence: { transactionCount: number; amount: number };
+  personToPerson: { transactionCount: number; amount: number };
+  cardPayments: { transactionCount: number; amount: number };
+  accountIssues: {
+    accountCount: number;
+    accounts: Array<{
+      accountId: string;
+      label: string;
+      reason: 'connection' | 'stale' | 'missing' | 'activity';
+    }>;
+  };
 }
 
 export type WalmartInsightPeriod =

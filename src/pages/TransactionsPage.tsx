@@ -12,6 +12,7 @@ import {
 import { extractTransactionsResponse, extractAccountsResponse } from '../lib/api-contracts';
 import type { Transaction, AccountSummary } from '../types/finance';
 import { TransactionOverrideActions } from '../components/TransactionOverrideActions';
+import { TransactionLabelActions } from '../components/TransactionLabelActions';
 
 const CLASSIFICATION_OPTIONS = [
   { value: 'spending', label: 'Purchases and bills' },
@@ -30,11 +31,13 @@ const CLASSIFICATION_OPTIONS = [
   { value: 'other', label: 'Needs review' },
 ];
 
-export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
+export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'low_confidence' | 'overridden';
 
 export type TransactionsInitialFilters = {
   category?: string;
+  householdLabel?: string;
   merchantFamily?: string;
+  classification?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -57,6 +60,7 @@ export function TransactionsPage({
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [reviewCount, setReviewCount] = useState<number | null>(null);
+  const [lowConfidenceCount, setLowConfidenceCount] = useState<number | null>(null);
   
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -70,8 +74,9 @@ export function TransactionsPage({
   const [debouncedSearch, setDebouncedSearch] = useState('');
   
   const [filterAccount, setFilterAccount] = useState('');
-  const [filterClassification, setFilterClassification] = useState('');
+  const [filterClassification, setFilterClassification] = useState(initialFilters.classification || '');
   const [filterCategory, setFilterCategory] = useState(initialFilters.category || '');
+  const [filterHouseholdLabel, setFilterHouseholdLabel] = useState(initialFilters.householdLabel || '');
   const [filterMerchantFamily, setFilterMerchantFamily] = useState(initialFilters.merchantFamily || '');
   const [filterStartDate, setFilterStartDate] = useState(initialFilters.startDate || '');
   const [filterEndDate, setFilterEndDate] = useState(initialFilters.endDate || '');
@@ -107,24 +112,37 @@ export function TransactionsPage({
   }, [apiFetch]);
 
   useEffect(() => {
-    const fetchReviewCount = async () => {
+    const fetchQueueCounts = async () => {
       try {
-        const params = new URLSearchParams({
+        const reviewParams = new URLSearchParams({
           status: 'posted',
           classification: 'other,unclassified_deposit',
           page: '1',
           limit: '1',
         });
-        const res = await apiFetch(`/api/transactions?${params.toString()}`);
-        if (!res.ok) return;
-        const parsed = extractTransactionsResponse(await res.json());
-        setReviewCount(parsed.total);
+        const confidenceParams = new URLSearchParams({
+          status: 'posted',
+          categoryConfidence: 'LOW',
+          unlabeled: 'true',
+          page: '1',
+          limit: '1',
+        });
+        const [reviewResponse, confidenceResponse] = await Promise.all([
+          apiFetch(`/api/transactions?${reviewParams.toString()}`),
+          apiFetch(`/api/transactions?${confidenceParams.toString()}`),
+        ]);
+        if (reviewResponse.ok) {
+          setReviewCount(extractTransactionsResponse(await reviewResponse.json()).total);
+        }
+        if (confidenceResponse.ok) {
+          setLowConfidenceCount(extractTransactionsResponse(await confidenceResponse.json()).total);
+        }
       } catch {
-        // Keep the tab visible if the lightweight count cannot be refreshed.
+        // Keep queue tabs visible if the lightweight counts cannot be refreshed.
       }
     };
 
-    void fetchReviewCount();
+    void fetchQueueCounts();
   }, [apiFetch, refreshKey]);
 
   useEffect(() => {
@@ -133,6 +151,13 @@ export function TransactionsPage({
       setPage(1);
     }
   }, [reviewCount, viewMode]);
+
+  useEffect(() => {
+    if (lowConfidenceCount === 0 && viewMode === 'low_confidence') {
+      setViewMode('posted');
+      setPage(1);
+    }
+  }, [lowConfidenceCount, viewMode]);
 
   // Debounce search
   useEffect(() => {
@@ -156,6 +181,7 @@ export function TransactionsPage({
     setFilterAccount('');
     setFilterClassification('');
     setFilterCategory('');
+    setFilterHouseholdLabel('');
     setFilterMerchantFamily('');
     setFilterStartDate('');
     setFilterEndDate('');
@@ -166,7 +192,7 @@ export function TransactionsPage({
     setViewMode(mode);
     setPage(1);
 
-    if (mode === 'needs_review') {
+    if (mode === 'needs_review' || mode === 'low_confidence') {
       // The review inbox is a complete work queue. A search or account/date
       // filter left over from another tab must not make outstanding items look
       // as though they have all been reviewed.
@@ -175,6 +201,7 @@ export function TransactionsPage({
       setFilterAccount('');
       setFilterClassification('');
       setFilterCategory('');
+      setFilterHouseholdLabel('');
       setFilterMerchantFamily('');
       setFilterStartDate('');
       setFilterEndDate('');
@@ -195,6 +222,10 @@ export function TransactionsPage({
       } else if (viewMode === 'needs_review') {
         params.set('status', 'posted');
         params.set('classification', 'other,unclassified_deposit');
+      } else if (viewMode === 'low_confidence') {
+        params.set('status', 'posted');
+        params.set('categoryConfidence', 'LOW');
+        params.set('unlabeled', 'true');
       } else if (viewMode === 'overridden') {
         params.set('status', 'posted');
         params.set('overridden', 'true');
@@ -204,10 +235,11 @@ export function TransactionsPage({
       
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (filterAccount) params.set('account', filterAccount);
-      if (viewMode !== 'needs_review' && filterClassification) {
+      if (viewMode !== 'needs_review' && viewMode !== 'low_confidence' && filterClassification) {
         params.set('classification', filterClassification);
       }
       if (filterCategory) params.set('category', filterCategory);
+      if (filterHouseholdLabel) params.set('householdLabel', filterHouseholdLabel);
       if (filterMerchantFamily) params.set('merchantFamily', filterMerchantFamily);
       if (filterStartDate) params.set('startDate', filterStartDate);
       if (filterEndDate) params.set('endDate', filterEndDate);
@@ -226,6 +258,7 @@ export function TransactionsPage({
       setTransactions(parsed.transactions);
       setTotal(parsed.total);
       if (viewMode === 'needs_review') setReviewCount(parsed.total);
+      if (viewMode === 'low_confidence') setLowConfidenceCount(parsed.total);
       setTotalPages(parsed.totalPages);
       setPage(parsed.page);
       
@@ -247,7 +280,7 @@ export function TransactionsPage({
   useEffect(() => {
     loadTransactions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiFetch, refreshKey, viewMode, page, debouncedSearch, filterAccount, filterClassification, filterCategory, filterMerchantFamily, filterStartDate, filterEndDate]);
+  }, [apiFetch, refreshKey, viewMode, page, debouncedSearch, filterAccount, filterClassification, filterCategory, filterHouseholdLabel, filterMerchantFamily, filterStartDate, filterEndDate]);
 
   const activeTabClasses = "border-indigo-600 text-indigo-600 font-semibold";
   const inactiveTabClasses = "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300 font-medium";
@@ -284,6 +317,14 @@ export function TransactionsPage({
               Needs Review
             </button>
           )}
+          {lowConfidenceCount !== 0 && (
+            <button
+              className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'low_confidence' ? activeTabClasses : inactiveTabClasses}`}
+              onClick={() => selectViewMode('low_confidence')}
+            >
+              Plaid Unsure
+            </button>
+          )}
           <button
             className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('overridden')}
@@ -300,6 +341,13 @@ export function TransactionsPage({
               <span className="font-semibold">Merchant family:</span>
               <span>{filterMerchantFamily}</span>
               <span className="text-xs text-indigo-600">Using the same grouping as the dashboard</span>
+            </div>
+          )}
+          {filterHouseholdLabel && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
+              <span className="font-semibold">Household label:</span>
+              <span>{filterHouseholdLabel}</span>
+              <span className="text-xs text-indigo-600">Your label, with Plaid's category preserved underneath</span>
             </div>
           )}
           <div className="relative">
@@ -325,7 +373,7 @@ export function TransactionsPage({
               ))}
             </select>
             
-            {viewMode !== 'needs_review' && (
+            {viewMode !== 'needs_review' && viewMode !== 'low_confidence' && (
               <select 
                 className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
                 value={filterClassification}
@@ -363,7 +411,7 @@ export function TransactionsPage({
               onChange={(e) => updateFilter(setFilterEndDate, e.target.value)}
             />
             
-            {(searchInput || filterAccount || filterClassification || filterCategory || filterMerchantFamily || filterStartDate || filterEndDate) && (
+            {(searchInput || filterAccount || filterClassification || filterCategory || filterHouseholdLabel || filterMerchantFamily || filterStartDate || filterEndDate) && (
               <button 
                 onClick={clearFilters}
                 className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 px-3 py-2 font-medium"
@@ -391,6 +439,17 @@ export function TransactionsPage({
               Select <strong>Review</strong> on a transaction, then identify it as income,
               spending, a reimbursement, or a transfer between your accounts. If you are
               unsure, leave it here for later.
+            </p>
+          </div>
+        )}
+
+        {viewMode === 'low_confidence' && !loading && !error && (
+          <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
+            <p className="font-semibold">
+              {total} low-confidence {total === 1 ? 'purchase needs' : 'purchases need'} a clearer household label.
+            </p>
+            <p className="mt-1 text-indigo-800">
+              Choose <strong>Add household label</strong> and use language that makes sense to you, such as Preschool, Kids, or Eating out. It will apply to past and future purchases from that merchant while keeping Plaid's category underneath.
             </p>
           </div>
         )}
@@ -440,9 +499,10 @@ export function TransactionsPage({
                   
                   <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
                     {tx.pending && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Pending</span>}
+                    {tx.categoryConfidence === 'LOW' && !tx.householdLabel && <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 font-semibold">Plaid unsure</span>}
                     {isNeedsReviewClassification(tx.classification) && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                     {!isNeedsReviewClassification(tx.classification) && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
-                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}</span>
+                    <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{tx.householdLabel || getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}</span>
                   </div>
 
                   <TransactionOverrideActions
@@ -451,6 +511,12 @@ export function TransactionsPage({
                     reviewable={(viewMode === 'needs_review' || viewMode === 'posted') && !tx.pending && !tx.removed}
                     apiFetch={apiFetch}
                     onChanged={loadTransactions}
+                  />
+                  <TransactionLabelActions
+                    transaction={tx}
+                    apiFetch={apiFetch}
+                    onChanged={loadTransactions}
+                    emphasized={viewMode === 'low_confidence'}
                   />
                   
                   <div className="mt-3 pt-3 border-t border-slate-100 text-xs text-slate-500 flex justify-between font-medium">
@@ -482,6 +548,7 @@ export function TransactionsPage({
                         <p className="font-bold text-slate-900">{getMerchantDisplayLabel({ merchant: tx.normalizedMerchant, fallbackDescription: tx.name, classification: tx.classification })}</p>
                         <div className="flex gap-2 mt-1.5">
                           {tx.pending && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Pending</span>}
+                          {tx.categoryConfidence === 'LOW' && !tx.householdLabel && <span className="inline-flex items-center text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100 font-bold uppercase tracking-wider">Plaid unsure</span>}
                           {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                           {!isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                         </div>
@@ -492,11 +559,22 @@ export function TransactionsPage({
                           apiFetch={apiFetch}
                           onChanged={loadTransactions}
                         />
+                        <TransactionLabelActions
+                          transaction={tx}
+                          apiFetch={apiFetch}
+                          onChanged={loadTransactions}
+                          emphasized={viewMode === 'low_confidence'}
+                        />
                       </td>
                       <td className="px-6 py-4">
                         <span className="text-slate-600 font-medium bg-slate-50 px-2.5 py-1 rounded-md border border-slate-200">
-                          {getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}
+                          {tx.householdLabel || getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}
                         </span>
+                        {tx.householdLabel && (
+                          <span className="mt-1 block text-[11px] text-slate-400">
+                            Plaid: {getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-slate-500 font-medium">
                         <div className="flex flex-col">

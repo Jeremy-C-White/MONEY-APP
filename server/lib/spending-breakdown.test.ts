@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { NormalizedTransaction } from './financial';
 import { buildSpendingBreakdown, resolveSpendingPeriod } from './spending-breakdown';
 
-function transaction(overrides: Partial<NormalizedTransaction>): NormalizedTransaction {
+type LabelAwareTransaction = NormalizedTransaction & { householdLabel?: string | null };
+
+function transaction(overrides: Partial<LabelAwareTransaction>): LabelAwareTransaction {
   return {
     transactionId: 'tx', accountId: 'checking', institutionName: 'Bank', accountName: 'Checking',
     accountMask: '1234', accountType: 'depository', accountSubtype: 'checking', rawDate: '2026-09-01',
@@ -57,5 +59,39 @@ describe('buildSpendingBreakdown', () => {
       transactions: [transaction({ normalizedDate: '2026-09-18', spendingAdjustment: 25 })],
     });
     expect(report.merchants[0]).toMatchObject({ previousSpending: null, difference: null });
+  });
+
+  it('groups household labels above Plaid categories and exposes the Walmart share', () => {
+    const report = buildSpendingBreakdown({
+      asOfDate: '2026-09-19',
+      period: 'last_30_days',
+      transactions: [
+        transaction({
+          transactionId: 'preschool-1', normalizedDate: '2026-09-10',
+          name: 'BROOKWOOD PRESCHOOL', normalizedMerchant: 'Brookwood Preschool',
+          normalizedCategory: 'General services', householdLabel: 'Preschool', spendingAdjustment: 500,
+        }),
+        transaction({
+          transactionId: 'preschool-2', normalizedDate: '2026-09-03',
+          name: 'BROOKWOOD PRESCHOOL', normalizedMerchant: 'Brookwood Preschool',
+          normalizedCategory: 'Child care', householdLabel: 'Preschool', spendingAdjustment: 500,
+        }),
+        transaction({
+          transactionId: 'walmart', normalizedDate: '2026-09-08',
+          name: 'WALMART SUPERCENTER', normalizedMerchant: 'Walmart',
+          normalizedCategory: 'General merchandise', spendingAdjustment: 125,
+        }),
+      ],
+    });
+
+    expect(report.categories[0]).toMatchObject({
+      householdLabel: 'Preschool',
+      currentSpending: 1000,
+      sourceCategories: ['Child care', 'General services'],
+    });
+    expect(report.categories.find(category => category.category === 'General merchandise')?.walmart).toEqual({
+      spending: 125,
+      transactionCount: 1,
+    });
   });
 });

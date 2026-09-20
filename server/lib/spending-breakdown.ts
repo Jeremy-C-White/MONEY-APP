@@ -17,7 +17,13 @@ export type SpendingBreakdownReport = {
   period: InsightPeriod;
   currentPeriod: DateRange;
   previousComparablePeriod: DateRange;
-  categories: Array<SpendingBreakdownRow & { category: string; percentage: number }>;
+  categories: Array<SpendingBreakdownRow & {
+    category: string;
+    householdLabel: string | null;
+    sourceCategories: string[];
+    walmart: { spending: number; transactionCount: number } | null;
+    percentage: number;
+  }>;
   merchants: Array<SpendingBreakdownRow & { merchant: string }>;
 };
 
@@ -32,6 +38,14 @@ function percentageChange(current: number, previous: number): number | null {
 }
 
 type Bucket = { spending: number; count: number };
+type CategoryBucket = Bucket & {
+  category: string;
+  householdLabel: string | null;
+  sourceCategories: Set<string>;
+  walmartSpending: number;
+  walmartCount: number;
+};
+type LabelAwareTransaction = NormalizedTransaction & { householdLabel?: string | null };
 
 function addToBucket(map: Map<string, Bucket>, key: string, amount: number) {
   const bucket = map.get(key) || { spending: 0, count: 0 };
@@ -40,18 +54,45 @@ function addToBucket(map: Map<string, Bucket>, key: string, amount: number) {
   map.set(key, bucket);
 }
 
+function addToCategoryBucket(
+  map: Map<string, CategoryBucket>,
+  key: string,
+  category: string,
+  householdLabel: string | null,
+  amount: number,
+  isWalmart: boolean
+) {
+  const bucket = map.get(key) || {
+    spending: 0,
+    count: 0,
+    category,
+    householdLabel,
+    sourceCategories: new Set<string>(),
+    walmartSpending: 0,
+    walmartCount: 0,
+  };
+  bucket.spending += amount;
+  bucket.count += 1;
+  bucket.sourceCategories.add(category);
+  if (isWalmart) {
+    bucket.walmartSpending += amount;
+    bucket.walmartCount += 1;
+  }
+  map.set(key, bucket);
+}
+
 function inRange(transaction: NormalizedTransaction, range: DateRange): boolean {
   return transaction.normalizedDate >= range.startDate && transaction.normalizedDate <= range.endDate;
 }
 
 export function buildSpendingBreakdown(input: {
-  transactions: readonly NormalizedTransaction[];
+  transactions: readonly LabelAwareTransaction[];
   period: InsightPeriod;
   asOfDate: string;
 }): SpendingBreakdownReport {
   const ranges = resolveInsightPeriod(input.period, input.asOfDate);
-  const currentCategories = new Map<string, Bucket>();
-  const previousCategories = new Map<string, Bucket>();
+  const currentCategories = new Map<string, CategoryBucket>();
+  const previousCategories = new Map<string, CategoryBucket>();
   const currentMerchants = new Map<string, Bucket>();
   const previousMerchants = new Map<string, Bucket>();
   let previousHasLedgerData = false;
@@ -63,12 +104,28 @@ export function buildSpendingBreakdown(input: {
     if (!transaction.countsTowardSpending) continue;
 
     const category = getEffectiveCategory(transaction);
+    const householdLabel = transaction.householdLabel?.trim() || null;
+    const categoryKey = householdLabel ? `household:${householdLabel.toLowerCase()}` : `plaid:${category}`;
     const merchant = getMerchantFamily(transaction.normalizedMerchant, transaction.name);
     if (inRange(transaction, ranges.currentPeriod)) {
-      addToBucket(currentCategories, category, transaction.spendingAdjustment);
+      addToCategoryBucket(
+        currentCategories,
+        categoryKey,
+        category,
+        householdLabel,
+        transaction.spendingAdjustment,
+        merchant === 'Walmart'
+      );
       addToBucket(currentMerchants, merchant, transaction.spendingAdjustment);
     } else if (isPrevious) {
-      addToBucket(previousCategories, category, transaction.spendingAdjustment);
+      addToCategoryBucket(
+        previousCategories,
+        categoryKey,
+        category,
+        householdLabel,
+        transaction.spendingAdjustment,
+        merchant === 'Walmart'
+      );
       addToBucket(previousMerchants, merchant, transaction.spendingAdjustment);
     }
   }
@@ -100,15 +157,24 @@ export function buildSpendingBreakdown(input: {
   return {
     period: input.period,
     ...ranges,
-    categories: buildRows(currentCategories, previousCategories).map(row => ({
-      category: row.key,
-      currentSpending: row.currentSpending,
-      previousSpending: row.previousSpending,
-      difference: row.difference,
-      percentageChange: row.percentageChange,
-      transactionCount: row.transactionCount,
-      percentage: totalSpending > 0 ? row.currentSpending / totalSpending : 0,
-    })),
+    categories: buildRows(currentCategories, previousCategories).map(row => {
+      const bucket = currentCategories.get(row.key)!;
+      return {
+        category: bucket.category,
+        householdLabel: bucket.householdLabel,
+        sourceCategories: [...bucket.sourceCategories].sort(),
+        walmart: bucket.walmartCount > 0 ? {
+          spending: roundCurrency(bucket.walmartSpending),
+          transactionCount: bucket.walmartCount,
+        } : null,
+        currentSpending: row.currentSpending,
+        previousSpending: row.previousSpending,
+        difference: row.difference,
+        percentageChange: row.percentageChange,
+        transactionCount: row.transactionCount,
+        percentage: totalSpending > 0 ? row.currentSpending / totalSpending : 0,
+      };
+    }),
     merchants: buildRows(currentMerchants, previousMerchants).map(row => ({
       merchant: row.key,
       currentSpending: row.currentSpending,

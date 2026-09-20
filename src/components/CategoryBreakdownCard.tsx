@@ -6,9 +6,11 @@ import type { SpendingBreakdownReport, WalmartInsightPeriod } from '../types/fin
 
 export type SpendingDrilldown = {
   category?: string;
+  householdLabel?: string;
   merchantFamily?: string;
-  startDate: string;
-  endDate: string;
+  classification?: string;
+  startDate?: string;
+  endDate?: string;
 };
 
 function ComparisonNote({ previous, difference }: {
@@ -57,11 +59,13 @@ export function CategoryBreakdownCard({
   refreshKey,
   period,
   onDrillDown,
+  onOpenShopping = () => undefined,
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   period: WalmartInsightPeriod;
   onDrillDown: (filters: SpendingDrilldown) => void;
+  onOpenShopping?: () => void;
 }) {
   const [data, setData] = useState<SpendingBreakdownReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -92,7 +96,7 @@ export function CategoryBreakdownCard({
     return () => { active = false; };
   }, [apiFetch, period, refreshKey]);
 
-  const open = (filter: { category?: string; merchantFamily?: string }) => {
+  const open = (filter: { category?: string; householdLabel?: string; merchantFamily?: string }) => {
     if (!data) return;
     onDrillDown({
       ...filter,
@@ -156,15 +160,29 @@ export function CategoryBreakdownCard({
           <>
             <ol className="divide-y divide-slate-100">
               {categories.slice(0, visibleCategories).map((category, index) => (
-                <li key={category.category}>
-                  <button type="button" onClick={() => open({ category: category.category })} className="flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors hover:bg-indigo-50">
+                <li key={`${category.householdLabel ? 'household' : 'plaid'}:${category.householdLabel || category.category}`} className="py-1">
+                  <button type="button" onClick={() => open(category.householdLabel ? { householdLabel: category.householdLabel } : { category: category.category })} className="flex min-h-14 w-full items-center gap-3 rounded-lg px-1 py-2 text-left transition-colors hover:bg-indigo-50">
                     <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-semibold text-slate-500">{index + 1}</span>
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-slate-800">{getCategoryLabel(category.category)}</span>
+                      <span className="block truncate text-sm font-semibold text-slate-800">{category.householdLabel || getCategoryLabel(category.category)}</span>
+                      {category.householdLabel && (
+                        <span className="mt-0.5 block truncate text-[11px] text-indigo-600">
+                          Your label · Plaid: {category.sourceCategories.map(getCategoryLabel).join(', ')}
+                        </span>
+                      )}
                       <span className="mt-0.5 block text-xs text-slate-500"><ComparisonNote previous={category.previousSpending} difference={category.difference} /> · {category.transactionCount} {category.transactionCount === 1 ? 'purchase' : 'purchases'}</span>
                     </span>
                     <span className="whitespace-nowrap text-sm font-semibold text-slate-900">{formatCurrency(category.currentSpending)}</span>
                   </button>
+                  {category.walmart && (
+                    <button
+                      type="button"
+                      onClick={onOpenShopping}
+                      className="ml-10 inline-flex min-h-9 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800"
+                    >
+                      Walmart: {formatCurrency(category.walmart.spending)} across {category.walmart.transactionCount} {category.walmart.transactionCount === 1 ? 'purchase' : 'purchases'} · Open Shopping
+                    </button>
+                  )}
                 </li>
               ))}
             </ol>

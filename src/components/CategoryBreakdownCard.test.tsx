@@ -11,6 +11,9 @@ function payload(period = 'last_30_days') {
     previousComparablePeriod: { startDate: '2026-07-22', endDate: '2026-08-20' },
     categories: Array.from({ length: 11 }, (_, index) => ({
       category: index === 0 ? 'FOOD_AND_DRINK' : `CATEGORY_${index + 1}`,
+      householdLabel: index === 1 ? 'Preschool' : null,
+      sourceCategories: [index === 0 ? 'FOOD_AND_DRINK' : `CATEGORY_${index + 1}`],
+      walmart: index === 0 ? { spending: 75, transactionCount: 2 } : null,
       currentSpending: 110 - index,
       previousSpending: 50,
       difference: 60 - index,
@@ -48,6 +51,7 @@ describe('CategoryBreakdownCard', () => {
   it('shows five by default, expands five at a time, and drills down with server dates', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => payload() });
     const onDrillDown = vi.fn();
+    const onOpenShopping = vi.fn();
     await act(async () => {
       root.render(
         <CategoryBreakdownCard
@@ -55,6 +59,7 @@ describe('CategoryBreakdownCard', () => {
           refreshKey={0}
           period="last_30_days"
           onDrillDown={onDrillDown}
+          onOpenShopping={onOpenShopping}
         />
       );
     });
@@ -88,6 +93,20 @@ describe('CategoryBreakdownCard', () => {
     expect(onDrillDown).toHaveBeenCalledWith({
       category: 'FOOD_AND_DRINK', startDate: '2026-08-21', endDate: '2026-09-19',
     });
+
+    const preschool = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Preschool')
+    ) as HTMLButtonElement;
+    act(() => preschool.click());
+    expect(onDrillDown).toHaveBeenCalledWith({
+      householdLabel: 'Preschool', startDate: '2026-08-21', endDate: '2026-09-19',
+    });
+
+    const shopping = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Open Shopping')
+    ) as HTMLButtonElement;
+    act(() => shopping.click());
+    expect(onOpenShopping).toHaveBeenCalledTimes(1);
   });
 
   it('resets expansion when the shared period changes', async () => {

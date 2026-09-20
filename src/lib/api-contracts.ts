@@ -37,6 +37,7 @@ import type {
   SpendingBreakdownReport,
   YearOverYearComparison,
   RewardsYtd,
+  CoverageReport,
 } from '../types/finance';
 import { INSIGHT_PERIOD_OPTIONS } from './insight-periods';
 
@@ -717,21 +718,38 @@ function isSpendingBreakdownRow(value: unknown): boolean {
 
 export function extractSpendingBreakdownResponse(data: unknown): SpendingBreakdownReport {
   const record = requireRecord(data, 'spending breakdown');
+  const categories = Array.isArray(record.categories)
+    ? record.categories.map(row => isRecord(row) ? {
+      ...row,
+      householdLabel: row.householdLabel ?? null,
+      sourceCategories: row.sourceCategories ?? (typeof row.category === 'string' ? [row.category] : []),
+      walmart: row.walmart ?? null,
+    } : row)
+    : record.categories;
   if (
     !SPENDING_PERIODS.includes(String(record.period)) ||
     !isDateRange(record.currentPeriod) ||
     !isDateRange(record.previousComparablePeriod) ||
-    !Array.isArray(record.categories) ||
-    record.categories.some(row => !(
+    !Array.isArray(categories) ||
+    categories.some(row => !(
       isSpendingBreakdownRow(row) &&
-      isRecord(row) && typeof row.category === 'string' && typeof row.percentage === 'number'
+      isRecord(row) &&
+      typeof row.category === 'string' &&
+      (typeof row.householdLabel === 'string' || row.householdLabel === null) &&
+      Array.isArray(row.sourceCategories) &&
+      row.sourceCategories.every(category => typeof category === 'string') &&
+      (
+        row.walmart === null ||
+        (isRecord(row.walmart) && typeof row.walmart.spending === 'number' && typeof row.walmart.transactionCount === 'number')
+      ) &&
+      typeof row.percentage === 'number'
     )) ||
     !Array.isArray(record.merchants) ||
     record.merchants.some(row => !(
       isSpendingBreakdownRow(row) && isRecord(row) && typeof row.merchant === 'string'
     ))
   ) throw new Error('Invalid spending breakdown response.');
-  return record as unknown as SpendingBreakdownReport;
+  return { ...record, categories } as unknown as SpendingBreakdownReport;
 }
 
 function extractYearOverYearComparison(data: unknown): YearOverYearComparison {
@@ -748,6 +766,29 @@ function extractYearOverYearComparison(data: unknown): YearOverYearComparison {
     typeof record.removedAccountCount !== 'number'
   ) throw new Error('Invalid year-over-year comparison response.');
   return record as unknown as YearOverYearComparison;
+}
+
+function extractCoverageReport(data: unknown): CoverageReport {
+  const record = requireRecord(data, 'coverage');
+  const metricIsValid = (metric: unknown) => (
+    isRecord(metric) && typeof metric.transactionCount === 'number' && typeof metric.amount === 'number'
+  );
+  const accountIssues = requireRecord(record.accountIssues, 'coverage account issues');
+  if (
+    !isDateRange(record.period) ||
+    !metricIsValid(record.lowConfidence) ||
+    !metricIsValid(record.personToPerson) ||
+    !metricIsValid(record.cardPayments) ||
+    typeof accountIssues.accountCount !== 'number' ||
+    !Array.isArray(accountIssues.accounts) ||
+    accountIssues.accounts.some(account => !(
+      isRecord(account) &&
+      typeof account.accountId === 'string' &&
+      typeof account.label === 'string' &&
+      ['connection', 'stale', 'missing', 'activity'].includes(String(account.reason))
+    ))
+  ) throw new Error('Invalid coverage response.');
+  return record as unknown as CoverageReport;
 }
 
 export function extractClassificationRulesResponse(data: unknown): ClassificationRuleRecord[] {
@@ -1065,6 +1106,7 @@ export function extractOverviewResponse(data: unknown): DashboardOverviewRespons
     safeToSpend: extractSafeToSpend(record.safeToSpend),
     rewardsYtd: rewardsYtd as unknown as RewardsYtd,
     yearOverYear: extractYearOverYearComparison(record.yearOverYear),
+    coverage: record.coverage === undefined ? null : extractCoverageReport(record.coverage),
   };
 }
 

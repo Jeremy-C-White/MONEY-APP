@@ -595,4 +595,43 @@ describe('TransactionsPage', () => {
       expect(container.textContent).toContain('74 transactions remain to review.');
     });
   });
+
+  it('opens low-confidence purchases as a household-label queue', async () => {
+    const requestedEndpoints: string[] = [];
+    const uncertainTransaction = {
+      ...mockTx,
+      categoryConfidence: 'LOW',
+      householdLabel: null,
+      merchantKey: 'starbucks',
+      merchantLabelRuleId: null,
+    };
+    const apiFetch = vi.fn().mockImplementation(async (endpoint: string) => {
+      requestedEndpoints.push(endpoint);
+      if (endpoint === '/api/accounts') return { ok: true, json: async () => [] };
+      if (endpoint === '/api/dashboard/categories') return { ok: true, json: async () => ({ categories: [] }) };
+      if (endpoint.includes('categoryConfidence=LOW')) {
+        return {
+          ok: true,
+          json: async () => ({ transactions: [uncertainTransaction], total: 1, page: 1, limit: 25, totalPages: 1 }),
+        };
+      }
+      return {
+        ok: true,
+        json: async () => ({ transactions: [], total: 0, page: 1, limit: 25, totalPages: 0 }),
+      };
+    });
+
+    await act(async () => {
+      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} initialViewMode="low_confidence" />);
+    });
+
+    await vi.waitFor(() => {
+      expect(requestedEndpoints.some(endpoint => (
+        endpoint.includes('categoryConfidence=LOW') && endpoint.includes('unlabeled=true')
+      ))).toBe(true);
+      expect(container.textContent).toContain('1 low-confidence purchase needs a clearer household label.');
+      expect(container.textContent).toContain('Add household label');
+      expect(container.textContent).toContain('Plaid unsure');
+    });
+  });
 });

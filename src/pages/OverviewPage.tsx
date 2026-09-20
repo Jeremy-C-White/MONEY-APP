@@ -5,6 +5,7 @@ import { NetWorthTrendChart } from '../components/NetWorthTrendChart';
 import { OverviewHeadingCard } from '../components/OverviewHeadingCard';
 import { OverviewNowCard } from '../components/OverviewNowCard';
 import { CategoryBreakdownCard, type SpendingDrilldown } from '../components/CategoryBreakdownCard';
+import { CoverageCard } from '../components/CoverageCard';
 import { formatCurrency, formatMonthLabel } from '../lib/formatters';
 import { extractOverviewResponse } from '../lib/api-contracts';
 import { INSIGHT_PERIOD_OPTIONS } from '../lib/insight-periods';
@@ -16,12 +17,18 @@ export function OverviewPage({
   onReviewTransactions,
   onViewTransactions,
   onOpenPlanSettings,
+  onOpenLowConfidence = () => undefined,
+  onOpenAccounts = () => undefined,
+  onOpenShopping = () => undefined,
 }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   onReviewTransactions: () => void;
   onViewTransactions: (filters?: SpendingDrilldown) => void;
   onOpenPlanSettings?: () => void;
+  onOpenLowConfidence?: () => void;
+  onOpenAccounts?: () => void;
+  onOpenShopping?: () => void;
 }) {
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -127,6 +134,14 @@ export function OverviewPage({
         loading={loading && !overview}
       />
 
+      <CoverageCard
+        coverage={overview?.coverage || null}
+        loading={loading && !overview}
+        onOpenLowConfidence={onOpenLowConfidence}
+        onViewTransactions={onViewTransactions}
+        onOpenAccounts={onOpenAccounts}
+      />
+
       <section className="mb-8">
         <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
           <div>
@@ -209,6 +224,7 @@ export function OverviewPage({
             refreshKey={refreshKey}
             period={spendingPeriod}
             onDrillDown={onViewTransactions}
+            onOpenShopping={onOpenShopping}
           />
         </div>
       </section>
