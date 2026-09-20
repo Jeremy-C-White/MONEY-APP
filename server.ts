@@ -11,7 +11,7 @@ import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type TransactionOverride } from "./server/lib/financial";
 import { buildRewardsYtd } from "./server/lib/rewards";
-import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildTransactionsPage, buildVerificationReport, buildAccountHealthMap, aggregatePeriodCategoryBreakdown, CATEGORY_PERIODS, type CategoryPeriod } from "./server/lib/aggregations";
+import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildVerificationReport, buildAccountHealthMap, aggregatePeriodCategoryBreakdown, CATEGORY_PERIODS, type CategoryPeriod } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
@@ -36,16 +36,11 @@ import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
 import {
   parseStoredTransactionOverride,
-  removeTransactionOverride,
-  saveTransactionOverride,
-  TransactionOverrideRequestError,
   type TransactionOverrideServiceDependencies,
 } from "./server/lib/transaction-overrides";
 import {
   applyClassificationSuggestions,
   parseStoredClassificationRule,
-  removeClassificationRule,
-  ClassificationRuleRequestError,
   type ClassificationRuleServiceDependencies,
 } from "./server/lib/classification-rules";
 import { detectLikelyRecurringObligations } from "./server/lib/recurring-obligations";
@@ -74,14 +69,11 @@ import { buildSpendingBreakdown } from "./server/lib/spending-breakdown";
 import { buildYearOverYearComparison } from "./server/lib/year-over-year";
 import { buildCoverageReport } from "./server/lib/coverage";
 import {
-  buildMerchantLabelRule,
   enrichTransactions,
-  filterTransactionEnrichment,
-  MerchantLabelRequestError,
-  normalizeMerchantLabel,
   parseMerchantLabelRule,
   type EnrichedTransaction,
 } from "./server/lib/transaction-enrichment";
+import { createTransactionRouter } from "./server/routes/transactions";
 import {
   SavingsDestinationRequestError,
   buildSavingsContributions,
@@ -2803,253 +2795,15 @@ app.get("/api/dashboard/verification", requireAuth, async (req: express.Request,
   }
 });
 
-app.get("/api/transactions/overrides", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const snapshot = await db.collection('users').doc(uid)
-      .collection('transaction_overrides')
-      .orderBy('reviewedAt', 'desc')
-      .get();
-
-    const overrides = snapshot.docs.flatMap(document => {
-      const data = document.data();
-      const parsed = parseStoredTransactionOverride(data);
-      if (!parsed) return [];
-      return [{
-        transactionId: document.id,
-        ...parsed,
-        reviewedAt: data.reviewedAt,
-        reviewedBy: data.reviewedBy,
-      }];
-    });
-
-    res.json({ overrides });
-  } catch (error: any) {
-    console.error("Transaction Overrides List Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/classification-rules", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const snapshot = await db.collection('users').doc(uid)
-      .collection('classification_rules')
-      .get();
-    const rules = snapshot.docs.flatMap(document => {
-      const rule = parseStoredClassificationRule(document.id, document.data());
-      return rule ? [rule] : [];
-    });
-    rules.sort((a, b) => a.merchantKey.localeCompare(b.merchantKey));
-    res.json({ rules });
-  } catch (error: any) {
-    console.error("Classification Rules List Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/classification-rules/:ruleId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const ruleId = req.params.ruleId;
-    await removeClassificationRule(classificationRuleDependencies, uid, ruleId);
-    res.json({ success: true, ruleId });
-  } catch (error: any) {
-    if (error instanceof ClassificationRuleRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Classification Rule Delete Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/merchant-labels", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const snapshot = await db.collection('users').doc(uid).collection('merchant_labels').get();
-    const labels = snapshot.docs.flatMap(document => {
-      const rule = parseMerchantLabelRule(document.id, document.data());
-      return rule ? [rule] : [];
-    }).sort((left, right) => (
-      left.label.localeCompare(right.label) || left.merchantKey.localeCompare(right.merchantKey)
-    ));
-    res.json({ labels });
-  } catch (error: any) {
-    console.error("Merchant Labels List Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/merchant-labels", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const currentLabel = typeof req.body?.currentLabel === 'string' ? req.body.currentLabel.trim() : '';
-    if (!currentLabel) throw new MerchantLabelRequestError('Choose a household label to rename.', 400);
-    const label = normalizeMerchantLabel(req.body?.label);
-    const collection = db.collection('users').doc(uid).collection('merchant_labels');
-    const snapshot = await collection.get();
-    const matches = snapshot.docs.filter(document => {
-      const rule = parseMerchantLabelRule(document.id, document.data());
-      return rule?.label.toLowerCase() === currentLabel.toLowerCase();
-    });
-    if (!matches.length) throw new MerchantLabelRequestError('Household label not found.', 404);
-    const now = Timestamp.now();
-    const batch = db.batch();
-    for (const document of matches) batch.update(document.ref, { label, updatedAt: now });
-    await batch.commit();
-    dashboardCache.invalidate(uid);
-    res.json({ currentLabel, label, merchantCount: matches.length });
-  } catch (error: any) {
-    if (error instanceof MerchantLabelRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Merchant Labels Rename Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/merchant-labels/:ruleId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const ruleId = req.params.ruleId;
-    const reference = db.collection('users').doc(uid).collection('merchant_labels').doc(ruleId);
-    const document = await reference.get();
-    if (!document.exists || !parseMerchantLabelRule(ruleId, document.data())) {
-      throw new MerchantLabelRequestError('Household label rule not found.', 404);
-    }
-    await reference.delete();
-    dashboardCache.invalidate(uid);
-    res.json({ success: true, ruleId });
-  } catch (error: any) {
-    if (error instanceof MerchantLabelRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Merchant Label Delete Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/transactions/:transactionId/override", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const transactionId = req.params.transactionId;
-    const override = await saveTransactionOverride(
-      transactionOverrideDependencies,
-      uid,
-      transactionId,
-      req.body
-    );
-
-    res.json({ transactionId, override });
-  } catch (error: any) {
-    if (error instanceof TransactionOverrideRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Transaction Override Write Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/transactions/:transactionId/override", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const transactionId = req.params.transactionId;
-    await removeTransactionOverride(transactionOverrideDependencies, uid, transactionId);
-    res.json({ success: true, transactionId });
-  } catch (error: any) {
-    if (error instanceof TransactionOverrideRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Transaction Override Delete Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/transactions/:transactionId/merchant-label", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const transactionId = req.params.transactionId;
-    const transaction = (await fetchNormalizedTransactions(uid)).find(candidate => (
-      candidate.transactionId === transactionId && !candidate.removed
-    ));
-    if (!transaction) throw new MerchantLabelRequestError('Transaction not found.', 404);
-
-    const now = Timestamp.now();
-    const rule = buildMerchantLabelRule(transaction, req.body?.label, now);
-    const reference = db.collection('users').doc(uid).collection('merchant_labels').doc(rule.ruleId);
-    const existing = await reference.get();
-    await reference.set({
-      merchantKey: rule.merchantKey,
-      label: rule.label,
-      createdFromTransactionId: existing.exists
-        ? existing.data()?.createdFromTransactionId || rule.createdFromTransactionId
-        : rule.createdFromTransactionId,
-      createdAt: existing.exists ? existing.data()?.createdAt || now : now,
-      updatedAt: now,
-    });
-    dashboardCache.invalidate(uid);
-    res.json({
-      transactionId,
-      rule: { ...rule, createdAt: existing.data()?.createdAt || now },
-    });
-  } catch (error: any) {
-    if (error instanceof MerchantLabelRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Merchant Label Write Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/transactions/:transactionId/merchant-label", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const transactionId = req.params.transactionId;
-    const transaction = (await fetchNormalizedTransactions(uid)).find(candidate => (
-      candidate.transactionId === transactionId && !candidate.removed
-    ));
-    if (!transaction) throw new MerchantLabelRequestError('Transaction not found.', 404);
-    if (!transaction.merchantLabelRuleId) {
-      throw new MerchantLabelRequestError('This merchant does not have a household label.', 404);
-    }
-    await db.collection('users').doc(uid)
-      .collection('merchant_labels')
-      .doc(transaction.merchantLabelRuleId)
-      .delete();
-    dashboardCache.invalidate(uid);
-    res.json({ success: true, transactionId });
-  } catch (error: any) {
-    if (error instanceof MerchantLabelRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Merchant Label Delete Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/transactions", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const {
-      categoryConfidence,
-      unlabeled,
-      householdLabel,
-      ...transactionFilters
-    } = req.query;
-    const filtered = filterTransactionEnrichment(txs, {
-      categoryConfidence,
-      unlabeled,
-      householdLabel,
-    });
-
-    // This in-memory sort/pagination is appropriate for the current cached ledger size.
-    // If the ledger grows substantially, it should move closer to the data/cache layer.
-    res.json(buildTransactionsPage(filtered, transactionFilters));
-  } catch (error: any) {
-    console.error("Transactions Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+app.use(createTransactionRouter({
+  requireAuth,
+  db,
+  loadTransactions: fetchNormalizedTransactions,
+  transactionOverrides: transactionOverrideDependencies,
+  classificationRules: classificationRuleDependencies,
+  invalidateDashboard: uid => dashboardCache.invalidate(uid),
+  now: () => Timestamp.now(),
+}));
 
 // Accounts-page inventory. Combines linked Plaid accounts with owner-entered manual assets.
 // The separate /api/accounts route remains the transaction-ledger account source.
