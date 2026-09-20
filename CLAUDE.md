@@ -59,7 +59,8 @@ They disagree on purpose. 11 connected accounts have no transaction history. Do 
 ### Layout
 
 ```
-server.ts                  Express app, all routes
+server.ts                  Express app wiring plus protected Plaid, sync, auth, and AI handlers
+server/routes/*.ts         Typed domain routers for dashboard, accounts, transactions, planning, savings, Walmart, and sandbox tools
 server/lib/*.ts            Pure helpers, each with a .test.ts
 src/App.tsx                Auth + Plaid/Google connection handlers, tab routing
 src/pages/                 OverviewPage, TransactionsPage, AccountsPage
@@ -127,7 +128,7 @@ All four tabs live: Overview, Transactions, Accounts, Settings. Running against 
 
 - **Dataset gaps in the acceptance harness.** `explicitRefund`, `cashWithdrawal`, and `incomingP2P` read NOT EXERCISED — the data never contained those shapes. Not code defects.
 - **Cached account balances.** Successful transaction syncs now call the free `/accounts/get` endpoint after the ledger cursor is safely committed. Current balance state and one dated snapshot per day are stored in Firestore; balances are never inferred from transactions. `/accounts/balance/get` is not called, so the display is explicitly sync-fresh rather than real-time.
-- **Developer Tools in Production.** Both now sit behind a "Show developer tools" disclosure in Settings, collapsed by default, and `SandboxAcceptance` keeps its env flag on top of that. Sandbox-only actions are still not inert in Production — worth confirming.
+- **Developer Tools stay sandbox-only.** The `/api/dev/*` router is mounted only when `PLAID_ENV=sandbox` and `ENABLE_SANDBOX_ACCEPTANCE=true`; those endpoints do not exist in Production.
 - **Access tokens unencrypted at the application layer.** Firestore encrypts at rest, but there is no field-level encryption. Considered acceptable for a single-user app; revisit if that changes.
 
 ### Safe to spend

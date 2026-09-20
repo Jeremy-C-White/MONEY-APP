@@ -10,29 +10,21 @@ import { GoogleAuth, OAuth2Client } from "google-auth-library";
 import * as crypto from "crypto";
 import * as jose from "jose";
 import { deduplicateAndNormalizeTransactions, NormalizedTransaction, type TransactionOverride } from "./server/lib/financial";
-import { buildRewardsYtd } from "./server/lib/rewards";
-import { aggregateSummary, aggregateCategories, aggregateMerchants, aggregateTrends, buildVerificationReport, buildAccountHealthMap, aggregatePeriodCategoryBreakdown, CATEGORY_PERIODS, type CategoryPeriod } from "./server/lib/aggregations";
 import { dashboardCache } from "./server/lib/cache";
 import { buildConnectedAccounts } from "./server/lib/connected-accounts";
 import { buildAccountBalanceSummary, buildStoredBalanceSnapshot } from "./server/lib/account-balances";
 import {
-  buildManualAccount,
   buildManualBalanceSnapshot,
-  ManualAccountRequestError,
-  parseManualBalanceInput,
   parseStoredManualAccount,
   type StoredManualAccount,
 } from "./server/lib/manual-accounts";
 import { buildUnifiedAccountView } from "./server/lib/unified-accounts";
 import { buildFinancialPosition } from "./server/lib/financial-position";
+import { buildSafeToSpend } from "./server/lib/safe-to-spend";
 import {
-  AccountRoleRequestError,
-  buildAccountRoleDocumentId,
-  parseAccountRoleInput,
   parseStoredAccountRoleOverride,
   type AccountRole,
 } from "./server/lib/account-roles";
-import { buildAccountsPreflightReport } from "./server/lib/accounts-preflight";
 import { buildCloudTaskRequest, getAutoSyncConfig, getMissingAutoSyncConfig, isAuthorizedTaskIdentity } from "./server/lib/auto-sync";
 import {
   parseStoredTransactionOverride,
@@ -47,27 +39,13 @@ import { detectLikelyRecurringObligations } from "./server/lib/recurring-obligat
 import {
   buildRecurringPlanningReport,
   parseStoredRecurringDecision,
-  removeRecurringDecision,
-  saveRecurringDecision,
-  RecurringObligationRequestError,
   type RecurringDecisionServiceDependencies,
   type StoredRecurringObligationDecision,
 } from "./server/lib/recurring-obligation-decisions";
-import { buildHouseholdInsights } from "./server/lib/household-insights";
-import { buildCashFlowForecast } from "./server/lib/cash-flow-forecast";
-import { buildSafeToSpend } from "./server/lib/safe-to-spend";
-import { analyzeTransferCoverage } from "./server/lib/transfer-coverage";
-import { applyMerchantFamilies } from "./server/lib/merchant-families";
-import { buildMerchantComparison } from "./server/lib/merchant-comparison";
 import {
-  HouseholdPlanRequestError,
-  parseHouseholdPlanInput,
   parseStoredHouseholdPlan,
   type HouseholdPlan,
 } from "./server/lib/household-plan";
-import { buildSpendingBreakdown } from "./server/lib/spending-breakdown";
-import { buildYearOverYearComparison } from "./server/lib/year-over-year";
-import { buildCoverageReport } from "./server/lib/coverage";
 import {
   enrichTransactions,
   parseMerchantLabelRule,
@@ -75,17 +53,15 @@ import {
 } from "./server/lib/transaction-enrichment";
 import { createTransactionRouter } from "./server/routes/transactions";
 import { createWalmartRouter } from "./server/routes/walmart";
-import {
-  SavingsDestinationRequestError,
-  buildSavingsContributions,
-  isSavingsDestinationId,
-  parseSavingsDestinationName,
-  parseStoredSavingsDestination,
-} from "./server/lib/savings-contributions";
+import { createDashboardRouter } from "./server/routes/dashboard";
+import { createDeveloperRouter, developerRoutesEnabled } from "./server/routes/developer";
+import { createAccountsRouter } from "./server/routes/accounts";
+import { createPlanningRouter } from "./server/routes/planning";
+import { createSavingsRouter } from "./server/routes/savings";
+import { parseStoredSavingsDestination } from "./server/lib/savings-contributions";
 import { getDateForDateInTimezone, getMonthForDateInTimezone } from "./server/lib/time";
 import {
   buildWalmartInsights,
-  WALMART_INSIGHT_PERIODS,
   type WalmartInsightPeriod,
   type WalmartInsights,
   type WalmartSheetRow,
@@ -2195,182 +2171,16 @@ async function loadWalmartInsights(
 }
 
 
-app.get("/api/dev/accounts-preflight", requireAuth, async (req: express.Request, res: express.Response) => {
-  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
-    return res.status(403).json({ error: "Only available in Sandbox" });
-  }
-
-  try {
-    const uid = (req as any).user.uid;
-    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    
-    const items = plaidItemsSnap.docs.map(doc => {
-      const data = doc.data();
-      return {
-        institutionName: data.institution_name,
-        health: normalizeItemHealth(data),
-        accounts: data.accounts
-      };
-    });
-    const txs = await fetchNormalizedTransactions(uid, { allowCredentialCleanup: false });
-
-    res.json(buildAccountsPreflightReport(items, txs));
-  } catch (error: any) {
-    console.error("Accounts Preflight Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dev/sandbox-acceptance", requireAuth, async (req: express.Request, res: express.Response) => {
-  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
-    return res.status(403).json({ error: "Only available in Sandbox" });
-  }
-  try {
-    const uid = (req as any).user.uid;
-    const rawRows = await fetchRawTransactionsRows(uid);
-    // Dynamic import to avoid CJS require issue if sandbox-acceptance uses ES syntax in dev
-    // Wait, the typescript server is compiled to CJS eventually, but during dev it's tsx.
-    // So import() works. Actually just standard ES import or require.
-    // In server.ts we use import at the top. Let's add an import at the top instead!
-    const { generateAcceptanceReport } = await import("./server/lib/sandbox-acceptance");
-    const report = generateAcceptanceReport(rawRows);
-    res.json(report);
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post("/api/dev/sandbox-refresh", requireAuth, async (req: express.Request, res: express.Response) => {
-  if (process.env.PLAID_ENV !== 'sandbox' || process.env.ENABLE_SANDBOX_ACCEPTANCE !== 'true') {
-    return res.status(403).json({ error: "Only available in Sandbox" });
-  }
-  try {
-    const uid = (req as any).user.uid;
-    const { internalItemId } = req.body;
-    
-    if (!internalItemId) {
-      return res.status(400).json({ error: "internalItemId is required." });
-    }
-
-    const itemSnap = await db.collection("plaid_items").doc(internalItemId).get();
-    if (!itemSnap.exists) {
-      return res.status(404).json({ error: "Connected item not found." });
-    }
-    
-    const itemData = itemSnap.data()!;
-    if (itemData.userId !== uid) {
-      return res.status(403).json({ error: "Unauthorized access to item." });
-    }
-    if (!itemData.access_token) {
-      return res.status(400).json({ error: "No access token found." });
-    }
-    if (['pending_disconnect', 'permission_revoked', 'login_required'].includes(itemData.health || '')) {
-       return res.status(400).json({ error: "Item is disconnected or requires repair." });
-    }
-
-    const plaidClient = getPlaidClient();
-    await plaidClient.transactionsRefresh({
-      access_token: itemData.access_token,
-    });
-    
-    res.json({ success: true, message: "Sandbox refresh triggered. Webhook will arrive shortly." });
-  } catch (error: any) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/summary", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const summary = aggregateSummary(txs, financeTz);
-    res.json(summary);
-  } catch (error: any) {
-    console.error("Dashboard Summary Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/categories", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const categories = aggregateCategories(txs);
-    res.json({ categories });
-  } catch (error: any) {
-    console.error("Dashboard Categories Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/merchants", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const txs = applyMerchantFamilies(await fetchNormalizedTransactions((req as any).user.uid));
-    const merchants = aggregateMerchants(txs);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const asOfDate = getDateForDateInTimezone(new Date(), financeTz);
-    res.json({
-      merchants: merchants.slice(0, 50),
-      comparison: buildMerchantComparison({ transactions: txs, asOfDate, limit: 10 }),
-    });
-  } catch (error: any) {
-    console.error("Dashboard Merchants Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/category-breakdown", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const periodParam = (req.query.period as string) || 'this_month';
-    if (!CATEGORY_PERIODS.includes(periodParam as CategoryPeriod)) {
-      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${CATEGORY_PERIODS.join(', ')}` });
-    }
-
-    const txs = applyMerchantFamilies(await fetchNormalizedTransactions((req as any).user.uid));
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const report = aggregatePeriodCategoryBreakdown(txs, periodParam as CategoryPeriod, financeTz);
-    res.json(report);
-  } catch (error: any) {
-    console.error("Dashboard Category Breakdown Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/spending-breakdown", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const periodParam = (req.query.period as string) || 'last_30_days';
-    if (!WALMART_INSIGHT_PERIODS.includes(periodParam as WalmartInsightPeriod)) {
-      return res.status(400).json({ error: `Invalid period parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
-    }
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const asOfDate = getDateForDateInTimezone(new Date(), financeTz);
-    const transactions = await fetchNormalizedTransactions((req as any).user.uid);
-    res.json(buildSpendingBreakdown({
-      transactions,
-      period: periodParam as WalmartInsightPeriod,
-      asOfDate,
-    }));
-  } catch (error: any) {
-    console.error("Dashboard Spending Breakdown Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/trends", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const rangeParam = (req.query.range as string) || 'last_12_months';
-    if (!WALMART_INSIGHT_PERIODS.includes(rangeParam as WalmartInsightPeriod)) {
-      return res.status(400).json({ error: `Invalid range parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
-    }
-    
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const trends = aggregateTrends(txs, rangeParam as WalmartInsightPeriod, financeTz);
-    res.json({ monthly: trends });
-  } catch (error: any) {
-    console.error("Dashboard Trends Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+if (developerRoutesEnabled(process.env)) {
+  app.use(createDeveloperRouter({
+    requireAuth,
+    db,
+    loadTransactions: fetchNormalizedTransactions,
+    loadRawRows: fetchRawTransactionsRows,
+    normalizeItemHealth,
+    plaidClient: getPlaidClient,
+  }));
+}
 
 async function loadHouseholdPlan(uid: string): Promise<HouseholdPlan> {
   const userDoc = await db.collection('users').doc(uid).get();
@@ -2546,162 +2356,21 @@ async function captureDailyBalanceSnapshot(uid: string, now = new Date()) {
   };
 }
 
-app.get("/api/dashboard/overview", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const rangeParam = (req.query.range as string) || 'last_12_months';
-    if (!WALMART_INSIGHT_PERIODS.includes(rangeParam as WalmartInsightPeriod)) {
-      return res.status(400).json({ error: `Invalid range parameter. Allowed: ${WALMART_INSIGHT_PERIODS.join(', ')}` });
-    }
+app.use(createDashboardRouter({
+  requireAuth,
+  loadTransactions: fetchNormalizedTransactions,
+  loadRecurringPlanning,
+  loadFinancialAccountContext,
+  currentDate: () => new Date(),
+  financeTimeZone: process.env.FINANCE_TIME_ZONE || "America/New_York",
+}));
 
-    const uid = (req as any).user.uid;
-    const [
-      { txs, recurringObligations, householdPlan, financeTz, now },
-      accountContext,
-    ] = await Promise.all([
-      loadRecurringPlanning(uid),
-      loadFinancialAccountContext(uid),
-    ]);
-    const accountBalances = accountContext.linkedBalances;
-    const accountRoleOverrides = accountContext.overrides;
-    const verification = buildVerificationReport(txs, financeTz);
-    const asOfDate = getDateForDateInTimezone(now, financeTz);
-    const trends = aggregateTrends(txs, rangeParam as WalmartInsightPeriod, financeTz);
-    const earliestTrendMonth = trends[0]?.month.slice(0, 7) || null;
-    const financialPosition = {
-      ...accountContext.financialPosition,
-      netWorthHistory: accountContext.financialPosition.netWorthHistory.filter(point => (
-        !earliestTrendMonth || point.date.slice(0, 7) >= earliestTrendMonth
-      )),
-    };
-    const householdInsights = buildHouseholdInsights(
-      txs,
-      recurringObligations.obligations,
-      asOfDate
-    );
-    res.json({
-      summary: verification.summary,
-      trends,
-      householdInsights,
-      verification,
-      accountBalances,
-      financialPosition,
-      cashFlowForecast: buildCashFlowForecast({
-        transactions: txs,
-        recurringObligations: recurringObligations.obligations,
-        accountBalances,
-        asOfDate,
-      }),
-      safeToSpend: buildSafeToSpend({
-        transactions: txs,
-        recurringObligations: recurringObligations.obligations,
-        accountBalances,
-        accountRoleOverrides,
-        plan: householdPlan,
-        asOfDate,
-      }),
-      rewardsYtd: buildRewardsYtd(txs, asOfDate),
-      yearOverYear: buildYearOverYearComparison({ transactions: txs, asOfDate }),
-      coverage: buildCoverageReport({
-        transactions: txs,
-        accounts: accountContext.accounts,
-        asOfDate,
-      }),
-    });
-  } catch (error: any) {
-    console.error("Dashboard Overview Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/household-insights", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const { txs, recurringObligations, financeTz, now } = await loadRecurringPlanning(uid);
-    res.json({
-      recurringObligations,
-      insights: buildHouseholdInsights(
-        txs,
-        recurringObligations.obligations,
-        getDateForDateInTimezone(now, financeTz)
-      ),
-    });
-  } catch (error: any) {
-    console.error("Household Insights Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/recurring-obligations", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const { recurringObligations } = await loadRecurringPlanning(uid);
-    res.json(recurringObligations);
-  } catch (error: any) {
-    console.error("Recurring Obligations Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/recurring-obligations/:obligationId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const obligationId = req.params.obligationId;
-    const decision = await saveRecurringDecision(
-      recurringDecisionDependencies,
-      uid,
-      obligationId,
-      req.body
-    );
-    res.json({ obligationId, decision });
-  } catch (error: any) {
-    if (error instanceof RecurringObligationRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Recurring Obligation Write Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.delete("/api/recurring-obligations/:obligationId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const obligationId = req.params.obligationId;
-    await removeRecurringDecision(recurringDecisionDependencies, uid, obligationId);
-    res.json({ success: true, obligationId });
-  } catch (error: any) {
-    if (error instanceof RecurringObligationRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Recurring Obligation Delete Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/household-plan", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    res.json({ householdPlan: await loadHouseholdPlan(uid) });
-  } catch (error: any) {
-    console.error("Household Plan Read Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/household-plan", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const current = await loadHouseholdPlan(uid);
-    const householdPlan = parseHouseholdPlanInput(req.body, current);
-    await db.collection('users').doc(uid).set({ householdPlan }, { merge: true });
-    res.json({ householdPlan });
-  } catch (error: any) {
-    if (error instanceof HouseholdPlanRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Household Plan Write Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+app.use(createPlanningRouter({
+  requireAuth,
+  db,
+  loadHouseholdPlan,
+  recurringDecisions: recurringDecisionDependencies,
+}));
 
 async function loadSavingsDestinationNames(uid: string): Promise<Map<string, string>> {
   const snapshot = await db.collection('users').doc(uid)
@@ -2714,86 +2383,16 @@ async function loadSavingsDestinationNames(uid: string): Promise<Map<string, str
   return names;
 }
 
-app.get("/api/savings/contributions", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const [txs, displayNames] = await Promise.all([
-      fetchNormalizedTransactions(uid),
-      loadSavingsDestinationNames(uid),
-    ]);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-
-    res.json(buildSavingsContributions({
-      transactions: txs,
-      displayNames,
-      asOfDate: getDateForDateInTimezone(new Date(), financeTz),
-    }));
-  } catch (error: any) {
-    console.error("Savings Contributions Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.put("/api/savings/destinations/:destinationId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const destinationId = req.params.destinationId;
-    if (!isSavingsDestinationId(destinationId)) {
-      return res.status(400).json({ error: 'Invalid savings destination ID.' });
-    }
-    const displayName = parseSavingsDestinationName(req.body);
-
-    // Name only a destination the owner's own contributions actually produced,
-    // so a rename cannot create a row for a destination that does not exist.
-    const [txs, displayNames] = await Promise.all([
-      fetchNormalizedTransactions(uid),
-      loadSavingsDestinationNames(uid),
-    ]);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const report = buildSavingsContributions({
-      transactions: txs,
-      displayNames,
-      asOfDate: getDateForDateInTimezone(new Date(), financeTz),
-    });
-    const destination = report.destinations.find(item => item.destinationId === destinationId);
-    if (!destination) {
-      return res.status(404).json({ error: 'Savings destination not found.' });
-    }
-
-    const destinationRef = db.collection('users').doc(uid)
-      .collection('savings_destinations').doc(destinationId);
-    const existing = await destinationRef.get();
-    await destinationRef.set({
-      key: destination.key,
-      displayName,
-      // Preserved across renames: this records when the owner first named the
-      // destination, not when they last edited the name.
-      createdAt: existing.data()?.createdAt || Timestamp.now(),
-      updatedAt: Timestamp.now(),
-    }, { merge: true });
-    dashboardCache.invalidate(uid);
-
-    res.json({ destinationId, key: destination.key, displayName });
-  } catch (error: any) {
-    if (error instanceof SavingsDestinationRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error("Savings Destination Rename Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/dashboard/verification", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const txs = await fetchNormalizedTransactions((req as any).user.uid);
-    const financeTz = process.env.FINANCE_TIME_ZONE || "America/New_York";
-    const report = buildVerificationReport(txs, financeTz);
-    res.json({ ...report, transferCoverage: analyzeTransferCoverage(txs) });
-  } catch (error: any) {
-    console.error("Verification Report Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+app.use(createSavingsRouter({
+  requireAuth,
+  db,
+  now: () => Timestamp.now(),
+  loadTransactions: fetchNormalizedTransactions,
+  loadDestinationNames: loadSavingsDestinationNames,
+  invalidateDashboard: uid => dashboardCache.invalidate(uid),
+  currentDate: () => new Date(),
+  financeTimeZone: process.env.FINANCE_TIME_ZONE || "America/New_York",
+}));
 
 app.use(createTransactionRouter({
   requireAuth,
@@ -2804,43 +2403,6 @@ app.use(createTransactionRouter({
   invalidateDashboard: uid => dashboardCache.invalidate(uid),
   now: () => Timestamp.now(),
 }));
-
-// Accounts-page inventory. Combines linked Plaid accounts with owner-entered manual assets.
-// The separate /api/accounts route remains the transaction-ledger account source.
-app.get("/api/connected-accounts", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const context = await loadFinancialAccountContext(uid);
-    res.json({
-      accounts: context.accounts,
-      summary: context.summary,
-      financialPosition: context.financialPosition,
-    });
-  } catch (error: any) {
-    console.error("Connected Accounts Error:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post('/api/account-balances/refresh', requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const result = await captureDailyBalanceSnapshot(uid);
-    if (!result.hasSnapshotData) {
-      return res.status(result.errors.length > 0 ? 502 : 400).json({
-        error: result.errors.length > 0
-          ? 'No account balances could be refreshed.'
-          : 'No eligible accounts are available for a net-worth snapshot.',
-        ...result,
-      });
-    }
-    dashboardCache.invalidate(uid);
-    res.json({ success: true, ...result });
-  } catch (error: any) {
-    console.error('Balance Snapshot Capture Error:', error);
-    res.status(500).json({ error: error.message || 'Unable to capture account balances.' });
-  }
-});
 
 async function writeManualAccountSnapshot(input: {
   uid: string;
@@ -2872,117 +2434,17 @@ async function writeManualAccountSnapshot(input: {
   await batch.commit();
 }
 
-app.post('/api/manual-accounts', requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const now = new Date().toISOString();
-    const accountId = `manual_${crypto.randomUUID()}`;
-    const account = buildManualAccount(req.body, accountId, now);
-    await writeManualAccountSnapshot({ uid, account, balance: account.currentBalance, recordedAt: now, isNew: true });
-    dashboardCache.invalidate(uid);
-    res.status(201).json({ accountId, account });
-  } catch (error: any) {
-    if (error instanceof ManualAccountRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error('Manual Account Create Error:', error);
-    res.status(500).json({ error: 'Unable to create the manual account.' });
-  }
-});
-
-app.put('/api/manual-accounts/:accountId/balance', requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const accountId = String(req.params.accountId || '').trim();
-    if (!/^manual_[a-f0-9-]{36}$/.test(accountId)) {
-      return res.status(400).json({ error: 'A valid manual account is required.' });
-    }
-    const accountRef = db.collection('users').doc(uid).collection('manual_accounts').doc(accountId);
-    const accountDoc = await accountRef.get();
-    const account = parseStoredManualAccount(accountDoc.data());
-    if (!account) return res.status(404).json({ error: 'Manual account not found.' });
-    const balance = parseManualBalanceInput(req.body);
-    const now = new Date().toISOString();
-    await writeManualAccountSnapshot({ uid, account, balance, recordedAt: now, isNew: false });
-    dashboardCache.invalidate(uid);
-    res.json({ accountId, balance, updatedAt: now });
-  } catch (error: any) {
-    if (error instanceof ManualAccountRequestError) {
-      return res.status(error.status).json({ error: error.message });
-    }
-    console.error('Manual Account Balance Error:', error);
-    res.status(500).json({ error: 'Unable to update the manual balance.' });
-  }
-});
-
-app.put("/api/account-roles/:accountId", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const accountId = String(req.params.accountId || '').trim();
-    if (!accountId || accountId.length > 200) {
-      return res.status(400).json({ error: 'A valid account is required.' });
-    }
-    const role = parseAccountRoleInput(req.body?.role);
-    const [plaidItemsSnap, manualAccountDoc] = await Promise.all([
-      db.collection('plaid_items').where('userId', '==', uid).get(),
-      db.collection('users').doc(uid).collection('manual_accounts').doc(accountId).get(),
-    ]);
-    const accountExists = plaidItemsSnap.docs.some(document => {
-      const accounts = document.data().accounts;
-      return Array.isArray(accounts) && accounts.some(account => account?.id === accountId);
-    }) || manualAccountDoc.exists;
-    if (!accountExists) return res.status(404).json({ error: 'Account not found.' });
-
-    const roleRef = db.collection('users').doc(uid)
-      .collection('account_roles').doc(buildAccountRoleDocumentId(accountId));
-    if (role === null) {
-      await roleRef.delete();
-    } else {
-      await roleRef.set({ accountId, role, updatedAt: FieldValue.serverTimestamp() });
-    }
-    dashboardCache.invalidate(uid);
-    res.json({ accountId, role });
-  } catch (error: any) {
-    if (error instanceof AccountRoleRequestError) {
-      return res.status(400).json({ error: error.message });
-    }
-    console.error("Account Role Error:", error);
-    res.status(500).json({ error: 'Unable to save the account role.' });
-  }
-});
-
-// Ledger account inventory. Used by Transactions filters. Represents accounts present in normalized transaction history. Do not repurpose as the connected-account source.
-app.get("/api/accounts", requireAuth, async (req: express.Request, res: express.Response) => {
-  try {
-    const uid = (req as any).user.uid;
-    const txs = await fetchNormalizedTransactions(uid);
-    
-    // Fetch plaidItems for health from plaid_items collection
-    const plaidItemsSnap = await db.collection("plaid_items").where("userId", "==", uid).get();
-    const plaidItemsData = plaidItemsSnap.docs.map(doc => doc.data());
-    const itemHealthMap = buildAccountHealthMap(plaidItemsData);
-    
-    const accountsMap: Record<string, any> = {};
-    for (const t of txs) {
-      if (!accountsMap[t.accountId]) {
-        accountsMap[t.accountId] = {
-          accountId: t.accountId,
-          institutionName: t.institutionName,
-          accountName: t.accountName,
-          accountMask: t.accountMask,
-          accountType: t.accountType,
-          accountSubtype: t.accountSubtype,
-          health: itemHealthMap.get(t.accountId) || "unknown"
-        };
-      }
-    }
-    
-    res.json(Object.values(accountsMap));
-  } catch (error: any) {
-    console.error(error);
-    res.status(500).json({ error: error.message });
-  }
-});
+app.use(createAccountsRouter({
+  requireAuth,
+  db,
+  loadFinancialAccountContext,
+  captureDailyBalanceSnapshot,
+  writeManualAccountSnapshot,
+  loadTransactions: fetchNormalizedTransactions,
+  invalidateDashboard: uid => dashboardCache.invalidate(uid),
+  currentDate: () => new Date(),
+  randomUuid: () => crypto.randomUUID(),
+}));
 
 app.use(createWalmartRouter({
   requireAuth,
