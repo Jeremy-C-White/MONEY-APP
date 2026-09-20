@@ -130,7 +130,6 @@ export function buildSpendingBreakdown(input: {
     }
   }
 
-  const totalSpending = [...currentCategories.values()].reduce((total, bucket) => total + bucket.spending, 0);
   const buildRows = (current: Map<string, Bucket>, previous: Map<string, Bucket>) => (
     [...current.entries()]
       .filter(([, bucket]) => bucket.spending > 0)
@@ -153,11 +152,13 @@ export function buildSpendingBreakdown(input: {
       })
       .sort((left, right) => right.currentSpending - left.currentSpending || left.key.localeCompare(right.key))
   );
+  const categoryRows = buildRows(currentCategories, previousCategories);
+  const visibleCategorySpending = categoryRows.reduce((total, row) => total + row.currentSpending, 0);
 
   return {
     period: input.period,
     ...ranges,
-    categories: buildRows(currentCategories, previousCategories).map(row => {
+    categories: categoryRows.map(row => {
       const bucket = currentCategories.get(row.key)!;
       return {
         category: bucket.category,
@@ -172,7 +173,7 @@ export function buildSpendingBreakdown(input: {
         difference: row.difference,
         percentageChange: row.percentageChange,
         transactionCount: row.transactionCount,
-        percentage: totalSpending > 0 ? row.currentSpending / totalSpending : 0,
+        percentage: visibleCategorySpending > 0 ? row.currentSpending / visibleCategorySpending : 0,
       };
     }),
     merchants: buildRows(currentMerchants, previousMerchants).map(row => ({

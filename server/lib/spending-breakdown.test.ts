@@ -94,4 +94,23 @@ describe('buildSpendingBreakdown', () => {
       transactionCount: 1,
     });
   });
+
+  it('bases category percentages on the same positive rows that are displayed', () => {
+    const report = buildSpendingBreakdown({
+      asOfDate: '2026-09-19',
+      period: 'last_30_days',
+      transactions: [
+        transaction({ transactionId: 'food', normalizedDate: '2026-09-10', normalizedCategory: 'Food', spendingAdjustment: 60 }),
+        transaction({ transactionId: 'shopping', normalizedDate: '2026-09-11', normalizedCategory: 'Shopping', spendingAdjustment: 40 }),
+        transaction({
+          transactionId: 'reward', normalizedDate: '2026-09-12', normalizedCategory: 'REWARDS',
+          classification: 'merchant_credit', cashFlowAmount: 10, spendingAdjustment: -10,
+        }),
+      ],
+    });
+
+    expect(report.categories.map(category => category.category)).toEqual(['Food', 'Shopping']);
+    expect(report.categories.map(category => category.percentage)).toEqual([0.6, 0.4]);
+    expect(report.categories.reduce((total, category) => total + category.percentage, 0)).toBe(1);
+  });
 });
