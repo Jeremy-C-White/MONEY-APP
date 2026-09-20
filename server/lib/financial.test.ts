@@ -411,7 +411,7 @@ describe('Confirmed transfer reconciliation', () => {
 
   it('classifies the owner PayPal Visa Direct balance load as an internal transfer', () => {
     const tx = classifyTransaction(buildRow({
-      name: 'MONEY TRANSFER AUTHORIZED ON 07/30 White Jeremy Visa Direct CA S585211486237120 CARD 3625',
+      name: 'MONEY TRANSFER AUTHORIZED ON 02/14 White Jeremy Visa Direct CA S585211486237120 CARD 4343',
       cashFlowAmount: '-150',
       catPrimary: 'TRANSFER_OUT',
       catDetailed: 'TRANSFER_OUT_TRANSFER_OUT_FROM_APPS'

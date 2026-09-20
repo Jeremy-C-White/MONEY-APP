@@ -56,4 +56,25 @@ describe('analyzeCardPaymentCoverage', () => {
     expect(report.withoutPurchaseDetail).toEqual({ transactionCount: 1, amount: 500, payees: ['Amazon Store Card'] });
     expect(report.beforeLinkedHistory).toEqual({ transactionCount: 1, amount: 900, payees: ['Capital One'] });
   });
+
+  it('keeps OnePay linked when dated descriptors miss different matching windows', () => {
+    const transactions = [
+      transaction({ transactionId: 'onepay-april', normalizedDate: '2026-04-06', name: 'ONEPAY CASHREWRD SYF PAYMNT APR 06', normalizedMerchant: 'ONEPAY CASHREWRD SYF PAYMNT APR 06', merchantKey: null, cashFlowAmount: -500 }),
+      transaction({ transactionId: 'onepay-april-card', accountId: 'onepay-card', accountType: 'credit', normalizedDate: '2026-04-10', name: 'PAYMENT', normalizedMerchant: 'Payment', merchantKey: 'payment', cashFlowAmount: 500 }),
+      transaction({ transactionId: 'onepay-may', normalizedDate: '2026-05-26', name: 'ONEPAY CASHREWRD SYF PAYMNT MAY 26', normalizedMerchant: 'ONEPAY CASHREWRD SYF PAYMNT MAY 26', merchantKey: null, cashFlowAmount: -700 }),
+      transaction({ transactionId: 'onepay-may-card', accountId: 'onepay-card', accountType: 'credit', normalizedDate: '2026-05-27', name: 'PAYMENT', normalizedMerchant: 'Payment', merchantKey: 'payment', cashFlowAmount: 700 }),
+      transaction({ transactionId: 'onepay-history', accountId: 'onepay-card', accountType: 'credit', normalizedDate: '2025-10-01', classification: 'spending', cashFlowAmount: -25 }),
+      transaction({ transactionId: 'amazon', normalizedDate: '2026-08-01', normalizedMerchant: 'Amazon Store Card', merchantKey: 'amazon store card', cashFlowAmount: -500 }),
+    ];
+
+    for (const dateWindowDays of [3, 5]) {
+      const report = analyzeCardPaymentCoverage({
+        startDate: '2025-09-21', endDate: '2026-09-20', transactions, dateWindowDays,
+      });
+      expect(report.withoutPurchaseDetail).toEqual({
+        transactionCount: 1, amount: 500, payees: ['Amazon Store Card'],
+      });
+      expect(report.beforeLinkedHistory).toEqual({ transactionCount: 0, amount: 0, payees: [] });
+    }
+  });
 });

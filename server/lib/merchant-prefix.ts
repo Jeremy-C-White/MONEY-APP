@@ -3,15 +3,19 @@ const MIN_PREFIX_TOKENS = 2;
 
 const DATE_LIKE_TOKEN = /^\d{1,2}[/-]\d{1,2}([/-]\d{2,4})?$/;
 const DIGIT_RUN = /\d{4,}/;
+const MONTH_ABBREVIATION = /^(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)$/i;
+const BARE_DAY_NUMBER = /^\d{1,2}$/;
 
-// Transaction-specific noise: a long digit run, a date, or a reference code
-// mixing letters and digits. Anything before the first such token is what
-// repeats across transactions from the same merchant.
+// Transaction-specific noise: a long digit run, a formatted or split date,
+// or a reference code mixing letters and digits. Anything before the first
+// such token is what repeats across transactions from the same merchant.
 function isNoiseToken(token: string): boolean {
   const stripped = token.replace(/[^a-zA-Z0-9/-]/g, '');
   if (!stripped) return false;
   if (DATE_LIKE_TOKEN.test(stripped)) return true;
   if (DIGIT_RUN.test(stripped)) return true;
+  if (MONTH_ABBREVIATION.test(stripped)) return true;
+  if (BARE_DAY_NUMBER.test(stripped)) return true;
   return /[a-zA-Z]/.test(stripped) && /[0-9]/.test(stripped);
 }
 

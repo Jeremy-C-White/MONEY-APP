@@ -24,6 +24,15 @@ describe('deriveMerchantPrefix', () => {
     expect(deriveMerchantPrefix('ACME HARDWARE STORE 06/01 PURCHASE')).toBe('acme hardware store');
   });
 
+  it('removes standalone month and day tokens from dated payment descriptions', () => {
+    expect(deriveMerchantPrefix('ONEPAY CASHREWRD SYF PAYMNT APR 06'))
+      .toBe('onepay cashrewrd syf paymnt');
+    expect(deriveMerchantPrefix('ONEPAY CASHREWRD SYF PAYMNT JAN 20'))
+      .toBe('onepay cashrewrd syf paymnt');
+    expect(deriveMerchantPrefix('LOCAL GYM PAYMENT 06 APR'))
+      .toBe('local gym payment');
+  });
+
   it('rejects a derivation shorter than the minimum length or token count', () => {
     expect(deriveMerchantPrefix('SQ *A1 208402')).toBeNull();
     expect(deriveMerchantPrefix('AMZN 4728901234')).toBeNull();
