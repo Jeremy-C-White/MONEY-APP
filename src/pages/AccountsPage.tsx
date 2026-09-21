@@ -262,6 +262,9 @@ export function AccountsPage({
   const [showManualForm, setShowManualForm] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState<string | null>(null);
+  const [snapshotting, setSnapshotting] = useState(false);
+  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
+  const [snapshotError, setSnapshotError] = useState<string | null>(null);
   const [manualDraft, setManualDraft] = useState({
     institutionName: 'Apple / Goldman Sachs',
     accountName: 'Apple Savings',
@@ -350,6 +353,26 @@ export function AccountsPage({
       setManualError(err instanceof Error ? err.message : 'Unable to update this balance.');
     } finally {
       setManualSaving(false);
+    }
+  };
+
+  const captureBalances = async () => {
+    setSnapshotting(true);
+    setSnapshotMessage(null);
+    setSnapshotError(null);
+    try {
+      const response = await apiFetch('/api/account-balances/refresh', { method: 'POST' });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(payload?.error || 'Unable to capture balances.');
+      const issueCount = Array.isArray(payload?.errors) ? payload.errors.length : 0;
+      setSnapshotMessage(issueCount > 0
+        ? `Balances were saved with ${issueCount} connection ${issueCount === 1 ? 'issue' : 'issues'}.`
+        : "Today's balances were saved.");
+      await loadAccounts();
+    } catch (snapshotCaptureError) {
+      setSnapshotError(snapshotCaptureError instanceof Error ? snapshotCaptureError.message : 'Unable to capture balances.');
+    } finally {
+      setSnapshotting(false);
     }
   };
 
@@ -466,6 +489,15 @@ export function AccountsPage({
             {showManualForm ? 'Close form' : 'Add account or asset'}
           </button>
           <button
+            type="button"
+            onClick={() => void captureBalances()}
+            disabled={snapshotting}
+            className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-sm font-semibold shadow-sm transition-colors disabled:cursor-wait disabled:opacity-60"
+          >
+            <RefreshCcw className={`w-4 h-4 ${snapshotting ? 'animate-spin' : ''}`} />
+            {snapshotting ? 'Capturing…' : 'Capture balances'}
+          </button>
+          <button
             onClick={() => setActiveTab('settings')}
             className="min-h-11 w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 rounded-xl bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 text-sm font-semibold shadow-sm transition-colors"
           >
@@ -474,6 +506,9 @@ export function AccountsPage({
           </button>
         </div>
       </header>
+
+      {snapshotMessage && <p className="mb-5 rounded-2xl bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{snapshotMessage}</p>}
+      {snapshotError && <p className="mb-5 rounded-2xl bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{snapshotError}</p>}
 
       {showManualForm && (
         <form onSubmit={createManualAccount} className="mb-6 rounded-3xl border border-violet-200 bg-violet-50 p-4 shadow-sm sm:p-6">

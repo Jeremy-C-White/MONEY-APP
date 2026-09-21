@@ -257,8 +257,8 @@ describe('OverviewPage', () => {
         if (endpoint.startsWith('/api/dashboard/spending-breakdown')) {
           return (payload as ReturnType<typeof overviewPayload>).spendingBreakdown;
         }
-        if (endpoint === '/api/account-balances/refresh') {
-          return { success: true, date: '2026-09-06', refreshedItemCount: 1, errors: [] };
+        if (endpoint.startsWith('/api/dashboard/trends')) {
+          return { monthly: (payload as ReturnType<typeof overviewPayload>).trends };
         }
         return payload;
       },
@@ -285,27 +285,26 @@ describe('OverviewPage', () => {
     return { apiFetch, onOpenPlanSettings, onViewTransactions, onOpenAccounts, onOpenShopping };
   }
 
-  it('leads with a single Now section for the current position', async () => {
+  it('leads with one safe-to-spend hero and compact position and pace rows', async () => {
     await renderOverview();
 
     const firstSection = container.querySelector('section');
     expect(firstSection?.textContent).toContain('Safe to spend');
     expect(firstSection?.textContent).toContain('$2,200.00');
-    expect(firstSection?.textContent).toContain('Estimated net worth');
+    expect(firstSection?.textContent).toContain('Net worth$4,000.00');
     expect(firstSection?.textContent).toContain('Checking$1,500.00');
     expect(firstSection?.textContent).toContain('Savings$2,500.00');
-    expect(firstSection?.textContent).toContain('total $4,000.00 in liquid cash');
-    expect(firstSection?.textContent).toContain('Net worth breakdown');
-    expect(firstSection?.textContent).toContain('Cash & savings$4,000.00');
-    expect(firstSection?.textContent).toContain('Up $100.00 since Sep 5, 2026');
-    expect(firstSection?.textContent).not.toContain('Credit balances');
+    expect(firstSection?.textContent).toContain('This week');
+    expect(firstSection?.textContent).toContain('This month');
+    expect(firstSection?.textContent).not.toContain('Net worth breakdown');
   });
 
   it('makes coverage gaps actionable without counting them as extra spending', async () => {
     const { onOpenAccounts, onViewTransactions } = await renderOverview();
-    expect(container.textContent).toContain('How complete is the picture?');
+    expect(container.textContent).toContain('2 cards without purchase detail');
     expect(container.textContent).not.toContain("Plaid wasn't sure");
-    expect(container.textContent).toContain('Card payments and person-to-person transfers are context, not extra spending.');
+    const coverageButton = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('2 cards without purchase detail'));
+    await act(async () => coverageButton?.click());
     expect(container.textContent).toContain('Card purchases not visible');
     expect(container.textContent).toContain('At least $2,100.00');
     expect(container.textContent).toContain('before linked-card history began and is not counted above');
@@ -340,27 +339,27 @@ describe('OverviewPage', () => {
       },
     }));
 
-    expect(container.textContent).toContain('Investments & retirement$100,000.00');
-    expect(container.textContent).toContain('Homes & vehicles$400,000.00');
-    expect(container.textContent).toContain('Up $1,000.00 since Sep 5, 2026');
-    expect(container.textContent).not.toContain('Credit balances');
+    expect(container.textContent).toContain('Net worth$504,000.00');
+    expect(container.textContent).toContain('Net worth historyLast 12 months');
+    expect(container.textContent).not.toContain('Net worth breakdown');
   });
 
-  it('shows Now, Heading, and Looking back without a detail disclosure', async () => {
+  it('shows the simplified sections and uses a 30D default', async () => {
     const { apiFetch } = await renderOverview();
 
-    expect(container.textContent).toContain('Now');
-    expect(container.textContent).toContain('Heading');
-    expect(container.textContent).toContain('Looking back');
-    expect(container.textContent).toContain('Projected month-end spending');
-    expect(container.textContent).toContain('Top merchants');
+    expect(container.textContent).toContain('Coming up');
+    expect(container.textContent).toContain('Where your money went');
+    expect(container.textContent).toContain('Trends');
+    expect(container.textContent).toContain('Merchants');
     expect(container.textContent).toContain('Walmart');
     expect(container.textContent).toContain('Up from $250.00');
-    expect(container.textContent).toContain('Top categories');
+    expect(container.textContent).toContain('Categories');
     expect(container.textContent).toContain('Year-over-year is not comparable — 1 account was added since last year.');
     expect(container.textContent).not.toContain('More detail');
     expect(container.textContent).not.toContain('Connected-account position');
     expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/spending-breakdown?period=last_30_days');
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/trends?range=last_30_days');
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/overview?range=last_12_months');
   });
 
   it('drills into a merchant using the exact date range returned by the server', async () => {
@@ -382,28 +381,20 @@ describe('OverviewPage', () => {
   it('renders the pacing comparison only once', async () => {
     await renderOverview();
     expect(container.textContent?.match(/same point last month/g)).toHaveLength(1);
-    expect(container.textContent).toContain('Rewards this year');
+    expect(container.textContent).toContain('Cash back this year');
     expect(container.textContent).toContain('$126.25');
   });
 
-  it('captures a net-worth snapshot independently from transaction sync', async () => {
-    const oneSnapshot = {
-      ...overviewPayload().financialPosition,
-      netWorthHistory: [
-        { date: '2026-09-06', estimatedNetWorth: 4000, liquidCash: 4000, coveredAccountCount: 1, expectedAccountCount: 1, status: 'complete' },
-      ],
-    };
-    const { apiFetch } = await renderOverview(overviewPayload({ financialPosition: oneSnapshot }));
+  it('changes spending and cash-flow periods without refetching the overview', async () => {
+    const { apiFetch } = await renderOverview();
+    const twelveMonths = Array.from(container.querySelectorAll('button'))
+      .find(button => button.textContent?.trim() === '12M');
+    await act(async () => twelveMonths?.click());
 
-    expect(container.textContent).toContain('Snapshot saved for Sep 6, 2026');
-    expect(container.textContent).toContain('Capture another day to start the net-worth trend.');
-
-    const captureButton = Array.from(container.querySelectorAll('button'))
-      .find(button => button.textContent?.includes('Capture today')) as HTMLButtonElement;
-    await act(async () => captureButton.click());
-
-    expect(apiFetch).toHaveBeenCalledWith('/api/account-balances/refresh', { method: 'POST' });
-    expect(container.textContent).toContain("Today's net-worth snapshot was saved.");
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/trends?range=last_12_months'));
+    expect(apiFetch).toHaveBeenCalledWith('/api/dashboard/spending-breakdown?period=last_12_months');
+    expect(apiFetch.mock.calls.filter(([endpoint]) => endpoint === '/api/dashboard/overview?range=last_12_months')).toHaveLength(1);
+    expect(container.textContent).not.toContain('Capture today');
   });
 
   it('withholds the figure and explains why when balances are not fresh', async () => {
@@ -422,7 +413,7 @@ describe('OverviewPage', () => {
       },
     }));
 
-    expect(container.textContent).toContain('Safe to spend is unavailable');
+    expect(container.textContent).toContain("Safe to spend isn't available yet");
     expect(container.textContent).not.toContain('$2,200.00');
   });
 });

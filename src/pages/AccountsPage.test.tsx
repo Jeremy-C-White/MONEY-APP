@@ -133,7 +133,7 @@ describe('AccountsPage', () => {
     data: unknown = connectedAccountsResponse,
     setActiveTab = vi.fn()
   ) {
-    const apiFetch = vi.fn(async () => apiResponse(data));
+    const apiFetch = vi.fn(async (_endpoint?: string, _options?: RequestInit) => apiResponse(data));
 
     await act(async () => {
       root.render(
@@ -389,6 +389,22 @@ describe('AccountsPage', () => {
       }),
     }));
     expect(apiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('captures balance history from the Accounts page', async () => {
+    const { apiFetch } = await renderAccounts();
+    await vi.waitFor(() => expect(container.textContent).toContain('Capture balances'));
+    apiFetch.mockImplementation(async (endpoint: string) => endpoint === '/api/account-balances/refresh'
+      ? apiResponse({ success: true, date: '2026-09-07', refreshedItemCount: 1, errors: [] })
+      : apiResponse(connectedAccountsResponse));
+
+    const capture = Array.from(container.querySelectorAll('button')).find(
+      button => button.textContent?.includes('Capture balances')
+    );
+    await act(async () => capture?.click());
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/account-balances/refresh', { method: 'POST' });
+    expect(container.textContent).toContain("Today's balances were saved.");
   });
 
   it('adds a home estimate with a simple Zillow lookup and keeps it out of spendable cash', async () => {

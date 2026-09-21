@@ -70,9 +70,9 @@ describe('CategoryBreakdownCard', () => {
     expect(container.textContent).toContain('Merchant 5');
     expect(container.textContent).not.toContain('Merchant 6');
 
-    const showMore = Array.from(container.querySelectorAll('button')).find(
+    const showMore = Array.from(container.querySelectorAll('button')).filter(
       button => button.textContent?.includes('Show 5 more')
-    ) as HTMLButtonElement;
+    )[1] as HTMLButtonElement;
     await act(async () => showMore.click());
     expect(container.textContent).toContain('Merchant 10');
     expect(container.textContent).not.toContain('Merchant 11');
@@ -119,7 +119,7 @@ describe('CategoryBreakdownCard', () => {
       root.render(<CategoryBreakdownCard apiFetch={apiFetch} refreshKey={0} period="last_30_days" onDrillDown={onDrillDown} />);
     });
     await vi.waitFor(() => expect(container.textContent).toContain('Amazon'));
-    const showMore = Array.from(container.querySelectorAll('button')).find(button => button.textContent?.includes('Show 5 more')) as HTMLButtonElement;
+    const showMore = Array.from(container.querySelectorAll('button')).filter(button => button.textContent?.includes('Show 5 more'))[1] as HTMLButtonElement;
     await act(async () => showMore.click());
     expect(container.textContent).toContain('Merchant 10');
 

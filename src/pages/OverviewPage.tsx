@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertCircle, ArrowRight, RefreshCcw } from 'lucide-react';
+import { AlertCircle, ArrowRight, ChevronRight, RefreshCcw } from 'lucide-react';
 import { TrendChart } from '../components/TrendChart';
 import { NetWorthTrendChart } from '../components/NetWorthTrendChart';
 import { OverviewHeadingCard } from '../components/OverviewHeadingCard';
@@ -7,19 +7,11 @@ import { OverviewNowCard } from '../components/OverviewNowCard';
 import { CategoryBreakdownCard, type SpendingDrilldown } from '../components/CategoryBreakdownCard';
 import { CoverageCard } from '../components/CoverageCard';
 import { formatCurrency, formatMonthLabel } from '../lib/formatters';
-import { extractOverviewResponse } from '../lib/api-contracts';
+import { extractOverviewResponse, extractTrendsResponse } from '../lib/api-contracts';
 import { INSIGHT_PERIOD_OPTIONS } from '../lib/insight-periods';
-import type { DashboardOverviewResponse, WalmartInsightPeriod } from '../types/finance';
+import type { DashboardOverviewResponse, TrendPoint, WalmartInsightPeriod } from '../types/finance';
 
-export function OverviewPage({
-  apiFetch,
-  refreshKey,
-  onReviewTransactions,
-  onViewTransactions,
-  onOpenPlanSettings,
-  onOpenAccounts = () => undefined,
-  onOpenShopping = () => undefined,
-}: {
+export function OverviewPage({ apiFetch, refreshKey, onReviewTransactions, onViewTransactions, onOpenPlanSettings, onOpenAccounts = () => undefined, onOpenShopping = () => undefined }: {
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   refreshKey: number;
   onReviewTransactions: () => void;
@@ -31,17 +23,15 @@ export function OverviewPage({
   const [overview, setOverview] = useState<DashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [trendRange, setTrendRange] = useState<WalmartInsightPeriod>('last_12_months');
-  const [spendingPeriod, setSpendingPeriod] = useState<WalmartInsightPeriod>('last_30_days');
-  const [snapshotting, setSnapshotting] = useState(false);
-  const [snapshotMessage, setSnapshotMessage] = useState<string | null>(null);
-  const [snapshotError, setSnapshotError] = useState<string | null>(null);
+  const [period, setPeriod] = useState<WalmartInsightPeriod>('last_30_days');
+  const [trends, setTrends] = useState<TrendPoint[]>([]);
+  const [trendsLoading, setTrendsLoading] = useState(true);
 
   const fetchData = async () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiFetch(`/api/dashboard/overview?range=${trendRange}`);
+      const response = await apiFetch('/api/dashboard/overview?range=last_12_months');
       if (!response.ok) throw new Error('Failed to load overview data.');
       setOverview(extractOverviewResponse(await response.json()));
     } catch (err: unknown) {
@@ -52,185 +42,100 @@ export function OverviewPage({
     }
   };
 
-  useEffect(() => {
-    void fetchData();
-  }, [trendRange, refreshKey]);
+  useEffect(() => { void fetchData(); }, [refreshKey]);
 
-  const captureSnapshot = async () => {
-    setSnapshotting(true);
-    setSnapshotMessage(null);
-    setSnapshotError(null);
-    try {
-      const response = await apiFetch('/api/account-balances/refresh', { method: 'POST' });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(payload?.error || 'Unable to capture balances.');
-      const issueCount = Array.isArray(payload?.errors) ? payload.errors.length : 0;
-      setSnapshotMessage(issueCount > 0
-        ? `Today's snapshot was saved with ${issueCount} connection ${issueCount === 1 ? 'issue' : 'issues'}.`
-        : "Today's net-worth snapshot was saved.");
-      await fetchData();
-    } catch (snapshotCaptureError) {
-      setSnapshotError(snapshotCaptureError instanceof Error
-        ? snapshotCaptureError.message
-        : 'Unable to capture balances.');
-    } finally {
-      setSnapshotting(false);
-    }
-  };
+  useEffect(() => {
+    let active = true;
+    const loadTrends = async () => {
+      setTrendsLoading(true);
+      try {
+        const response = await apiFetch(`/api/dashboard/trends?range=${period}`);
+        if (!response.ok) throw new Error('Failed to load trend data.');
+        const next = extractTrendsResponse(await response.json());
+        if (active) setTrends(next);
+      } catch (trendError) {
+        console.error(trendError);
+      } finally {
+        if (active) setTrendsLoading(false);
+      }
+    };
+    void loadTrends();
+    return () => { active = false; };
+  }, [apiFetch, period, refreshKey]);
 
   if (error && !overview) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white p-8 shadow-sm">
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-50">
-          <AlertCircle className="h-6 w-6 text-rose-500" />
-        </div>
+      <div className="flex flex-col items-center justify-center rounded-2xl bg-white p-8 shadow-sm">
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-rose-50"><AlertCircle className="h-6 w-6 text-rose-500" /></div>
         <h3 className="mb-2 text-lg font-medium text-slate-900">Unable to load dashboard</h3>
         <p className="mb-6 max-w-sm text-center text-slate-500">{error}</p>
-        <button onClick={() => void fetchData()} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 font-medium text-white transition-colors hover:bg-indigo-700">
-          <RefreshCcw className="h-4 w-4" /><span>Retry</span>
-        </button>
+        <button onClick={() => void fetchData()} className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2 font-medium text-white hover:bg-indigo-700"><RefreshCcw className="h-4 w-4" />Retry</button>
       </div>
     );
   }
 
+  const periodLabel = INSIGHT_PERIOD_OPTIONS.find(option => option.value === period)?.label || '30D';
+
   return (
     <div className="w-full pb-20 md:pb-8">
-      {overview?.summary.currentMonth.month && (
-        <h2 className="mb-6 text-xl font-bold text-slate-900">{formatMonthLabel(overview.summary.currentMonth.month)}</h2>
-      )}
-
-      {error && overview && (
-        <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
-          <span className="text-xs font-medium">Refresh failed. Showing the last known state.</span>
-          <button onClick={() => void fetchData()} className="text-xs font-medium underline">Retry</button>
-        </div>
-      )}
-
+      {overview?.summary.currentMonth.month && <h1 className="mb-5 text-xl font-semibold text-slate-950">{formatMonthLabel(overview.summary.currentMonth.month)}</h1>}
+      {error && overview && <div className="mb-4 flex items-center justify-between gap-4 rounded-xl bg-rose-50 px-4 py-3 text-rose-700"><span className="text-xs font-medium">Refresh failed. Showing the last known state.</span><button onClick={() => void fetchData()} className="text-xs font-medium underline">Retry</button></div>}
       {overview?.verification.reconciliation.unknownTransferCount ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-          <span>
-            <AlertCircle className="mr-1.5 inline h-4 w-4" />
-            {overview.verification.reconciliation.unknownTransferCount} unclassified {overview.verification.reconciliation.unknownTransferCount === 1 ? 'transfer' : 'transfers'} ({formatCurrency(overview.verification.reconciliation.unknownTransferAmount)}) excluded from totals.
-          </span>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-amber-50 px-4 py-3 text-xs text-amber-800">
+          <span>{overview.verification.reconciliation.unknownTransferCount} unclassified {overview.verification.reconciliation.unknownTransferCount === 1 ? 'transfer' : 'transfers'} ({formatCurrency(overview.verification.reconciliation.unknownTransferAmount)}) excluded from totals.</span>
           <button onClick={onReviewTransactions} className="font-semibold underline">Review</button>
         </div>
       ) : null}
 
-      <OverviewNowCard
-        safeToSpend={overview?.safeToSpend || null}
-        financialPosition={overview?.financialPosition || null}
-        insights={overview?.householdInsights || null}
-        rewardsYtd={overview?.rewardsYtd || null}
-        loading={loading && !overview}
-        onEditBuffer={onOpenPlanSettings}
-      />
+      <OverviewNowCard safeToSpend={overview?.safeToSpend || null} financialPosition={overview?.financialPosition || null} insights={overview?.householdInsights || null} loading={loading && !overview} onEditBuffer={onOpenPlanSettings} onOpenAccounts={onOpenAccounts} />
+      <OverviewHeadingCard summary={overview?.summary || null} insights={overview?.householdInsights || null} forecast={overview?.cashFlowForecast || null} loading={loading && !overview} />
 
-      <OverviewHeadingCard
-        summary={overview?.summary || null}
-        insights={overview?.householdInsights || null}
-        forecast={overview?.cashFlowForecast || null}
-        loading={loading && !overview}
-      />
-
-      <CoverageCard
-        coverage={overview?.coverage || null}
-        loading={loading && !overview}
-        onViewTransactions={onViewTransactions}
-        onOpenAccounts={onOpenAccounts}
-      />
-
-      <section className="mb-8">
-        <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Looking back</p>
-            <h3 className="mt-1 text-lg font-medium text-slate-900">How your money has moved</h3>
-          </div>
-          <div className="flex rounded-lg bg-slate-100 p-1">
-            {INSIGHT_PERIOD_OPTIONS.map(option => (
-              <button
-                key={option.value}
-                onClick={() => setTrendRange(option.value)}
-                className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${trendRange === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+      <section className="mb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold text-slate-950">Where your money went</h2>
+          <PeriodControl period={period} onChange={setPeriod} />
         </div>
+        <CategoryBreakdownCard apiFetch={apiFetch} refreshKey={refreshKey} period={period} onDrillDown={onViewTransactions} onOpenShopping={onOpenShopping} />
+      </section>
 
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="text-lg font-medium text-slate-900">Net worth history</h3>
-              <button
-                type="button"
-                onClick={() => void captureSnapshot()}
-                disabled={snapshotting}
-                className="inline-flex min-h-9 items-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-wait disabled:opacity-60"
-              >
-                <RefreshCcw className={`h-3.5 w-3.5 ${snapshotting ? 'animate-spin' : ''}`} />
-                {snapshotting ? 'Capturing…' : 'Capture today'}
-              </button>
-            </div>
-            {snapshotMessage && <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">{snapshotMessage}</p>}
-            {snapshotError && <p className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">{snapshotError}</p>}
-            <NetWorthTrendChart financialPosition={overview?.financialPosition || null} />
-          </div>
-          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
-            <h3 className="mb-4 text-lg font-medium text-slate-900">Cash flow trends</h3>
-            <TrendChart data={overview?.trends || []} loading={loading && !overview} />
+      <section className="mb-6">
+        <h2 className="mb-3 text-lg font-semibold text-slate-950">Trends</h2>
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl bg-white p-5 shadow-sm md:p-7">
+            <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-950">Cash flow</h3><span className="text-xs font-medium text-slate-500">{periodLabel}</span></div>
+            <TrendChart data={trends} loading={trendsLoading && trends.length === 0} />
             {overview?.yearOverYear.status === 'comparable' && (
-              <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-medium ${overview.yearOverYear.difference > 0 ? 'bg-rose-50 text-rose-700' : overview.yearOverYear.difference < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-600'}`}>
-                This month is {overview.yearOverYear.difference === 0
-                  ? 'level with'
-                  : `${formatCurrency(Math.abs(overview.yearOverYear.difference))} ${overview.yearOverYear.difference > 0 ? 'above' : 'below'}`} the same days last year.
-              </p>
+              <p className={`mt-3 text-xs font-medium ${overview.yearOverYear.difference > 0 ? 'text-rose-600' : overview.yearOverYear.difference < 0 ? 'text-emerald-600' : 'text-slate-500'}`}>This month is {overview.yearOverYear.difference === 0 ? 'level with' : `${formatCurrency(Math.abs(overview.yearOverYear.difference))} ${overview.yearOverYear.difference > 0 ? 'above' : 'below'}`} the same days last year.</p>
             )}
             {overview?.yearOverYear.status === 'not_comparable' && (
-              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs font-medium text-slate-600">
-                Year-over-year is not comparable
-                {overview.yearOverYear.addedAccountCount > 0
-                  ? ` — ${overview.yearOverYear.addedAccountCount} ${overview.yearOverYear.addedAccountCount === 1 ? 'account was' : 'accounts were'} added since last year.`
-                  : ` — ${overview.yearOverYear.removedAccountCount} ${overview.yearOverYear.removedAccountCount === 1 ? 'account is' : 'accounts are'} no longer represented.`}
-              </p>
+              <p className="mt-3 text-xs text-slate-500">Year-over-year is not comparable — {overview.yearOverYear.addedAccountCount > 0 ? `${overview.yearOverYear.addedAccountCount} ${overview.yearOverYear.addedAccountCount === 1 ? 'account was' : 'accounts were'} added since last year.` : `${overview.yearOverYear.removedAccountCount} ${overview.yearOverYear.removedAccountCount === 1 ? 'account is' : 'accounts are'} no longer represented.`}</p>
             )}
           </div>
-        </div>
-
-        <div className="mt-6">
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-medium text-slate-900">Where your money went</h3>
-              <p className="mt-1 text-xs text-slate-500">Top five by default, with more detail when you want it</p>
-            </div>
-            <div className="flex rounded-lg bg-slate-100 p-1">
-              {INSIGHT_PERIOD_OPTIONS.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => setSpendingPeriod(option.value)}
-                  className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${spendingPeriod === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                >
-                  {option.label}
-                </button>
-              ))}
-            </div>
+          <div className="rounded-2xl bg-white p-5 shadow-sm md:p-7">
+            <div className="mb-4 flex items-center justify-between gap-3"><h3 className="text-sm font-semibold text-slate-950">Net worth history</h3><span className="text-xs font-medium text-slate-500">Last 12 months</span></div>
+            <NetWorthTrendChart financialPosition={overview?.financialPosition || null} />
           </div>
-          <CategoryBreakdownCard
-            apiFetch={apiFetch}
-            refreshKey={refreshKey}
-            period={spendingPeriod}
-            onDrillDown={onViewTransactions}
-            onOpenShopping={onOpenShopping}
-          />
         </div>
       </section>
 
-      <div className="flex justify-end">
-        <button type="button" onClick={() => onViewTransactions()} className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700">
-          View all transactions <ArrowRight className="h-4 w-4" />
+      <div className="mb-4 rounded-2xl bg-white px-5 shadow-sm md:px-7">
+        <button type="button" onClick={() => overview?.rewardsYtd && onViewTransactions({ category: 'REWARDS', startDate: overview.rewardsYtd.startDate, endDate: overview.rewardsYtd.endDate })} className="flex min-h-16 w-full items-center gap-3 py-3 text-left">
+          <span className="flex-1 text-sm font-medium text-slate-800">Cash back this year</span>
+          <span className="tabular-nums text-sm font-semibold text-slate-950">{overview?.rewardsYtd ? formatCurrency(overview.rewardsYtd.amount) : 'Not available'}</span>
+          <ChevronRight className="h-4 w-4 text-slate-300" />
         </button>
       </div>
+      <CoverageCard coverage={overview?.coverage || null} loading={loading && !overview} onViewTransactions={onViewTransactions} onOpenAccounts={onOpenAccounts} />
+
+      <div className="mt-6 flex justify-end"><button type="button" onClick={() => onViewTransactions()} className="inline-flex min-h-11 items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:text-indigo-700">View all transactions <ArrowRight className="h-4 w-4" /></button></div>
+    </div>
+  );
+}
+
+function PeriodControl({ period, onChange }: { period: WalmartInsightPeriod; onChange: (period: WalmartInsightPeriod) => void }) {
+  return (
+    <div className="flex rounded-lg bg-slate-200/70 p-1" aria-label="Overview period">
+      {INSIGHT_PERIOD_OPTIONS.map(option => <button key={option.value} type="button" onClick={() => onChange(option.value)} className={`flex min-h-9 min-w-11 items-center justify-center rounded-md px-3 py-1.5 text-xs font-medium ${period === option.value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{option.label}</button>)}
     </div>
   );
 }
