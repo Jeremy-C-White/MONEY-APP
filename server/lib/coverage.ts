@@ -17,7 +17,6 @@ export type CoverageMetric = { transactionCount: number; amount: number };
 
 export type CoverageReport = {
   period: { startDate: string; endDate: string };
-  lowConfidence: CoverageMetric;
   personToPerson: CoverageMetric;
   cardPayments: CardPaymentCoverageMetric;
   cardPaymentsBeforeHistory: CardPaymentCoverageMetric;
@@ -49,11 +48,6 @@ export function buildCoverageReport(input: {
     !transaction.removed &&
     transaction.normalizedDate >= period.startDate &&
     transaction.normalizedDate <= period.endDate
-  ));
-  const lowConfidenceTransactions = transactions.filter(transaction => (
-    transaction.countsTowardSpending &&
-    transaction.categoryConfidence === 'LOW' &&
-    !transaction.householdLabel
   ));
   const personToPersonTransactions = transactions.filter(transaction => (
     transaction.classification === 'person_to_person' && transaction.cashFlowAmount < 0
@@ -89,7 +83,6 @@ export function buildCoverageReport(input: {
 
   return {
     period,
-    lowConfidence: metric(lowConfidenceTransactions, transaction => transaction.spendingAdjustment),
     personToPerson: metric(personToPersonTransactions, transaction => -transaction.cashFlowAmount),
     cardPayments: cardPaymentCoverage.withoutPurchaseDetail,
     cardPaymentsBeforeHistory: cardPaymentCoverage.beforeLinkedHistory,

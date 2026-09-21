@@ -596,7 +596,7 @@ describe('TransactionsPage', () => {
     });
   });
 
-  it('opens low-confidence purchases as a household-label queue', async () => {
+  it('keeps low-confidence purchases in the normal list without turning labels into a chore', async () => {
     const requestedEndpoints: string[] = [];
     const uncertainTransaction = {
       ...mockTx,
@@ -609,7 +609,8 @@ describe('TransactionsPage', () => {
       requestedEndpoints.push(endpoint);
       if (endpoint === '/api/accounts') return { ok: true, json: async () => [] };
       if (endpoint === '/api/dashboard/categories') return { ok: true, json: async () => ({ categories: [] }) };
-      if (endpoint.includes('categoryConfidence=LOW')) {
+      if (endpoint === '/api/merchant-labels') return { ok: true, json: async () => ({ labels: [] }) };
+      if (endpoint.startsWith('/api/transactions?') && !endpoint.includes('classification=other')) {
         return {
           ok: true,
           json: async () => ({ transactions: [uncertainTransaction], total: 1, page: 1, limit: 25, totalPages: 1 }),
@@ -622,16 +623,14 @@ describe('TransactionsPage', () => {
     });
 
     await act(async () => {
-      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} initialViewMode="low_confidence" />);
+      root.render(<TransactionsPage apiFetch={apiFetch} refreshKey={0} />);
     });
 
     await vi.waitFor(() => {
-      expect(requestedEndpoints.some(endpoint => (
-        endpoint.includes('categoryConfidence=LOW') && endpoint.includes('unlabeled=true')
-      ))).toBe(true);
-      expect(container.textContent).toContain('1 low-confidence purchase needs a clearer household label.');
+      expect(requestedEndpoints.some(endpoint => endpoint.includes('categoryConfidence=LOW'))).toBe(false);
       expect(container.textContent).toContain('Add household label');
-      expect(container.textContent).toContain('Plaid unsure');
+      expect(container.textContent).not.toContain('Plaid Unsure');
+      expect(container.textContent).not.toContain('Plaid unsure');
     });
   });
 });

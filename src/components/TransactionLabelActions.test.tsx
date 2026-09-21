@@ -39,7 +39,7 @@ describe('TransactionLabelActions', () => {
   it('saves a household label for the merchant', async () => {
     const apiFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rule: { label: 'Preschool' } }) });
     const onChanged = vi.fn();
-    await act(async () => root.render(<TransactionLabelActions transaction={transaction()} apiFetch={apiFetch} onChanged={onChanged} emphasized />));
+    await act(async () => root.render(<TransactionLabelActions transaction={transaction()} apiFetch={apiFetch} onChanged={onChanged} />));
 
     await act(async () => (container.querySelector('button') as HTMLButtonElement).click());
     const input = container.querySelector('input') as HTMLInputElement;

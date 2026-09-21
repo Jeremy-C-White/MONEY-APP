@@ -17,7 +17,6 @@ export function OverviewPage({
   onReviewTransactions,
   onViewTransactions,
   onOpenPlanSettings,
-  onOpenLowConfidence = () => undefined,
   onOpenAccounts = () => undefined,
   onOpenShopping = () => undefined,
 }: {
@@ -26,7 +25,6 @@ export function OverviewPage({
   onReviewTransactions: () => void;
   onViewTransactions: (filters?: SpendingDrilldown) => void;
   onOpenPlanSettings?: () => void;
-  onOpenLowConfidence?: () => void;
   onOpenAccounts?: () => void;
   onOpenShopping?: () => void;
 }) {
@@ -137,7 +135,6 @@ export function OverviewPage({
       <CoverageCard
         coverage={overview?.coverage || null}
         loading={loading && !overview}
-        onOpenLowConfidence={onOpenLowConfidence}
         onViewTransactions={onViewTransactions}
         onOpenAccounts={onOpenAccounts}
       />

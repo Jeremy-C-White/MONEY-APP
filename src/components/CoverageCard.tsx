@@ -44,13 +44,11 @@ function MetricButton({
 export function CoverageCard({
   coverage,
   loading,
-  onOpenLowConfidence,
   onViewTransactions,
   onOpenAccounts,
 }: {
   coverage: CoverageReport | null;
   loading: boolean;
-  onOpenLowConfidence: () => void;
   onViewTransactions: (filters: CoverageDrilldown) => void;
   onOpenAccounts: () => void;
 }) {
@@ -63,15 +61,15 @@ export function CoverageCard({
     startDate: coverage.period.startDate,
     endDate: coverage.period.endDate,
   };
-  const lowCount = coverage.lowConfidence.transactionCount;
   const accountCount = coverage.accountIssues.accountCount;
+  const hasCoverageGap = accountCount > 0 || coverage.cardPayments.amount > 0;
 
   return (
     <section className="mb-8 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm md:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            {lowCount + accountCount > 0
+            {hasCoverageGap
               ? <AlertTriangle className="h-5 w-5 text-amber-500" />
               : <CheckCircle2 className="h-5 w-5 text-emerald-500" />}
             <h3 className="text-lg font-medium text-slate-900">How complete is the picture?</h3>
@@ -82,16 +80,7 @@ export function CoverageCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricButton
-          icon={<AlertTriangle className="h-4 w-4" />}
-          title="Plaid wasn't sure"
-          value={lowCount === 0 ? 'All clear' : `${lowCount} ${lowCount === 1 ? 'purchase' : 'purchases'}`}
-          detail={lowCount === 0
-            ? 'No unlabeled low-confidence purchases.'
-            : `${formatCurrency(coverage.lowConfidence.amount)} can be made clearer with household labels.`}
-          onClick={onOpenLowConfidence}
-        />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <MetricButton
           icon={<Users className="h-4 w-4" />}
           title="Between people"

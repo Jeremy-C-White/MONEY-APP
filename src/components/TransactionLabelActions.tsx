@@ -6,13 +6,11 @@ export function TransactionLabelActions({
   transaction,
   apiFetch,
   onChanged,
-  emphasized = false,
   suggestions = [],
 }: {
   transaction: Transaction;
   apiFetch: (endpoint: string, options?: RequestInit) => Promise<Response>;
   onChanged: () => void | Promise<void>;
-  emphasized?: boolean;
   suggestions?: string[];
 }) {
   const [editing, setEditing] = useState(false);
@@ -88,7 +86,7 @@ export function TransactionLabelActions({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold ${emphasized ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800'}`}
+            className="inline-flex min-h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800"
           >
             <Tag className="h-3.5 w-3.5" /> Add household label
           </button>

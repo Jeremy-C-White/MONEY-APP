@@ -73,12 +73,6 @@ export default function App() {
     setActiveTab('transactions');
   };
 
-  const openLowConfidence = () => {
-    setTransactionsInitialView('low_confidence');
-    setTransactionsInitialFilters({});
-    setActiveTab('transactions');
-  };
-
   const openPlanSettings = () => {
     setActiveTab('settings');
     // The plan card sits below the connection list, so bring it into view
@@ -532,7 +526,6 @@ export default function App() {
           onReviewTransactions={openNeedsReview}
           onViewTransactions={openTransactions}
           onOpenPlanSettings={openPlanSettings}
-          onOpenLowConfidence={openLowConfidence}
           onOpenAccounts={() => setActiveTab('accounts')}
           onOpenShopping={() => setActiveTab('walmart')}
         />

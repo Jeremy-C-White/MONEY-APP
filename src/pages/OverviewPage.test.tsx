@@ -216,7 +216,6 @@ function overviewPayload(overrides: Record<string, unknown> = {}) {
     },
     coverage: {
       period: { startDate: '2025-09-07', endDate: '2026-09-06' },
-      lowConfidence: { transactionCount: 3, amount: 420 },
       personToPerson: { transactionCount: 5, amount: 700 },
       cardPayments: { transactionCount: 8, amount: 2100, payees: ['Apple Card', "Sam's Club"] },
       cardPaymentsBeforeHistory: { transactionCount: 3, amount: 900, payees: ['Capital One'] },
@@ -266,7 +265,6 @@ describe('OverviewPage', () => {
     }) as Response);
     const onOpenPlanSettings = vi.fn();
     const onViewTransactions = vi.fn();
-    const onOpenLowConfidence = vi.fn();
     const onOpenAccounts = vi.fn();
     const onOpenShopping = vi.fn();
 
@@ -278,14 +276,13 @@ describe('OverviewPage', () => {
           onReviewTransactions={vi.fn()}
           onViewTransactions={onViewTransactions}
           onOpenPlanSettings={onOpenPlanSettings}
-          onOpenLowConfidence={onOpenLowConfidence}
           onOpenAccounts={onOpenAccounts}
           onOpenShopping={onOpenShopping}
         />
       );
     });
 
-    return { apiFetch, onOpenPlanSettings, onViewTransactions, onOpenLowConfidence, onOpenAccounts, onOpenShopping };
+    return { apiFetch, onOpenPlanSettings, onViewTransactions, onOpenAccounts, onOpenShopping };
   }
 
   it('leads with a single Now section for the current position', async () => {
@@ -305,20 +302,18 @@ describe('OverviewPage', () => {
   });
 
   it('makes coverage gaps actionable without counting them as extra spending', async () => {
-    const { onOpenLowConfidence, onOpenAccounts, onViewTransactions } = await renderOverview();
+    const { onOpenAccounts, onViewTransactions } = await renderOverview();
     expect(container.textContent).toContain('How complete is the picture?');
-    expect(container.textContent).toContain("Plaid wasn't sure");
+    expect(container.textContent).not.toContain("Plaid wasn't sure");
     expect(container.textContent).toContain('Card payments and person-to-person transfers are context, not extra spending.');
     expect(container.textContent).toContain('Card purchases not visible');
     expect(container.textContent).toContain('At least $2,100.00');
     expect(container.textContent).toContain('before linked-card history began and is not counted above');
 
     const buttons = Array.from(container.querySelectorAll('button'));
-    await act(async () => buttons.find(button => button.textContent?.includes("Plaid wasn't sure"))?.click());
     await act(async () => buttons.find(button => button.textContent?.includes('Account freshness'))?.click());
     await act(async () => buttons.find(button => button.textContent?.includes('Between people'))?.click());
 
-    expect(onOpenLowConfidence).toHaveBeenCalledTimes(1);
     expect(onOpenAccounts).toHaveBeenCalledTimes(1);
     expect(onViewTransactions).toHaveBeenCalledWith({
       classification: 'person_to_person',

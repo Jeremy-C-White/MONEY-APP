@@ -805,7 +805,6 @@ export interface DashboardOverviewResponse {
 
 export interface CoverageReport {
   period: { startDate: string; endDate: string };
-  lowConfidence: { transactionCount: number; amount: number };
   personToPerson: { transactionCount: number; amount: number };
   cardPayments: { transactionCount: number; amount: number; payees: string[] };
   cardPaymentsBeforeHistory: { transactionCount: number; amount: number; payees: string[] };

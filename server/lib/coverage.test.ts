@@ -33,7 +33,7 @@ describe('buildCoverageReport', () => {
       ],
     });
 
-    expect(report.lowConfidence).toEqual({ transactionCount: 1, amount: 250 });
+    expect(report).not.toHaveProperty('lowConfidence');
     expect(report.personToPerson).toEqual({ transactionCount: 1, amount: 75 });
     expect(report.cardPayments).toEqual({ transactionCount: 1, amount: 400, payees: ['Merchant'] });
     expect(report.cardPaymentsBeforeHistory).toEqual({ transactionCount: 0, amount: 0, payees: [] });

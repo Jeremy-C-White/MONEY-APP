@@ -795,7 +795,6 @@ function extractCoverageReport(data: unknown): CoverageReport {
   const accountIssues = requireRecord(record.accountIssues, 'coverage account issues');
   if (
     !isDateRange(record.period) ||
-    !metricIsValid(record.lowConfidence) ||
     !metricIsValid(record.personToPerson) ||
     !metricIsValid(cardPayments) ||
     !Array.isArray(cardPayments.payees) ||

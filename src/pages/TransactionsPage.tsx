@@ -31,7 +31,7 @@ const CLASSIFICATION_OPTIONS = [
   { value: 'other', label: 'Needs review' },
 ];
 
-export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'low_confidence' | 'overridden';
+export type TransactionsViewMode = 'posted' | 'pending' | 'needs_review' | 'overridden';
 
 export type TransactionsInitialFilters = {
   category?: string;
@@ -60,7 +60,6 @@ export function TransactionsPage({
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [reviewCount, setReviewCount] = useState<number | null>(null);
-  const [lowConfidenceCount, setLowConfidenceCount] = useState<number | null>(null);
   
   const [loading, setLoading] = useState(true);
   const [initialLoad, setInitialLoad] = useState(true);
@@ -134,25 +133,12 @@ export function TransactionsPage({
           page: '1',
           limit: '1',
         });
-        const confidenceParams = new URLSearchParams({
-          status: 'posted',
-          categoryConfidence: 'LOW',
-          unlabeled: 'true',
-          page: '1',
-          limit: '1',
-        });
-        const [reviewResponse, confidenceResponse] = await Promise.all([
-          apiFetch(`/api/transactions?${reviewParams.toString()}`),
-          apiFetch(`/api/transactions?${confidenceParams.toString()}`),
-        ]);
+        const reviewResponse = await apiFetch(`/api/transactions?${reviewParams.toString()}`);
         if (reviewResponse.ok) {
           setReviewCount(extractTransactionsResponse(await reviewResponse.json()).total);
         }
-        if (confidenceResponse.ok) {
-          setLowConfidenceCount(extractTransactionsResponse(await confidenceResponse.json()).total);
-        }
       } catch {
-        // Keep queue tabs visible if the lightweight counts cannot be refreshed.
+        // Keep the review tab visible if the lightweight count cannot be refreshed.
       }
     };
 
@@ -165,13 +151,6 @@ export function TransactionsPage({
       setPage(1);
     }
   }, [reviewCount, viewMode]);
-
-  useEffect(() => {
-    if (lowConfidenceCount === 0 && viewMode === 'low_confidence') {
-      setViewMode('posted');
-      setPage(1);
-    }
-  }, [lowConfidenceCount, viewMode]);
 
   // Debounce search
   useEffect(() => {
@@ -206,7 +185,7 @@ export function TransactionsPage({
     setViewMode(mode);
     setPage(1);
 
-    if (mode === 'needs_review' || mode === 'low_confidence') {
+    if (mode === 'needs_review') {
       // The review inbox is a complete work queue. A search or account/date
       // filter left over from another tab must not make outstanding items look
       // as though they have all been reviewed.
@@ -236,10 +215,6 @@ export function TransactionsPage({
       } else if (viewMode === 'needs_review') {
         params.set('status', 'posted');
         params.set('classification', 'other,unclassified_deposit');
-      } else if (viewMode === 'low_confidence') {
-        params.set('status', 'posted');
-        params.set('categoryConfidence', 'LOW');
-        params.set('unlabeled', 'true');
       } else if (viewMode === 'overridden') {
         params.set('status', 'posted');
         params.set('overridden', 'true');
@@ -249,7 +224,7 @@ export function TransactionsPage({
       
       if (debouncedSearch) params.set('search', debouncedSearch);
       if (filterAccount) params.set('account', filterAccount);
-      if (viewMode !== 'needs_review' && viewMode !== 'low_confidence' && filterClassification) {
+      if (viewMode !== 'needs_review' && filterClassification) {
         params.set('classification', filterClassification);
       }
       if (filterCategory) params.set('category', filterCategory);
@@ -272,7 +247,6 @@ export function TransactionsPage({
       setTransactions(parsed.transactions);
       setTotal(parsed.total);
       if (viewMode === 'needs_review') setReviewCount(parsed.total);
-      if (viewMode === 'low_confidence') setLowConfidenceCount(parsed.total);
       setTotalPages(parsed.totalPages);
       setPage(parsed.page);
       
@@ -331,14 +305,6 @@ export function TransactionsPage({
               Needs Review
             </button>
           )}
-          {lowConfidenceCount !== 0 && (
-            <button
-              className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'low_confidence' ? activeTabClasses : inactiveTabClasses}`}
-              onClick={() => selectViewMode('low_confidence')}
-            >
-              Plaid Unsure
-            </button>
-          )}
           <button
             className={`min-h-11 shrink-0 border-b-2 px-1 pb-3 transition-colors ${viewMode === 'overridden' ? activeTabClasses : inactiveTabClasses}`}
             onClick={() => selectViewMode('overridden')}
@@ -387,7 +353,7 @@ export function TransactionsPage({
               ))}
             </select>
             
-            {viewMode !== 'needs_review' && viewMode !== 'low_confidence' && (
+            {viewMode !== 'needs_review' && (
               <select 
                 className="min-h-11 w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:w-auto"
                 value={filterClassification}
@@ -457,17 +423,6 @@ export function TransactionsPage({
           </div>
         )}
 
-        {viewMode === 'low_confidence' && !loading && !error && (
-          <div className="mb-6 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
-            <p className="font-semibold">
-              {total} low-confidence {total === 1 ? 'purchase needs' : 'purchases need'} a clearer household label.
-            </p>
-            <p className="mt-1 text-indigo-800">
-              Choose <strong>Add household label</strong> and use language that makes sense to you, such as Preschool, Kids, or Eating out. It will apply to past and future purchases from that merchant while keeping Plaid's category underneath.
-            </p>
-          </div>
-        )}
-
         {loading && initialLoad ? (
           <div className="space-y-4">
             {[1, 2, 3, 4, 5].map(i => (
@@ -513,7 +468,6 @@ export function TransactionsPage({
                   
                   <div className="flex flex-wrap gap-2 mt-3 text-[11px]">
                     {tx.pending && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">Pending</span>}
-                    {tx.categoryConfidence === 'LOW' && !tx.householdLabel && <span className="bg-indigo-50 text-indigo-700 px-2 py-1 rounded border border-indigo-100 font-semibold">Plaid unsure</span>}
                     {isNeedsReviewClassification(tx.classification) && <span className="bg-amber-100 text-amber-800 px-2 py-1 rounded border border-amber-200/50 font-semibold">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                     {!isNeedsReviewClassification(tx.classification) && <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                     <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded border border-slate-200 font-medium">{tx.householdLabel || getCategoryDisplayLabel(tx.overrideOffsetCategory || tx.normalizedCategory, tx.classification)}</span>
@@ -530,7 +484,6 @@ export function TransactionsPage({
                     transaction={tx}
                     apiFetch={apiFetch}
                     onChanged={loadTransactions}
-                    emphasized={viewMode === 'low_confidence'}
                     suggestions={labelSuggestions}
                   />
                   
@@ -563,7 +516,6 @@ export function TransactionsPage({
                         <p className="font-bold text-slate-900">{getMerchantDisplayLabel({ merchant: tx.normalizedMerchant, fallbackDescription: tx.name, classification: tx.classification })}</p>
                         <div className="flex gap-2 mt-1.5">
                           {tx.pending && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">Pending</span>}
-                          {tx.categoryConfidence === 'LOW' && !tx.householdLabel && <span className="inline-flex items-center text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded border border-indigo-100 font-bold uppercase tracking-wider">Plaid unsure</span>}
                           {isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded border border-amber-200/50 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                           {!isNeedsReviewClassification(tx.classification) && <span className="inline-flex items-center text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded border border-slate-200 font-bold uppercase tracking-wider">{getTransactionClassificationLabel(tx.classification, tx.isOverridden, tx.overrideOffsetCategory)}</span>}
                         </div>
@@ -578,7 +530,6 @@ export function TransactionsPage({
                           transaction={tx}
                           apiFetch={apiFetch}
                           onChanged={loadTransactions}
-                          emphasized={viewMode === 'low_confidence'}
                           suggestions={labelSuggestions}
                         />
                       </td>
